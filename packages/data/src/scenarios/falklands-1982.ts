@@ -39,6 +39,7 @@ export const Falklands1982: z.infer<typeof schemas.scenario> = {
   theatreName: 'SouthAtlantic',
   id: 'falklands-1982',
   name: 'Operation Corporate — Falklands 1982',
+  sideSelectable: false,
   // Enabled after reviewed objectives, routes, deployment sites, airfields, and DCS mission smoke test.
   available: true,
   era: 'Late CW',

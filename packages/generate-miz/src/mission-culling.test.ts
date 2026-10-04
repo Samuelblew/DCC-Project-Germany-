@@ -5,7 +5,7 @@ import * as z from 'zod'
 
 import { addGroundGroups } from './add-ground-groups'
 import { addStructures } from './add-structures'
-import { buildMissionCullingPlan } from './mission-culling'
+import { buildMissionCullingPlan, selectFlightIdsForMission } from './mission-culling'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type CampaignCoalition = Campaign['coalitions']['player']
@@ -63,7 +63,14 @@ function createCampaign(culling = true): Campaign {
         flightGroups: [
           {
             id: 'player-cap',
-            aircrafts: [],
+            aircrafts: [
+              {
+                id: 'player-jet',
+                unitName: 'Enfield11',
+                aircraftName: 'F-4E',
+                client: true
+              }
+            ],
             task: 'CAP',
             position: { x: 0, y: 0 },
             homeBase: 'Base',
@@ -199,7 +206,7 @@ function addTestGroundGroups(campaign: Campaign) {
     {
       id: 'mixed-ground',
       objectiveId: 'far-objective',
-      position: { x: 120_000, y: 0 },
+      position: { x: 20_000, y: 0 },
       state: 'idle',
       units: [
         { name: 'M-1 Abrams', count: 2 },
@@ -354,7 +361,7 @@ describe('mission culling', () => {
     ])
   })
 
-  test('culls regular ground groups, keeps nearby groups, emits distant mixed AA only, and always keeps SAMs', () => {
+  test('culls regular ground groups, keeps nearby groups, emits mixed AA just past the band as AA only, and always keeps SAMs', () => {
     const campaign = createCampaign()
     addTestGroundGroups(campaign)
     const mission = createMission()
@@ -380,4 +387,237 @@ describe('mission culling', () => {
       'mixed-ground': 'antiAirOnly'
     })
   })
+})
+
+describe('aircraft culling', () => {
+  function aiFlight(
+    id: string,
+    points: Array<{ x: number; y: number }>
+  ): CampaignCoalition['flightGroups'][number] {
+    return {
+      id,
+      aircrafts: [{ id: `${id}-1`, unitName: `${id}-1`, aircraftName: 'MiG-23MLD' }],
+      task: 'CAP',
+      position: points[0]!,
+      homeBase: 'Nowhere',
+      callsign: id,
+      flightplan: {
+        id: `${id}-plan`,
+        startTime: campaignTime,
+        waypoints: points.map((position, index) => ({
+          name: `WP${index}`,
+          position,
+          altitude: 6000,
+          speed: 220,
+          type: 'Task' as const
+        }))
+      }
+    }
+  }
+
+  test('keeps every flight when culling is off', () => {
+    const campaign = createCampaign(false)
+    campaign.coalitions.opponent.flightGroups = [aiFlight('far', [{ x: 900_000, y: 0 }])]
+
+    expect(selectFlightIdsForMission(campaign, theatre)).toBeNull()
+  })
+
+  test('keeps flights inside the wide aircraft band and drops the rest', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.flightGroups = [
+      aiFlight('interceptor', [{ x: 140_000, y: 0 }]),
+      aiFlight('distant', [{ x: 300_000, y: 0 }]),
+      aiFlight('passing', [
+        { x: 300_000, y: 100_000 },
+        { x: 100_000, y: 100_000 }
+      ])
+    ]
+
+    const selected = selectFlightIdsForMission(campaign, theatre)
+
+    expect(selected?.has('player-cap')).toBe(true)
+    expect(selected?.has('interceptor')).toBe(true)
+    expect(selected?.has('passing')).toBe(true)
+    expect(selected?.has('distant')).toBe(false)
+  })
+
+  test('the aircraft slider widens the band', () => {
+    const campaign = createCampaign()
+    campaign.campaignParams = { culling: true, cullingAircraftRadius: 350_000 }
+    campaign.coalitions.opponent.flightGroups = [aiFlight('distant', [{ x: 300_000, y: 0 }])]
+
+    expect(selectFlightIdsForMission(campaign, theatre)?.has('distant')).toBe(true)
+  })
+
+  test('keeps the whole package when one member is inside the band', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.flightGroups = [
+      aiFlight('strike', [{ x: 100_000, y: 0 }]),
+      aiFlight('escort', [{ x: 600_000, y: 0 }])
+    ]
+    campaign.coalitions.opponent.packages = [
+      {
+        id: 'pkg',
+        type: 'Strike Package',
+        targetObjectiveId: 'near-objective',
+        members: [
+          { flightGroupId: 'strike', role: 'primary', totOffset: 0 },
+          { flightGroupId: 'escort', role: 'sead', totOffset: 0 }
+        ],
+        tot: campaignTime,
+        status: 'active'
+      }
+    ]
+
+    const selected = selectFlightIdsForMission(campaign, theatre)
+
+    expect(selected?.has('escort')).toBe(true)
+  })
+})
+
+describe('culling area of looping routes', () => {
+  /** A player route that leaves the base, flies a square of `size` metres and comes back. */
+  function loopCampaign(size: number) {
+    const campaign = createCampaign()
+    const corners = [
+      { x: 0, y: 0 },
+      { x: size, y: 0 },
+      { x: size, y: size },
+      { x: 0, y: size },
+      { x: 0, y: 0 }
+    ]
+    campaign.coalitions.player.flightGroups[0]!.flightplan.waypoints = corners.map(
+      (position, index) => ({
+        name: `WP${index}`,
+        position,
+        altitude: 6000,
+        speed: 220,
+        type: 'Task' as const
+      })
+    )
+    return campaign
+  }
+
+  function groundGroup(id: string, position: { x: number; y: number }) {
+    return {
+      id,
+      position,
+      objectiveId: 'near-objective',
+      units: [{ name: 'M-1 Abrams', count: 2 }],
+      state: 'idle' as const
+    }
+  }
+
+  test('keeps ground units in the middle of the loop, not only along its edge', () => {
+    const campaign = loopCampaign(100_000)
+    const plan = buildMissionCullingPlan(campaign, theatre)
+
+    // 50 km from every leg, far beyond the 10 km culling radius.
+    expect(
+      plan.getGroundGroupMode('opponent', groundGroup('centre', { x: 50_000, y: 50_000 }))
+    ).toBe('full')
+    expect(
+      plan.getGroundGroupMode('opponent', groundGroup('outside', { x: 160_000, y: 50_000 }))
+    ).toBe('omit')
+  })
+
+  test('long-range SAMs use the SAM band, short-range ones the route band', () => {
+    const campaign = loopCampaign(100_000)
+    campaign.campaignParams = {
+      ...campaign.campaignParams,
+      culling: true,
+      cullingSamRadius: 150_000
+    }
+    const plan = buildMissionCullingPlan(campaign, theatre)
+    const far = { x: 220_000, y: 50_000 } // 120 km east of the loop
+
+    expect(plan.getSamMode('sa-5', far, 200_000)).toBe('full')
+    expect(plan.getSamMode('sa-6', far, 10_000)).toBe('omit')
+    expect(plan.getSamMode('sa-5-beyond', { x: 300_000, y: 50_000 }, 200_000)).toBe('omit')
+
+    campaign.campaignParams.cullingSamRadius = 50_000
+    expect(buildMissionCullingPlan(campaign, theatre).getSamMode('sa-5', far, 200_000)).toBe('omit')
+  })
+
+  test('drops air defence far past the route band instead of loading it everywhere', () => {
+    const campaign = loopCampaign(100_000)
+    campaign.coalitions.player.groundUnitTypes['Shorad Infantry'] = ['Soldier stinger']
+    const plan = buildMissionCullingPlan(campaign, theatre)
+    const shorad = (id: string, x: number) => ({
+      ...groundGroup(id, { x, y: 50_000 }),
+      units: [{ name: 'Soldier stinger', count: 2 }]
+    })
+
+    expect(plan.getGroundGroupMode('player', shorad('edge', 120_000))).toBe('antiAirOnly')
+    expect(plan.getGroundGroupMode('player', shorad('rear', 250_000))).toBe('omit')
+  })
+
+  test('keeps the target of every AI flight that is in the mission', () => {
+    const campaign = loopCampaign(100_000)
+    const striker = aiFlightThrough('striker', [
+      { x: 50_000, y: 50_000 },
+      { x: 400_000, y: 50_000 }
+    ])
+    striker.target = { id: 'deep-target', type: 'Ground Group', objectiveId: 'near-objective' }
+    const culled = aiFlightThrough('culled', [
+      { x: 900_000, y: 900_000 },
+      { x: 950_000, y: 900_000 }
+    ])
+    culled.target = { id: 'other-target', type: 'Ground Group', objectiveId: 'near-objective' }
+    campaign.coalitions.opponent.flightGroups = [striker, culled]
+
+    const plan = buildMissionCullingPlan(campaign, theatre)
+
+    expect(
+      plan.getGroundGroupMode('player', groundGroup('deep-target', { x: 400_000, y: 50_000 }))
+    ).toBe('full')
+    expect(
+      plan.getGroundGroupMode('player', groundGroup('other-target', { x: 950_000, y: 900_000 }))
+    ).toBe('omit')
+  })
+
+  test('keeps an AI flight whose leg crosses the loop with both ends outside the band', () => {
+    const campaign = loopCampaign(400_000)
+    campaign.campaignParams = { culling: true, cullingAircraftRadius: 50_000 }
+    campaign.coalitions.opponent.flightGroups = [
+      aiFlightThrough('crossing', [
+        { x: -100_000, y: 200_000 },
+        { x: 500_000, y: 200_000 }
+      ]),
+      aiFlightThrough('clear', [
+        { x: -100_000, y: 600_000 },
+        { x: 500_000, y: 600_000 }
+      ])
+    ]
+
+    const selected = selectFlightIdsForMission(campaign, theatre)
+
+    expect(selected?.has('crossing')).toBe(true)
+    expect(selected?.has('clear')).toBe(false)
+  })
+
+  function aiFlightThrough(
+    id: string,
+    points: Array<{ x: number; y: number }>
+  ): CampaignCoalition['flightGroups'][number] {
+    return {
+      id,
+      aircrafts: [{ id: `${id}-1`, unitName: `${id}-1`, aircraftName: 'MiG-23MLD' }],
+      task: 'CAP',
+      position: points[0]!,
+      homeBase: 'Nowhere',
+      callsign: id,
+      flightplan: {
+        id: `${id}-plan`,
+        startTime: campaignTime,
+        waypoints: points.map((position, index) => ({
+          name: `WP${index}`,
+          position,
+          altitude: 6000,
+          speed: 220,
+          type: 'Task' as const
+        }))
+      }
+    }
+  }
 })

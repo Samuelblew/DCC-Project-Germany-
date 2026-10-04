@@ -6,6 +6,7 @@ export type CampaignEra = 'Korea' | 'Vietnam' | 'Late CW' | 'Modern'
 export type ScenarioStep = 'scenario' | 'era' | 'factions'
 export type Scenario = (typeof scenarios)[number]
 export type Faction = z.infer<typeof schemas.faction>
+export type PlayerSide = 'blue' | 'red'
 
 export const factionIdsByEra: Record<CampaignEra, { player: string; opponent: string }> = {
   Korea: { player: 'usa-1952', opponent: 'russia-1955' },
@@ -60,6 +61,16 @@ export const eraOptions: Array<{
     description: 'Contemporary aircraft, advanced weapons, and high-tempo operations.'
   }
 ]
+
+export const escalationEraOption = {
+  id: 'Escalation' as const,
+  label: 'Escalation',
+  callsign: 'FULDA CLOCK',
+  description:
+    'Same German theatre. USAFE and GSFG start with 1950s kit and climb through Vietnam-era, Late Cold War and Modern on the campaign clock.'
+}
+
+export const eraMenuOptions = [...eraOptions, escalationEraOption]
 
 export function formatFactionLabel(faction: Faction) {
   return faction.year != null ? `${faction.name} // ${faction.year}` : faction.name

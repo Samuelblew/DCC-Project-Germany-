@@ -36,3 +36,24 @@ describe('scenario-required structures', () => {
     expect(farp?.buildings.some((building) => building.type === 'FARP')).toBe(true)
   })
 })
+
+describe('scenario-placed spawn structures', () => {
+  test('Fulda Gap raises troops only where the scenario places barracks and depots', () => {
+    const scenario = scenarios.find((candidate) => candidate.id === 'fulda-gap')!
+    const theatre = theatres.find((candidate) => candidate.name === scenario.theatreName)!
+    const objectives = scenario.start.player.objectiveIds.map((id) => ({
+      id,
+      position: theatre.objectives.find((objective) => objective.name === id)!.position,
+      targets: theatre.targets[id] ?? []
+    }))
+    const required = scenario.start.player.structureAssignments ?? []
+
+    const spawners = assignStructures(objectives, [], { requiredStructures: required }).filter(
+      (assignment) => assignment.type === 'Barrack' || assignment.type === 'Depot'
+    )
+
+    expect(spawners.map((s) => `${s.objectiveId}:${s.type}`).sort()).toEqual(
+      required.map((r) => `${r.objectiveId}:${r.type}`).sort()
+    )
+  })
+})

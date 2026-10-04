@@ -1,5 +1,11 @@
 import * as z from 'zod'
 
+const missionStateAmmo = z.object({
+  typeName: z.string().optional(),
+  displayName: z.string().optional(),
+  count: z.number()
+})
+
 const missionStateUnit = z
   .object({
     name: z.coerce.string(),
@@ -9,7 +15,11 @@ const missionStateUnit = z
     altitude: z.number().optional(),
     heading: z.number().optional(),
     life: z.number().optional(),
-    inAir: z.boolean().optional()
+    /** Life at spawn, so life / life0 is the airframe integrity. */
+    life0: z.number().optional(),
+    inAir: z.boolean().optional(),
+    /** Stores still carried, as reported by Unit.getAmmo. */
+    ammo: z.array(missionStateAmmo).optional()
   })
   .passthrough()
 
@@ -28,6 +38,9 @@ const missionStateTrackedUnit = z
     killerGroupName: z.string().optional(),
     weaponName: z.string().optional(),
     killCause: z.string().optional(),
+    life: z.number().optional(),
+    life0: z.number().optional(),
+    ammo: z.array(missionStateAmmo).optional(),
     crashed: z.boolean().optional(),
     pilotEjected: z.boolean().optional(),
     pilotSurvivedCrash: z.boolean().optional(),

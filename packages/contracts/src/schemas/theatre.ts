@@ -36,6 +36,8 @@ export const theatre = z.object({
     night: z.object({
       startHour: z.number(),
       endHour: z.number()
-    })
+    }),
+    /** East-positive magnetic variation in degrees, used by GCI BRAA calls. */
+    magneticVariationDegrees: z.number().optional()
   })
 })

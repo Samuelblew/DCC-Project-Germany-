@@ -102,7 +102,7 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="top-[calc(50%+1.25rem)] flex h-[min(880px,calc(100vh-5rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden border-synthwave-pink/45 bg-[#090011] p-0 text-synthwave-light shadow-[0_0_80px_rgba(255,0,170,0.22)] sm:max-w-[calc(100vw-3rem)] xl:max-w-6xl">
+      <DialogContent className="top-[calc(50%+1.25rem)] flex h-[min(880px,calc(100vh-5rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden overflow-y-hidden border-synthwave-pink/45 bg-[#0b0a09] p-0 text-synthwave-light shadow-[0_0_80px_rgba(217,68,58,0.22)] sm:max-w-[calc(100vw-3rem)] xl:max-w-6xl">
         <DialogHeader className="shrink-0 border-b border-synthwave-purple/30 bg-synthwave-purple/8 px-6 py-5 pr-14">
           <div className="mb-1 flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.22em] text-synthwave-pink">
             <Sparkles className="h-3.5 w-3.5" />
@@ -269,7 +269,7 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
                                 align="end"
                                 sideOffset={8}
                                 collisionPadding={12}
-                                className="z-[6000] max-w-80 rounded-md border border-synthwave-cyan/45 bg-[#100519]/98 p-3 text-synthwave-light shadow-[0_12px_36px_rgba(0,0,0,0.65),0_0_24px_rgba(0,221,255,0.12)] outline-none data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95"
+                                className="z-[6000] max-w-80 rounded-md border border-synthwave-cyan/45 bg-[#161412]/98 p-3 text-synthwave-light shadow-[0_12px_36px_rgba(0,0,0,0.65),0_0_24px_rgba(232,183,48,0.12)] outline-none data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95"
                               >
                                 <div className="mb-2 flex items-center justify-between gap-4 border-b border-synthwave-purple/30 pb-2">
                                   <span className="text-[0.6rem] uppercase tracking-[0.2em] text-synthwave-cyan">
@@ -289,7 +289,7 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
                                     </span>
                                   ))}
                                 </div>
-                                <TooltipPrimitive.Arrow className="fill-[#100519]" />
+                                <TooltipPrimitive.Arrow className="fill-[#161412]" />
                               </TooltipPrimitive.Content>
                             </TooltipPrimitive.Portal>
                           </TooltipPrimitive.Root>

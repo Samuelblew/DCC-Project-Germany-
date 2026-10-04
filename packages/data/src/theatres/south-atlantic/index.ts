@@ -22,6 +22,7 @@ export const southAtlantic: z.infer<typeof schemas.theatre> = {
       cloudCover: { baseCloudCover: 0.65, seasonEffect: 0.15 },
       wind: { speed: 9, direction: 170 }
     },
-    night: { startHour: 18, endHour: 8 }
+    night: { startHour: 18, endHour: 8 },
+    magneticVariationDegrees: 5
   }
 }

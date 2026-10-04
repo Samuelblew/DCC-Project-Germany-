@@ -19,7 +19,16 @@ const ROUTE_REPAIR_PER_TICK = 0.015
 const RECOVERING_BASE_OUTPUT_MULTIPLIER = 0.25
 const AIRDROME_SUPPLY_MAX = 10_000
 const AIRDROME_PRODUCTION_RATE = 20
+/**
+ * A depot has to keep launching after the first era. One CAP 2-ship spends about
+ * 280 fuel and 70 supply; the old pool only made 9 fuel an hour, so every
+ * airfield was depleted before Vietnam and only supply-exempt helicopters flew.
+ */
+const AIRDROME_SUSTAINED_PRODUCTION = 700
+const AIRDROME_LAUNCH_FLOOR = 0.2
 const OBJECTIVE_SUPPLY_MAX = 1_000
+const CAMPAIGN_HOUR_SECONDS = 3_600
+const CAMPAIGN_MINUTE_SECONDS = 60
 
 const DEFAULT_FLIGHT_LOGISTICS_COST = { fuel: 120, munitions: 80, repair: 30, supply: 60 }
 
@@ -27,6 +36,8 @@ const FLIGHT_LOGISTICS_COST: Partial<
   Record<FlightTask, { fuel: number; munitions: number; repair: number; supply: number }>
 > = {
   CAP: { fuel: 140, munitions: 20, repair: 20, supply: 35 },
+  'Fighter Sweep': { fuel: 160, munitions: 30, repair: 25, supply: 40 },
+  Training: { fuel: 80, munitions: 0, repair: 15, supply: 20 },
   'Pinpoint Strike': { fuel: 190, munitions: 140, repair: 35, supply: 75 },
   'Strategic Strike': { fuel: 520, munitions: 360, repair: 80, supply: 190 },
   SEAD: { fuel: 210, munitions: 170, repair: 40, supply: 85 },
@@ -39,11 +50,15 @@ const FLIGHT_LOGISTICS_COST: Partial<
 }
 
 /**
- * Updates supply levels for all nodes (objectives + airdromes)
- * Runs every logic tick (1 second intervals)
+ * Updates supply levels for all nodes (objectives + airdromes).
+ * Runs every logic tick (1 second intervals).
+ * Production rate and route capacity are per campaign hour, so a sortie
+ * stays spent longer than one tick. Route repair is per campaign minute.
  */
 export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000): void {
   const timeFactor = Math.max(0, (delta * draft.timeMultiplier) / 1000)
+  const productionFactor = timeFactor / CAMPAIGN_HOUR_SECONDS
+  const routeRepairFactor = timeFactor / CAMPAIGN_MINUTE_SECONDS
   const theatre = getCampaignTheatre(draft)
   const supplyNodes = ensureSupplyNodes(draft, coalition)
   if (!supplyNodes) return
@@ -53,7 +68,7 @@ export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000
   for (const [nodeId, supply] of Object.entries(supplyNodes)) {
     ensureVirtualSupply(supply, isAirdromeNode(draft, coalition, nodeId))
     applyInfrastructurePressure(draft, coalition, nodeId, supply)
-    updateNodeSupply(supply, draft.time, timeFactor)
+    updateNodeSupply(supply, draft.time, productionFactor)
   }
 
   if (!theatre) return
@@ -74,10 +89,10 @@ export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000
       source.position,
       destinationPosition,
       route,
-      timeFactor
+      routeRepairFactor
     )
 
-    transferAlongRoute(source.supply, supply, route, timeFactor)
+    transferAlongRoute(source.supply, supply, route, productionFactor)
   }
 }
 
@@ -94,7 +109,11 @@ function createBaselineSupply(isAirdrome: boolean): Supply {
   }
 }
 
-function scalePoolCapacity(pool: SupplyPool | undefined, max: number, productionRate: number): void {
+function scalePoolCapacity(
+  pool: SupplyPool | undefined,
+  max: number,
+  productionRate: number
+): void {
   if (!pool) return
 
   const ratio = pool.max > 0 ? pool.current / pool.max : 0
@@ -105,14 +124,14 @@ function scalePoolCapacity(pool: SupplyPool | undefined, max: number, production
 
 function ensureAirdromeSupplyCapacity(supply: Supply): void {
   if (supply.max >= AIRDROME_SUPPLY_MAX) {
-    supply.productionRate = Math.max(supply.productionRate, AIRDROME_PRODUCTION_RATE)
+    supply.productionRate = Math.max(supply.productionRate, AIRDROME_SUSTAINED_PRODUCTION)
     return
   }
 
   const ratio = supply.max > 0 ? supply.current / supply.max : 0
   supply.max = AIRDROME_SUPPLY_MAX
   supply.current = Math.min(supply.max, Math.max(supply.current, supply.max * ratio))
-  supply.productionRate = Math.max(supply.productionRate, AIRDROME_PRODUCTION_RATE)
+  supply.productionRate = Math.max(supply.productionRate, AIRDROME_SUSTAINED_PRODUCTION)
 
   scalePoolCapacity(supply.fuel, supply.max * 0.45, supply.productionRate * 0.45)
   scalePoolCapacity(supply.munitions, supply.max * 0.35, supply.productionRate * 0.35)
@@ -210,6 +229,26 @@ export function ensureVirtualSupply(supply: Supply, isAirdrome = false): void {
     : DEFAULT_ROUTE_CAPACITY
   supply.logistics.repairRate ??= ROUTE_REPAIR_PER_TICK
   supply.logistics.interdiction ??= 0
+
+  if (!isAirdrome) return
+
+  supply.productionRate = Math.max(supply.productionRate, AIRDROME_SUSTAINED_PRODUCTION)
+  scalePoolCapacity(supply.fuel, supply.max * 0.45, supply.productionRate * 0.45)
+  scalePoolCapacity(supply.munitions, supply.max * 0.35, supply.productionRate * 0.35)
+  scalePoolCapacity(supply.repair, supply.max * 0.2, supply.productionRate * 0.2)
+  raiseLaunchFloor(supply)
+}
+
+function raiseLaunchFloor(supply: Supply) {
+  const raise = (current: number, max: number) =>
+    max > 0 ? Math.max(current, max * AIRDROME_LAUNCH_FLOOR) : current
+  supply.current = raise(supply.current, supply.max)
+  if (supply.fuel) supply.fuel.current = raise(supply.fuel.current, supply.fuel.max)
+  if (supply.munitions) {
+    supply.munitions.current = raise(supply.munitions.current, supply.munitions.max)
+  }
+  if (supply.repair) supply.repair.current = raise(supply.repair.current, supply.repair.max)
+  updateSupplyStatus(supply)
 }
 
 function updateNodeSupply(supply: Supply, now: Date, timeFactor: number): void {

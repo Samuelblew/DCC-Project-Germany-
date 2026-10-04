@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { tryDcsPositionToLngLat } from './dcs-coordinates'
+import { tryDcsPositionToLngLat, tryLngLatToDcsPosition } from './dcs-coordinates'
 
 describe('tryDcsPositionToLngLat', () => {
   test('converts positions inside the theatre coordinate grid', () => {
@@ -12,5 +12,34 @@ describe('tryDcsPositionToLngLat', () => {
 
   test('returns undefined for positions outside the theatre coordinate grid', () => {
     expect(tryDcsPositionToLngLat('SouthAtlantic', 87_402, 206_382)).toBeUndefined()
+  })
+
+  test('places Cold War Germany airfields over western Germany', () => {
+    expect(tryDcsPositionToLngLat('Cold War Germany', -498_857.6875, -933_510.6875)).toEqual({
+      lat: expect.closeTo(49.44, 2),
+      lng: expect.closeTo(7.62, 2)
+    })
+  })
+})
+
+describe('tryLngLatToDcsPosition', () => {
+  test.each([
+    ['Ramstein', -498_857.6875, -933_510.6875],
+    ['Leipzig Mockau', -332_672.875, -561_152.8125],
+    ['Kiel', 18_619.0859375, -668_838.1875]
+  ])('round-trips Cold War Germany map points near %s', (_name, x, y) => {
+    const lngLat = tryDcsPositionToLngLat('Cold War Germany', x, y)
+    expect(lngLat).toBeDefined()
+    const back = tryLngLatToDcsPosition('Cold War Germany', lngLat!.lng, lngLat!.lat)
+    expect(back?.x).toBeCloseTo(x, 0)
+    expect(back?.y).toBeCloseTo(y, 0)
+  })
+
+  test('round-trips library theatres', () => {
+    const lngLat = tryDcsPositionToLngLat('Caucasus', -281_000, 647_000)
+    expect(lngLat).toBeDefined()
+    const back = tryLngLatToDcsPosition('Caucasus', lngLat!.lng, lngLat!.lat)
+    expect(Math.abs((back?.x ?? 0) - -281_000)).toBeLessThan(50)
+    expect(Math.abs((back?.y ?? 0) - 647_000)).toBeLessThan(50)
   })
 })

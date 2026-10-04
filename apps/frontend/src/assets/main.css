@@ -45,19 +45,20 @@
   --color-synthwave-cyan: var(--synthwave-cyan);
   --color-synthwave-light: var(--synthwave-light);
   --color-enemy-red: var(--enemy-red);
+  --color-friendly-blue: var(--friendly-blue);
 }
 
 :root {
   --radius: 0.625rem;
   --background: var(--synthwave-dark);
-  --foreground: oklch(0.9163 0.042 285.54);
+  --foreground: oklch(0.928 0.022 85);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.8254 0.1451 214.09);
+  --primary: oklch(0.8 0.15 85);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.85 0.15 301.91);
+  --secondary: oklch(0.72 0.1 60);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
@@ -80,12 +81,15 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  --synthwave-dark: #0b0014;
-  --synthwave-pink: #ff00aa;
-  --synthwave-purple: #9900ff;
-  --synthwave-cyan: #00ddff;
-  --synthwave-light: #e0e0ff;
+  /* Black-red-gold palette. Token names are kept from the original synthwave theme:
+     pink = signal red, purple = bronze, cyan = gold, light = parchment. */
+  --synthwave-dark: #0f0e0d;
+  --synthwave-pink: #d9443a;
+  --synthwave-purple: #9c6a33;
+  --synthwave-cyan: #e8b730;
+  --synthwave-light: #ede6d6;
   --enemy-red: #ff4d4f;
+  --friendly-blue: #3d9df0;
 }
 
 .dark {
@@ -120,12 +124,13 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
-  --synthwave-dark: #0b0014;
-  --synthwave-pink: #ff00aa;
-  --synthwave-purple: #9900ff;
-  --synthwave-cyan: #00ddff;
-  --synthwave-light: #e0e0ff;
+  --synthwave-dark: #0f0e0d;
+  --synthwave-pink: #d9443a;
+  --synthwave-purple: #9c6a33;
+  --synthwave-cyan: #e8b730;
+  --synthwave-light: #ede6d6;
   --enemy-red: #ff4d4f;
+  --friendly-blue: #3d9df0;
 }
 
 @layer base {
@@ -255,7 +260,7 @@
 
 .synthwave-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--synthwave-purple) transparent;
+  scrollbar-color: var(--synthwave-pink) color-mix(in srgb, var(--synthwave-dark) 55%, transparent);
 }
 
 .synthwave-scrollbar::-webkit-scrollbar {
@@ -280,7 +285,7 @@
   background:
     url('./textures/graphite-panel.png'), url('./textures/synthwave-noise-glow.png'),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 38%),
-    radial-gradient(circle at 18% 0%, rgba(255, 0, 170, 0.08), transparent 36%),
+    radial-gradient(circle at 18% 0%, rgba(217, 68, 58, 0.08), transparent 36%),
     color-mix(in srgb, var(--synthwave-dark) 72%, black);
   background-size:
     100% 100%,
@@ -321,8 +326,8 @@
   border: 1px solid color-mix(in srgb, var(--synthwave-pink) 16%, transparent);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 44%),
-    radial-gradient(circle at 18% 0%, rgba(255, 0, 170, 0.13), transparent 34%),
-    radial-gradient(circle at 82% 100%, rgba(0, 221, 255, 0.06), transparent 38%),
+    radial-gradient(circle at 18% 0%, rgba(217, 68, 58, 0.13), transparent 34%),
+    radial-gradient(circle at 82% 100%, rgba(232, 183, 48, 0.06), transparent 38%),
     color-mix(in srgb, var(--synthwave-dark) 76%, black);
   background-size: auto, auto, auto, auto;
   background-blend-mode: normal, screen, screen, normal;
@@ -351,8 +356,8 @@
   background:
     radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.08) 0 1px, transparent 1.5px),
     radial-gradient(circle at 64% 42%, rgba(255, 255, 255, 0.055) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 34% 76%, rgba(255, 0, 170, 0.06) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 88% 24%, rgba(0, 221, 255, 0.045) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 34% 76%, rgba(217, 68, 58, 0.06) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 88% 24%, rgba(232, 183, 48, 0.045) 0 1px, transparent 1.6px),
     repeating-linear-gradient(
       105deg,
       rgba(255, 255, 255, 0.026) 0,
@@ -392,8 +397,8 @@
       transparent 1px,
       transparent 5px
     ),
-    radial-gradient(circle at 20% 18%, rgba(255, 0, 170, 0.1), transparent 28%),
-    radial-gradient(circle at 88% 82%, rgba(0, 221, 255, 0.055), transparent 30%);
+    radial-gradient(circle at 20% 18%, rgba(217, 68, 58, 0.1), transparent 28%),
+    radial-gradient(circle at 88% 82%, rgba(232, 183, 48, 0.055), transparent 30%);
   mix-blend-mode: screen;
   opacity: 0.42;
 }
@@ -418,7 +423,7 @@
       rgba(255, 255, 255, 0.012) 48%,
       rgba(0, 0, 0, 0.2)
     ),
-    color-mix(in srgb, var(--synthwave-dark) 82%, #2c2532);
+    color-mix(in srgb, var(--synthwave-dark) 82%, #2b2925);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.095),
     inset 0 -2px 0 rgba(0, 0, 0, 0.44),
@@ -448,7 +453,7 @@
     color-mix(in srgb, var(--synthwave-dark) 70%, var(--synthwave-pink));
   box-shadow:
     inset 0 2px 8px rgba(0, 0, 0, 0.45),
-    inset 0 0 18px rgba(255, 0, 170, 0.12),
+    inset 0 0 18px rgba(217, 68, 58, 0.12),
     0 2px 8px rgba(0, 0, 0, 0.24);
 }
 
@@ -461,7 +466,7 @@
       rgba(255, 255, 255, 0.012) 42%,
       rgba(0, 0, 0, 0.24)
     ),
-    color-mix(in srgb, var(--synthwave-dark) 84%, #3a3242);
+    color-mix(in srgb, var(--synthwave-dark) 84%, #3a3732);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -2px 0 rgba(0, 0, 0, 0.5),
@@ -493,7 +498,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.13),
     inset 0 -2px 0 rgba(0, 0, 0, 0.34),
-    0 0 18px rgba(0, 221, 255, 0.14),
+    0 0 18px rgba(232, 183, 48, 0.14),
     0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
@@ -506,11 +511,11 @@
       rgba(255, 255, 255, 0.035) 44%,
       rgba(0, 0, 0, 0.18)
     ),
-    linear-gradient(135deg, rgba(255, 0, 170, 0.78), rgba(153, 0, 255, 0.44));
+    linear-gradient(135deg, rgba(217, 68, 58, 0.78), rgba(156, 106, 51, 0.44));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 -2px 0 rgba(0, 0, 0, 0.34),
-    0 0 22px rgba(255, 0, 170, 0.22),
+    0 0 22px rgba(217, 68, 58, 0.22),
     0 9px 20px rgba(0, 0, 0, 0.32);
   color: white;
 }
@@ -524,7 +529,7 @@
       rgba(255, 255, 255, 0.05) 44%,
       rgba(0, 0, 0, 0.14)
     ),
-    linear-gradient(135deg, rgba(255, 0, 170, 0.9), rgba(0, 221, 255, 0.28));
+    linear-gradient(135deg, rgba(217, 68, 58, 0.9), rgba(232, 183, 48, 0.28));
   color: white;
 }
 
@@ -532,8 +537,8 @@
   border-color: color-mix(in srgb, var(--synthwave-cyan) 72%, var(--synthwave-pink));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 0 18px rgba(0, 221, 255, 0.2),
-    0 0 24px rgba(0, 221, 255, 0.28),
+    inset 0 0 18px rgba(232, 183, 48, 0.2),
+    0 0 24px rgba(232, 183, 48, 0.28),
     0 9px 20px rgba(0, 0, 0, 0.32);
 }
 
@@ -548,9 +553,9 @@
     linear-gradient(
       90deg,
       transparent 0%,
-      rgba(0, 221, 255, 0.14) 42%,
+      rgba(232, 183, 48, 0.14) 42%,
       rgba(255, 255, 255, 0.22) 50%,
-      rgba(0, 221, 255, 0.12) 58%,
+      rgba(232, 183, 48, 0.12) 58%,
       transparent 100%
     ),
     repeating-linear-gradient(
@@ -596,7 +601,7 @@
   background:
     url('./textures/smoked-map-glass.png'),
     linear-gradient(rgba(255, 255, 255, 0.035) 50%, rgba(0, 0, 0, 0.015) 50%),
-    radial-gradient(circle at 65% 20%, rgba(255, 0, 170, 0.08), transparent 32%);
+    radial-gradient(circle at 65% 20%, rgba(217, 68, 58, 0.08), transparent 32%);
   background-size:
     100% 100%,
     100% 4px,

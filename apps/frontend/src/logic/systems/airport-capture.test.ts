@@ -73,6 +73,20 @@ function createCampaign(): Campaign {
   }
 }
 
+/** An idle formation already holding the objective, so newly raised formations may attack. */
+function addGarrison(
+  campaign: Campaign,
+  objective: { name: string; position: Theatre['objectives'][number]['position'] }
+) {
+  campaign.coalitions.player.groundGroups.push({
+    id: `garrison-${objective.name}`,
+    objectiveId: objective.name,
+    position: { ...objective.position },
+    units: [{ name: 'Infantry AK', count: 10 }],
+    state: 'idle'
+  })
+}
+
 function giveObjectiveMajority(
   campaign: Campaign,
   theatre: Theatre,
@@ -184,7 +198,7 @@ describe('campaign goals', () => {
     updateGroundGroups(campaign, 'player', 1_000, { move: false })
 
     expect(campaign.status).toBe('won')
-    expect(campaign.timeMultiplier).toBe(0)
+    expect(campaign.timeMultiplier).toBe(1)
     expect(campaign.logs.at(-1)?.message).toBe('Campaign won: player controls Enguri Dam')
   })
 })
@@ -213,7 +227,9 @@ describe('ground battle attrition', () => {
     updateGroundGroups(campaign, 'player', 60_000, { move: false })
 
     expect(campaign.coalitions.player.groundGroups).toHaveLength(1)
-    expect(campaign.coalitions.player.groundGroups[0]?.units).toEqual([{ name: 'BMP-2', count: 1 }])
+    expect(
+      campaign.coalitions.player.groundGroups[0]?.units.reduce((sum, unit) => sum + unit.count, 0)
+    ).toBe(1)
     expect(campaign.coalitions.opponent.groundGroups).toHaveLength(0)
   })
 })
@@ -235,10 +251,12 @@ describe('ground group spawning airport targets', () => {
       buildings: [{ offset: { x: 0, y: 0 }, type: 'Tech hangar A', alive: true }]
     })
 
+    addGarrison(campaign, source)
+
     spawnGroundGroups(campaign, 'player')
 
-    expect(campaign.coalitions.player.groundGroups[0]?.targetObjectiveId).toBe('Bataria')
-    expect(campaign.coalitions.player.groundGroups[0]?.targetAirdromeName).toBeUndefined()
+    expect(campaign.coalitions.player.groundGroups[1]?.targetObjectiveId).toBe('Bataria')
+    expect(campaign.coalitions.player.groundGroups[1]?.targetAirdromeName).toBeUndefined()
   })
 
   test('targets a vulnerable airport when it is closer than valid objectives', () => {
@@ -257,10 +275,12 @@ describe('ground group spawning airport targets', () => {
       buildings: [{ offset: { x: 0, y: 0 }, type: 'Tech hangar A', alive: true }]
     })
 
+    addGarrison(campaign, source)
+
     spawnGroundGroups(campaign, 'player')
 
-    expect(campaign.coalitions.player.groundGroups[0]?.targetAirdromeName).toBe('Sukhumi-Babushara')
-    expect(campaign.coalitions.player.groundGroups[0]?.targetObjectiveId).toBeUndefined()
+    expect(campaign.coalitions.player.groundGroups[1]?.targetAirdromeName).toBe('Sukhumi-Babushara')
+    expect(campaign.coalitions.player.groundGroups[1]?.targetObjectiveId).toBeUndefined()
   })
 
   test('ignores non-vulnerable airports', () => {
@@ -278,9 +298,11 @@ describe('ground group spawning airport targets', () => {
       buildings: [{ offset: { x: 0, y: 0 }, type: 'Tech hangar A', alive: true }]
     })
 
+    addGarrison(campaign, source)
+
     spawnGroundGroups(campaign, 'player')
 
-    expect(campaign.coalitions.player.groundGroups[0]?.targetAirdromeName).toBeUndefined()
-    expect(campaign.coalitions.player.groundGroups[0]?.targetObjectiveId).toBeUndefined()
+    expect(campaign.coalitions.player.groundGroups[1]?.targetAirdromeName).toBeUndefined()
+    expect(campaign.coalitions.player.groundGroups[1]?.targetObjectiveId).toBeUndefined()
   })
 })

@@ -1,4 +1,4 @@
-local logName = 'DCC.EWR'
+local logName = 'DCC.GCI'
 
 local function debugLog(message)
     env.info(logName .. ': ' .. tostring(message))
@@ -11,7 +11,8 @@ local bvrRangeMeters = 160000
 local wvrRangeMeters = 10000
 local bvrIntervalSeconds = 20
 local wvrIntervalSeconds = 5
-local magneticVariationDegrees = 7
+local maxPictureGroups = 4
+local magneticVariationDegrees = (config and config.magneticVariationDegrees) or 0
 
 local function sendMessageToUnits(text, unitNames, duration)
     if not text or text == "" then
@@ -139,7 +140,19 @@ local function degreesToMagneticDegrees(degrees)
     return magneticDegrees
 end
 
-local function formatAltitude(feet)
+local function usesMetric(groupConfig)
+    return groupConfig and groupConfig.units == "metric"
+end
+
+local function formatAltitude(feet, metric)
+    if metric then
+        local meters = math.max(0, math.floor((feet * 0.3048) / 100 + 0.5) * 100)
+        if meters < 300 then
+            return "low"
+        end
+        return tostring(meters) .. " m"
+    end
+
     local angels = math.max(0, math.floor((feet / 1000) + 0.5))
     if angels == 0 then
         return "low"
@@ -148,13 +161,20 @@ local function formatAltitude(feet)
     return "angels " .. tostring(angels)
 end
 
-local function visualCallout(plane, clientHeading, clientAlt)
+local function formatRange(nauticalMiles, metric)
+    if metric then
+        return tostring(math.max(0, math.floor(nauticalMiles * 1.852 + 0.5))) .. " km"
+    end
+    return tostring(nauticalMiles) .. "nm"
+end
+
+local function visualCallout(plane, clientHeading, clientAlt, metric)
     local altText = ""
 
     if plane.altitude > clientAlt + 1000 then
-        altText = " high " .. formatAltitude(plane.altitude)
+        altText = " high " .. formatAltitude(plane.altitude, metric)
     elseif plane.altitude < clientAlt - 1000 then
-        altText = " low " .. formatAltitude(plane.altitude)
+        altText = " low " .. formatAltitude(plane.altitude, metric)
     end
 
     local delta = plane.direction - clientHeading
@@ -165,7 +185,7 @@ local function visualCallout(plane, clientHeading, clientAlt)
     return degreesToClockPosition(delta) .. altText .. " " .. plane.unitType
 end
 
-local function getHostileAircraft(clientUnit, range)
+local function getHostileAircraft(clientUnit, range, includeHelicopters)
     if not mist or not mist.makeUnitTable or not mist.getUnitsInMovingZones then
         debugLog("MIST is not ready")
         return {}
@@ -173,10 +193,11 @@ local function getHostileAircraft(clientUnit, range)
 
     local clientName = clientUnit:getName()
     local enemyCoalition = getEnemyCoalitionName(clientUnit)
-    local hostileUnits = mist.makeUnitTable({
-        "[" .. enemyCoalition .. "][plane]",
-        "[" .. enemyCoalition .. "][helicopter]"
-    })
+    local filters = { "[" .. enemyCoalition .. "][plane]" }
+    if includeHelicopters then
+        filters[#filters + 1] = "[" .. enemyCoalition .. "][helicopter]"
+    end
+    local hostileUnits = mist.makeUnitTable(filters)
     local inRange = mist.getUnitsInMovingZones(hostileUnits, { clientName }, range, "cylinder")
     local clientPoint = clientUnit:getPosition().p
     local clientVec = mist.utils.makeVec3(clientPoint)
@@ -213,7 +234,7 @@ local function getHostileAircraft(clientUnit, range)
 end
 
 local function getGroupedAircraft(clientUnit, range)
-    local planes = getHostileAircraft(clientUnit, range)
+    local planes = getHostileAircraft(clientUnit, range, false)
     local groups = {}
     local orderedNames = {}
 
@@ -229,17 +250,28 @@ local function getGroupedAircraft(clientUnit, range)
     return groups, orderedNames
 end
 
-function DCC_EWR.Register(groupId, groupName, unitNames)
+function DCC_EWR.Register(groupId, groupName, unitNames, options)
     if not groupId or not groupName then
-        debugLog("Skipping incomplete EWR config")
+        debugLog("Skipping incomplete GCI config")
         return
     end
 
+    options = options or {}
     DCC_EWR.groups[groupName] = {
         groupId = groupId,
         groupName = groupName,
-        unitNames = unitNames or {}
+        unitNames = unitNames or {},
+        units = options.units,
+        gci = options.gci == true
     }
+end
+
+local function sendPicture(groupConfig, text, duration)
+    if text == groupConfig.lastPicture then
+        return
+    end
+    groupConfig.lastPicture = text
+    sendMessageToUnits(text, groupConfig.unitNames, duration)
 end
 
 function DCC_EWR.Tick(groupName)
@@ -255,17 +287,21 @@ function DCC_EWR.Tick(groupName)
     end
 
     local groups, orderedNames = getGroupedAircraft(clientUnit, bvrRangeMeters)
-    local text = ""
+    local metric = usesMetric(groupConfig)
+    local lines = {}
 
-    for _, hostileGroupName in ipairs(orderedNames) do
+    for index, hostileGroupName in ipairs(orderedNames) do
+        if index > maxPictureGroups then
+            break
+        end
         local group = groups[hostileGroupName]
         local plane = group and group[1]
         if plane then
-            text = text .. string.format(
-                "%03d for %snm, %s, %s, %sx %s\n",
+            lines[#lines + 1] = string.format(
+                "%03d for %s, %s, %s, %sx %s",
                 degreesToMagneticDegrees(plane.direction),
-                tostring(plane.distance),
-                formatAltitude(plane.altitude),
+                formatRange(plane.distance, metric),
+                formatAltitude(plane.altitude, metric),
                 plane.aspect,
                 tostring(#group),
                 plane.unitType
@@ -273,7 +309,12 @@ function DCC_EWR.Tick(groupName)
         end
     end
 
-    sendMessageToUnits(string.sub(text, 1, -2), groupConfig.unitNames, 10)
+    if #lines == 0 then
+        sendPicture(groupConfig, "GCI: picture clean.", 5)
+        return
+    end
+
+    sendPicture(groupConfig, table.concat(lines, "\n"), 10)
 end
 
 function DCC_EWR.TickVisual(groupName)
@@ -288,19 +329,19 @@ function DCC_EWR.TickVisual(groupName)
     local clientVec = mist.utils.makeVec3(clientPoint)
     local clientAlt = mist.utils.round(mist.utils.metersToFeet(clientVec.y) / 1000) * 1000
     local clientHeading = mist.utils.round(mist.utils.toDegree(mist.getHeading(clientUnit)))
-    local planes = getHostileAircraft(clientUnit, wvrRangeMeters)
+    local planes = getHostileAircraft(clientUnit, wvrRangeMeters, true)
     local text = ""
+    local metric = usesMetric(groupConfig)
 
     if #planes > 0 then
         for _, plane in ipairs(planes) do
-            text = text .. visualCallout(plane, clientHeading, clientAlt) .. "\n"
+            text = text .. visualCallout(plane, clientHeading, clientAlt, metric) .. "\n"
         end
         groupConfig.inWvr = true
+        sendMessageToUnits(string.sub(text, 1, -2), groupConfig.unitNames, 3)
     else
         groupConfig.inWvr = false
     end
-
-    sendMessageToUnits(string.sub(text, 1, -2), groupConfig.unitNames, 3)
 end
 
 function DCC_EWR.Stop(groupName, silent)
@@ -319,13 +360,15 @@ function DCC_EWR.Stop(groupName, silent)
         groupConfig.bvrSchedule = nil
     end
 
-    if not silent then
-        sendMessageToUnits("EWR picture stopped.", groupConfig.unitNames, 5)
+    groupConfig.lastPicture = nil
+
+    if silent ~= true then
+        sendMessageToUnits("GCI picture stopped.", groupConfig.unitNames, 5)
         DCC_EWR.CreateMenu(groupName)
     end
 end
 
-function DCC_EWR.StartInterval(groupName)
+function DCC_EWR.StartInterval(groupName, silent)
     local groupConfig = DCC_EWR.groups[groupName]
     if not groupConfig then
         return
@@ -334,7 +377,9 @@ function DCC_EWR.StartInterval(groupName)
     DCC_EWR.Stop(groupName, true)
     groupConfig.wvrSchedule = mist.scheduleFunction(DCC_EWR.TickVisual, { groupName }, timer.getTime() + 1, wvrIntervalSeconds)
     groupConfig.bvrSchedule = mist.scheduleFunction(DCC_EWR.Tick, { groupName }, timer.getTime() + 2, bvrIntervalSeconds)
-    sendMessageToUnits("EWR picture started.", groupConfig.unitNames, 5)
+    if silent ~= true then
+        sendMessageToUnits("GCI picture started.", groupConfig.unitNames, 5)
+    end
     DCC_EWR.CreateMenu(groupName)
 end
 
@@ -358,7 +403,7 @@ function DCC_EWR.CreateMenu(groupName)
         groupConfig.menuPath = nil
     end
 
-    groupConfig.menuPath = missionCommands.addSubMenuForGroup(groupConfig.groupId, "EWR")
+    groupConfig.menuPath = missionCommands.addSubMenuForGroup(groupConfig.groupId, "GCI")
 
     if groupConfig.bvrSchedule or groupConfig.wvrSchedule then
         missionCommands.addCommandForGroup(groupConfig.groupId, "Stop Picture", groupConfig.menuPath, DCC_EWR.Stop, groupName)
@@ -378,9 +423,13 @@ function DCC_EWR:onEvent(event)
 
         local group = unit:getGroup()
         local groupName = getObjectName(group)
-        if groupName and DCC_EWR.groups[groupName] then
-            DCC_EWR.groups[groupName].groupId = group:getID()
+        local groupConfig = groupName and DCC_EWR.groups[groupName]
+        if groupConfig then
+            groupConfig.groupId = group:getID()
             DCC_EWR.CreateMenu(groupName)
+            if groupConfig.gci and not groupConfig.bvrSchedule then
+                DCC_EWR.StartInterval(groupName, true)
+            end
         end
     end
 end
@@ -388,21 +437,27 @@ end
 function DCC_EWR.Start()
     world.addEventHandler(DCC_EWR)
 
-    for groupName in pairs(DCC_EWR.groups) do
+    for groupName, groupConfig in pairs(DCC_EWR.groups) do
         DCC_EWR.CreateMenu(groupName)
+        if groupConfig.gci then
+            DCC_EWR.StartInterval(groupName, true)
+        end
     end
 end
 
 if config and config.flightGroups then
     for _, flightGroup in ipairs(config.flightGroups) do
-        DCC_EWR.Register(
-            flightGroup.groupId,
-            flightGroup.name,
-            flightGroup.unitNames
-        )
+        if flightGroup.client and not flightGroup.nativeGci then
+            DCC_EWR.Register(
+                flightGroup.groupId,
+                flightGroup.name,
+                flightGroup.unitNames,
+                { units = flightGroup.units, gci = flightGroup.gci }
+            )
+        end
     end
 
     DCC_EWR.Start()
 else
-    debugLog("No config.flightGroups found for EWR setup")
+    debugLog("No config.flightGroups found for GCI setup")
 end

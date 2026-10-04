@@ -13,6 +13,7 @@ import {
   DialogDescription
 } from '@/components/ui/dialog'
 import { activeStore } from '@/stores/active'
+import { getCareerAircraftTypes } from '@/logic/career/career'
 import { canCreateManualFlightGroup } from '@/logic/systems/spawn/manual-flight-group'
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { FlightGroupCard } from '../components/flight-group-card'
@@ -26,16 +27,28 @@ interface SelectFlightDialogProps {
 export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogProps) {
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
 
-  const flightGroups = useSelector(
+  const allFlightGroups = useSelector(
     activeStore,
     (state) => state.context.coalitions.player.flightGroups
   )
+  const career = useSelector(activeStore, (state) => state.context.career)
   const campaignTime = useSelector(activeStore, (state) => state.context.time)
   const canCreateSelectedTask = useSelector(activeStore, (state) => {
     const task = schemas.task.safeParse(selectedTask)
-    return task.success ? canCreateManualFlightGroup(state.context, 'player', task.data) : false
+    // Career flights of the owned aircraft are planned from the operations screen instead.
+    return task.success && !state.context.career
+      ? canCreateManualFlightGroup(state.context, 'player', task.data)
+      : false
   })
   const currentTime = campaignTime ? new Date(campaignTime) : new Date()
+  // In career mode this lists other aircraft only: the career's types fly through the
+  // operations screen, where their cost and stores are accounted for.
+  const careerTypes = career ? getCareerAircraftTypes(career) : undefined
+  const flightGroups = careerTypes
+    ? allFlightGroups.filter((group) =>
+        group.aircrafts.every((aircraft) => !careerTypes.has(aircraft.aircraftName))
+      )
+    : allFlightGroups
 
   const groupsByTask = getFlightGroupsByTask(flightGroups)
   const tasks = getSortedFlightGroupTasks(groupsByTask)
@@ -56,7 +69,7 @@ export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogPro
       }}
     >
       <DialogContent
-        className="border-synthwave-pink/30 bg-synthwave-dark/95 text-synthwave-light shadow-[0_0_30px_rgba(255,0,170,0.4)] backdrop-blur-xl sm:max-w-md"
+        className="flex max-h-[min(90vh,640px)] flex-col overflow-hidden overflow-y-hidden border-synthwave-pink/30 bg-synthwave-dark/95 text-synthwave-light shadow-[0_0_30px_rgba(217,68,58,0.4)] backdrop-blur-xl sm:max-w-md"
         showCloseButton={false}
       >
         <DialogHeader>
@@ -82,8 +95,12 @@ export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogPro
         </DialogHeader>
 
         {!selectedTask ? (
-          // Task selection view
-          <div className="grid grid-cols-2 gap-2">
+          <div className="synthwave-scrollbar grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto">
+            {career ? (
+              <div className="col-span-2 text-xs text-white/45">
+                Missions flown in other aircraft earn no money and use none of your stores.
+              </div>
+            ) : null}
             {tasks.map((task) => {
               const groups = groupsByTask.get(task)!
               const totalClients = groups.reduce(
@@ -126,8 +143,8 @@ export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogPro
           </div>
         ) : (
           // Flight groups for selected task
-          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-            {groupsByTask.get(selectedTask)!.map((group) => (
+          <div className="synthwave-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {(groupsByTask.get(selectedTask) ?? []).map((group) => (
               <FlightGroupCard
                 key={group.id}
                 group={group}
@@ -151,7 +168,8 @@ export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogPro
             size="sm"
             className="mr-auto border-synthwave-pink/30 text-secondary hover:bg-synthwave-pink/20 hover:text-white"
             onClick={() => {
-              for (const fg of flightGroups) {
+              if (career?.sortie) activeStore.send({ type: 'careerAbortSortie' })
+              for (const fg of allFlightGroups) {
                 if (fg.aircrafts.some((ac) => ac.client)) {
                   activeStore.send({
                     type: 'setFlightGroupClientCount',

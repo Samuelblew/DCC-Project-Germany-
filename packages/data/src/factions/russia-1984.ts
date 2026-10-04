@@ -28,8 +28,9 @@ export const RUSSIA1984: z.infer<typeof schemas.faction> = {
     Refueling: [],
     RescueHelo: ['Mi-8MT'],
     AFAC: [],
-    Intercept: ['MiG-29A', 'Su-27']
+    Intercept: ['MiG-29A', 'Su-27'],
+    Training: []
   },
   color: 'red',
-  templateName: 'Russia - Modern'
+  templateName: 'East Germany - Cold War'
 }

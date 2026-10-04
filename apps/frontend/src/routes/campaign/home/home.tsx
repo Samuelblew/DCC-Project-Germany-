@@ -4,6 +4,7 @@ import {
   Target,
   Wind,
   FastForward,
+  Hourglass,
   Pause,
   Play,
   Menu,
@@ -14,6 +15,8 @@ import {
   Plus,
   Minus,
   Ruler,
+  Warehouse,
+  EyeOff,
   X
 } from 'lucide-react'
 import React from 'react'
@@ -34,15 +37,19 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog'
 import type { SelectedItem } from './map'
+import { MapLayerFilter } from './map-layer-filter'
 import { activeStore } from '@/stores/active'
 import { uiStore } from '@/stores/ui'
 import { coreClient, orpc } from '@/lib/orpc'
 import { Clock } from './clock'
+import { CheatMenu } from './cheat-menu'
 import { ActiveFlightGroups } from './active-flight-groups'
 import { AtoPackageBoard } from './ato-package-board'
 import { LogisticsOverview } from './logistics-overview'
 import { CampaignOperationsOverview } from './campaign-operations-overview'
 import { TakeoffButton } from './takeoff-button'
+import { CareerDialog } from './career-dialog'
+import { CareerSidebar } from './career-sidebar'
 import { CAUCASUS_DETAIL_MAX_ZOOM } from './offline-map-style'
 
 const campaignData = {
@@ -75,13 +82,22 @@ function isTextEntryElement(element: EventTarget | null) {
 }
 
 export function Home() {
+  const topbarRef = React.useRef<HTMLDivElement>(null)
+  const [topbarHeight, setTopbarHeight] = React.useState(86)
   const [mapZoom, setMapZoom] = React.useState(7)
   const [isMeasureMode, setIsMeasureMode] = React.useState(false)
   const [isBriefingOpen, setIsBriefingOpen] = React.useState(false)
+  const [isCareerOpen, setIsCareerOpen] = React.useState(false)
+  const [showCoalitionFlights, setShowCoalitionFlights] = React.useState(false)
+  const isCareer = useSelector(activeStore, (state) => state.context.career != null)
+  const careerMoney = useSelector(activeStore, (state) =>
+    Math.round(state.context.career?.money ?? 0)
+  )
   const [isCampaignMenuOpen, setIsCampaignMenuOpen] = React.useState(false)
   const [selectedItem, setSelectedItem] = React.useState<SelectedItem>(null)
   const [previewItem, setPreviewItem] = React.useState<SelectedItem>(null)
   const timeMultiplier = useSelector(activeStore, (state) => state.context.timeMultiplier)
+  const campaignStatus = useSelector(activeStore, (state) => state.context.status)
   const scenarioId = useSelector(activeStore, (state) => state.context.scenarioId)
   const campaignGoal = useSelector(activeStore, (state) => state.context.goal)
   const logEntries = useSelector(activeStore, (state) => state.context.logs)
@@ -96,7 +112,14 @@ export function Home() {
   const isLogOpen = useSelector(uiStore, (state) => state.context.isLogOpen)
   const showAtoPackages = useSelector(uiStore, (state) => state.context.showAtoPackages)
   const showLogistics = useSelector(uiStore, (state) => state.context.showLogistics)
-  const timerState = timeMultiplier === 0 ? 'pause' : timeMultiplier === 1 ? 'play' : 'fast-forward'
+  const timerState =
+    timeMultiplier === 0
+      ? 'pause'
+      : timeMultiplier === 1
+        ? 'play'
+        : timeMultiplier >= 3600
+          ? 'hour'
+          : 'fast-forward'
   const visibleLogs = React.useMemo(() => [...logEntries].reverse(), [logEntries])
   const activeFlightGroupIds = React.useMemo(
     () => new Set([...playerFlightGroups, ...opponentFlightGroups].map((group) => group.id)),
@@ -115,7 +138,11 @@ export function Home() {
       input: scenarioId
     })
   )
-  const scenarioBriefing = scenarioQuery.data?.briefing ?? campaignData.description
+  const playerSide = useSelector(activeStore, (state) => state.context.playerSide)
+  const scenarioBriefing =
+    (playerSide === 'red' ? scenarioQuery.data?.opponentBriefing : undefined) ??
+    scenarioQuery.data?.briefing ??
+    campaignData.description
   const scenarioName = scenarioQuery.data?.name ?? campaignData.name
   const briefingParagraphs = React.useMemo(
     () => scenarioBriefing.split(/\n{2,}/).filter((paragraph) => paragraph.trim().length > 0),
@@ -133,6 +160,16 @@ export function Home() {
       lastRunningTimeMultiplierRef.current = timeMultiplier
     }
   }, [timeMultiplier])
+
+  React.useLayoutEffect(() => {
+    const node = topbarRef.current
+    if (!node) return
+    const sync = () => setTopbarHeight(Math.round(node.getBoundingClientRect().height))
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   const pauseTimer = React.useCallback(() => {
     const { timeMultiplier: currentTimeMultiplier } = activeStore.getSnapshot().context
@@ -260,6 +297,7 @@ export function Home() {
         <div className="absolute inset-0 flex flex-col overflow-hidden">
           {/* Map Controls & Weather - Floating bottom right */}
           <div className="absolute right-3 bottom-16 z-1100 flex flex-col items-end gap-3">
+            <MapLayerFilter />
             {/* Zoom Controls */}
             <div className="tactical-inset flex flex-col gap-2 rounded-full p-2">
               <Button
@@ -345,7 +383,10 @@ export function Home() {
 
       {/* Top Bar - Full Width */}
       <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none">
-        <Card className="tactical-topbar pointer-events-auto rounded-none border-x-0 border-t-0 px-5 py-6 text-synthwave-light backdrop-blur-md">
+        <Card
+          ref={topbarRef}
+          className="tactical-topbar pointer-events-auto rounded-none border-x-0 border-t-0 px-5 py-6 text-synthwave-light backdrop-blur-md"
+        >
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
             <div className="flex items-center gap-2 justify-self-start">
               <CampaignMenu open={isCampaignMenuOpen} onOpenChange={setIsCampaignMenuOpen} />
@@ -358,6 +399,18 @@ export function Home() {
                 <Info className="h-4 w-4 text-synthwave-pink" />
                 <span className="retro-font text-xs">Mission Briefing</span>
               </Button>
+              {isCareer ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="tactical-button h-10 rounded-md px-4 text-secondary"
+                  onClick={() => setIsCareerOpen(true)}
+                >
+                  <Warehouse className="h-4 w-4 text-synthwave-cyan" />
+                  <span className="retro-font text-xs">Hangar · {careerMoney} cr</span>
+                </Button>
+              ) : null}
+              <CareerDialog open={isCareerOpen} onOpenChange={setIsCareerOpen} />
             </div>
 
             <div className="justify-self-center">
@@ -365,6 +418,12 @@ export function Home() {
             </div>
 
             <div className="flex items-center gap-6 justify-self-end">
+              {campaignStatus === 'won' ? (
+                <span className="retro-font text-xs uppercase tracking-wide text-synthwave-pink">
+                  Goal reached
+                </span>
+              ) : null}
+              <CheatMenu />
               <Clock />
               <ToggleGroup
                 type="single"
@@ -382,6 +441,10 @@ export function Home() {
                     case 'fast-forward':
                       activeStore.trigger.setTimeTarget({ timeTarget: undefined })
                       activeStore.trigger.updateTimeMultiplier({ timeMultiplier: 300 })
+                      break
+                    case 'hour':
+                      activeStore.trigger.setTimeTarget({ timeTarget: undefined })
+                      activeStore.trigger.updateTimeMultiplier({ timeMultiplier: 3600 })
                       break
                   }
                 }}
@@ -403,9 +466,18 @@ export function Home() {
                 <ToggleGroupItem
                   value="fast-forward"
                   size="sm"
+                  title="Five campaign minutes per second"
                   className="tactical-button h-11 w-11 rounded-sm border-0 p-0 data-[state=on]:text-synthwave-pink"
                 >
                   <FastForward className="h-5 w-5" />
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="hour"
+                  size="sm"
+                  title="One campaign hour per second"
+                  className="tactical-button h-11 w-11 rounded-sm border-0 p-0 data-[state=on]:text-synthwave-pink"
+                >
+                  <Hourglass className="h-5 w-5" />
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
@@ -459,13 +531,32 @@ export function Home() {
       </div>
 
       {/* Sidebar - Left Panel */}
-      <div className="tactical-surface absolute top-[86px] bottom-0 left-0 z-10 flex w-[400px] flex-col overflow-hidden border-l-0 border-t-0 border-b-0 text-synthwave-light backdrop-blur-md">
-        {/* Active Flight Groups */}
-        <ActiveFlightGroups
-          selectedItem={visibleSelectedItem}
-          onSelect={setSelectedItem}
-          onPreview={setPreviewItem}
-        />
+      <div
+        className="tactical-surface absolute bottom-0 left-0 z-10 flex w-[400px] flex-col overflow-hidden border-l-0 border-t-0 border-b-0 text-synthwave-light backdrop-blur-md"
+        style={{ top: topbarHeight }}
+      >
+        {/* Career: your aircraft first; the coalition's flights only on request */}
+        {isCareer && !showCoalitionFlights ? (
+          <CareerSidebar onShowCoalitionFlights={() => setShowCoalitionFlights(true)} />
+        ) : (
+          <>
+            {isCareer ? (
+              <button
+                type="button"
+                onClick={() => setShowCoalitionFlights(false)}
+                className="tactical-button mx-3 mt-3 flex shrink-0 items-center justify-center gap-2 rounded-md py-2 text-xs text-secondary"
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+                Hide coalition flights
+              </button>
+            ) : null}
+            <ActiveFlightGroups
+              selectedItem={visibleSelectedItem}
+              onSelect={setSelectedItem}
+              onPreview={setPreviewItem}
+            />
+          </>
+        )}
 
         <CampaignOperationsOverview />
 
@@ -511,7 +602,7 @@ export function Home() {
                           <div
                             className={`rounded border px-2 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] ${
                               entry.coalition === 'player'
-                                ? 'border-cyan-400/30 bg-cyan-950/30'
+                                ? 'border-amber-400/30 bg-amber-950/30'
                                 : 'border-red-400/30 bg-red-950/30'
                             } ${
                               entry.entityId
@@ -533,7 +624,7 @@ export function Home() {
                               <div className="flex items-center gap-2">
                                 <span
                                   className={`uppercase tracking-wide ${
-                                    entry.type === 'combat' ? 'text-red-300' : 'text-cyan-300'
+                                    entry.type === 'combat' ? 'text-red-300' : 'text-amber-300'
                                   }`}
                                 >
                                   {entry.type}
@@ -551,7 +642,7 @@ export function Home() {
                             <div
                               className={
                                 entry.coalition === 'player'
-                                  ? 'mt-0.5 text-cyan-100'
+                                  ? 'mt-0.5 text-amber-100'
                                   : 'mt-0.5 text-red-100'
                               }
                             >

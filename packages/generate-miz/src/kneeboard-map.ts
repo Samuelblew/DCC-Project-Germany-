@@ -45,6 +45,12 @@ const THEATRE_PMTILES = [
     envVar: 'DCC_SOUTH_ATLANTIC_PMTILES',
     mapDirectory: 'south-atlantic',
     fileName: 'south-atlantic.pmtiles'
+  },
+  {
+    theatreName: 'Cold War Germany',
+    envVar: 'DCC_GERMANY_COLD_WAR_PMTILES',
+    mapDirectory: 'germany-cold-war',
+    fileName: 'germany-cold-war.pmtiles'
   }
 ] as const
 export const SUPPORTED_THEATRE_MAP_TILE_NAMES = THEATRE_PMTILES.map((config) => config.theatreName)
@@ -134,6 +140,14 @@ export function resolveTheatrePmtilesPath(theatreName: string): string | undefin
   if (resourcesPath) {
     const packaged = join(resourcesPath, getPackagedPmtilesRelativePath(config))
     if (existsSync(packaged)) return packaged
+    // Theatres not listed in extraResources still ship inside the renderer's copy of public/maps.
+    const renderer = join(
+      resourcesPath,
+      'renderer',
+      'frontend',
+      getPackagedPmtilesRelativePath(config)
+    )
+    if (existsSync(renderer)) return renderer
   }
 
   const mapRelativePath = join('maps', config.mapDirectory, config.fileName)
@@ -178,7 +192,35 @@ function mercatorToLngLat(x: number, y: number): LngLat {
   return { lng, lat }
 }
 
+const GERMANY_LAT = [
+  0.9085607775476312, 0.020582809983466177, 0.003863576322000295, -0.00026506778971813194,
+  -0.008581651625086506, 54.73573333567657
+]
+const GERMANY_LNG = [
+  -0.04089794937263669, 1.5733060904990106, 0.028012459008367907, -0.0051060927441876625,
+  0.00517645904592412, 20.47736300928656
+]
+
+function germanyColdWarToLngLat(x: number, z: number): LngLat {
+  const scaledX = x / 1e5
+  const scaledZ = z / 1e5
+  const basis = [scaledX, scaledZ, scaledX * scaledZ, scaledX * scaledX, scaledZ * scaledZ, 1]
+  let lat = 0
+  let lng = 0
+  for (let index = 0; index < basis.length; index += 1) {
+    const term = basis[index] ?? 0
+    lat += (GERMANY_LAT[index] ?? 0) * term
+    lng += (GERMANY_LNG[index] ?? 0) * term
+  }
+  return { lat, lng }
+}
+
 export function dcsPositionToLngLat(x: number, z: number, theatreName: string): LngLat | undefined {
+  if (theatreName === 'Cold War Germany' || theatreName === 'GermanyCW') {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return undefined
+    return germanyColdWarToLngLat(x, z)
+  }
+
   try {
     return LOtoLL({ theatre: theatreName as DcsTheatre, x, z })
   } catch {

@@ -1,10 +1,10 @@
 import * as z from 'zod'
 
-import { task } from './task'
+import { aircraftTypesByTask } from './task'
 
 export const faction = z.object({
   id: z.string(),
-  aircraftTypes: z.record(task, z.array(z.string())),
+  aircraftTypes: aircraftTypesByTask,
   countryName: z.string(),
   name: z.string(),
   year: z.number().optional(),

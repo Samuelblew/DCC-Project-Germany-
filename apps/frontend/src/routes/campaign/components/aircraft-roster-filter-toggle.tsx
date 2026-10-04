@@ -14,7 +14,7 @@ export function AircraftRosterFilterToggle({
   return (
     <label
       className={cn(
-        'mx-1 mb-1 flex cursor-pointer items-start gap-2.5 rounded-sm px-2 py-2 transition-colors hover:bg-[#00ddff]/10',
+        'mx-1 mb-1 flex cursor-pointer items-start gap-2.5 rounded-sm px-2 py-2 transition-colors hover:bg-[#e8b730]/10',
         disabled && 'cursor-default opacity-55'
       )}
       onClick={(event) => event.stopPropagation()}
@@ -25,7 +25,7 @@ export function AircraftRosterFilterToggle({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onCheckedChange(event.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-cyan-400"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-400"
       />
       <span className="min-w-0">
         <span className="block text-xs font-medium text-white/80">

@@ -1,5 +1,10 @@
 import { schemas } from '@dcc/contracts'
-import { assignDeploymentSite } from '@dcc/campaign'
+import {
+  assignDeploymentSite,
+  dissolveGroundGroupIntoReplacementPool,
+  expandGroundGroupUnits,
+  getGroundGroupUnitCount
+} from '@dcc/campaign'
 import { scenarios, theatres } from '@dcc/data'
 import * as z from 'zod'
 import { GroundGroup } from '../../entities/ground-group'
@@ -7,12 +12,21 @@ import { calculateDistance } from '@/logic/utils/calculate-distance'
 import { INFANTRY_COST, VEHICLE_COST } from './ground-group-costs'
 import { logSpawnAction } from '@/logic/simulation-log'
 import { getAirdromePosition, isAirdromeVulnerable } from '../airport-capture'
+import { BATTLE_RADIUS, hasOtherGarrison } from '../ground-garrison'
 
 const MAX_SPAWNS_PER_TICK = 3
 const NM_TO_METERS = 1852
-const INFANTRY_MAX_TARGET_RANGE_METERS = 20 * NM_TO_METERS
-const VEHICLE_MAX_TARGET_RANGE_METERS = 40 * NM_TO_METERS
+const INFANTRY_MAX_TARGET_RANGE_METERS = 40 * NM_TO_METERS
+const VEHICLE_MAX_TARGET_RANGE_METERS = 60 * NM_TO_METERS
 const DEFAULT_GROUND_GROUP_SPAWN_MULTIPLIER = 1
+/** Live formations a side may keep on the map. Barracks wait once this is full. */
+export const MAX_LIVE_GROUND_GROUPS = 12
+/** Idle stacks at one town. Columns already on the road do not count. */
+export const MAX_LIVE_GROUND_GROUPS_PER_OBJECTIVE = 2
+/** DCS units after expansion. Ten infantry squads of ten would be 100; this keeps the .miz loadable. */
+export const MAX_LIVE_GROUND_UNITS = 80
+/** Leave room for attacking columns instead of filling the cap with rear garrisons. */
+export const MAX_IDLE_GARRISONS = 6
 
 function getLocalReplacementPool(
   draft: z.infer<typeof schemas.campaign.campaign>,
@@ -65,6 +79,178 @@ function consumeFormationAssets(params: {
   })
 }
 
+type Campaign = z.infer<typeof schemas.campaign.campaign>
+type Coalition = z.infer<typeof schemas.coalition>
+type Theatre = z.infer<typeof schemas.theatre>
+type GroundGroupData = z.infer<typeof schemas.groundGroup>
+
+function coalitionGroundGroups(draft: Campaign, coalition: Coalition) {
+  return draft.coalitions[coalition].groundGroups.filter(
+    (group) => getGroundGroupUnitCount(group) > 0
+  )
+}
+
+function coalitionGroundUnitCount(draft: Campaign, coalition: Coalition) {
+  return coalitionGroundGroups(draft, coalition).reduce(
+    (sum, group) => sum + getGroundGroupUnitCount(group),
+    0
+  )
+}
+
+function holdingPosition(theatre: Theatre, objectiveId: string) {
+  return (
+    theatre.objectives.find((objective) => objective.name === objectiveId)?.position ??
+    getAirdromePosition(theatre, objectiveId)
+  )
+}
+
+function isHoldingAtObjective(group: GroundGroupData, theatre: Theatre, objectiveId: string) {
+  if (group.state !== 'idle' && group.state !== 'combat') return false
+  if (group.objectiveId !== objectiveId) return false
+  const home = holdingPosition(theatre, objectiveId)
+  return !home || calculateDistance(group.position, home) <= BATTLE_RADIUS
+}
+
+function groupsHoldingObjective(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: Theatre,
+  objectiveId: string
+) {
+  return coalitionGroundGroups(draft, coalition).filter((group) =>
+    isHoldingAtObjective(group, theatre, objectiveId)
+  )
+}
+
+function isOwnedObjective(draft: Campaign, coalition: Coalition, objectiveId: string) {
+  const owned = draft.coalitions[coalition]
+  return owned.objectiveIds.includes(objectiveId) || owned.airdromeNames.includes(objectiveId)
+}
+
+function isIdleGarrison(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: Theatre,
+  group: GroundGroupData
+) {
+  if (group.state !== 'idle' || !group.objectiveId) return false
+  if (!isOwnedObjective(draft, coalition, group.objectiveId)) return false
+  return isHoldingAtObjective(group, theatre, group.objectiveId)
+}
+
+function idleGarrisonCount(draft: Campaign, coalition: Coalition, theatre: Theatre) {
+  return coalitionGroundGroups(draft, coalition).filter((group) =>
+    isIdleGarrison(draft, coalition, theatre, group)
+  ).length
+}
+
+function nearestEnemyDistance(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: Theatre,
+  position: { x: number; y: number }
+) {
+  const enemy = draft.coalitions[coalition === 'player' ? 'opponent' : 'player']
+  let nearest = Number.POSITIVE_INFINITY
+  for (const objectiveId of [...enemy.objectiveIds, ...enemy.airdromeNames]) {
+    const target = holdingPosition(theatre, objectiveId)
+    if (!target) continue
+    nearest = Math.min(nearest, calculateDistance(position, target))
+  }
+  return nearest
+}
+
+function isFightingGroup(group: GroundGroupData) {
+  return (
+    group.state === 'combat' ||
+    group.state === 'awaiting-extraction' ||
+    group.state === 'trapped' ||
+    group.state === 'withdrawing'
+  )
+}
+
+function canRaiseGroundGroup(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: Theatre,
+  objectiveId: string,
+  extraUnits: number
+) {
+  const groups = coalitionGroundGroups(draft, coalition)
+  if (groups.length >= MAX_LIVE_GROUND_GROUPS) return false
+  if (coalitionGroundUnitCount(draft, coalition) + extraUnits > MAX_LIVE_GROUND_UNITS) return false
+  if (
+    groupsHoldingObjective(draft, coalition, theatre, objectiveId).length >=
+    MAX_LIVE_GROUND_GROUPS_PER_OBJECTIVE
+  ) {
+    return false
+  }
+  return true
+}
+
+function surplusScore(group: GroundGroupData, extraGarrison: boolean) {
+  if (extraGarrison && group.state === 'idle') return 0
+  if (group.state === 'idle') return 1
+  if (group.state === 'moving') return 2
+  return 3
+}
+
+/** Fold leftover columns back into the replacement pool so an already-bloated save recovers. */
+function pruneExcessGroundGroups(draft: Campaign, coalition: Coalition, theatre: Theatre) {
+  for (let guard = 0; guard < 80; guard += 1) {
+    const groups = coalitionGroundGroups(draft, coalition)
+    const units = groups.reduce((sum, group) => sum + getGroundGroupUnitCount(group), 0)
+    const idle = idleGarrisonCount(draft, coalition, theatre)
+    const crowdedObjective = [...new Set(groups.map((group) => group.objectiveId).filter(Boolean))]
+      .map((objectiveId) => ({
+        objectiveId: objectiveId!,
+        groups: groupsHoldingObjective(draft, coalition, theatre, objectiveId!)
+      }))
+      .find((entry) => entry.groups.length > MAX_LIVE_GROUND_GROUPS_PER_OBJECTIVE)
+
+    const overCoalition =
+      groups.length > MAX_LIVE_GROUND_GROUPS || units > MAX_LIVE_GROUND_UNITS
+    const tooManyIdle = idle > MAX_IDLE_GARRISONS
+    if (!overCoalition && !crowdedObjective && !tooManyIdle) return
+
+    const pool = crowdedObjective?.groups ?? groups
+    const candidate = pool
+      .filter((group) => !isFightingGroup(group))
+      .filter((group) => {
+        if (group.state !== 'idle' || !group.objectiveId) return true
+        if (hasOtherGarrison(draft, coalition, theatre, group.objectiveId, group.id)) return true
+        return overCoalition || tooManyIdle
+      })
+      .sort((left, right) => {
+        const extraLeft = Boolean(
+          left.objectiveId &&
+            hasOtherGarrison(draft, coalition, theatre, left.objectiveId, left.id)
+        )
+        const extraRight = Boolean(
+          right.objectiveId &&
+            hasOtherGarrison(draft, coalition, theatre, right.objectiveId, right.id)
+        )
+        const score = surplusScore(left, extraLeft) - surplusScore(right, extraRight)
+        if (score !== 0) return score
+        if (left.state === 'idle' && right.state === 'idle') {
+          return (
+            nearestEnemyDistance(draft, coalition, theatre, right.position) -
+            nearestEnemyDistance(draft, coalition, theatre, left.position)
+          )
+        }
+        return getGroundGroupUnitCount(left) - getGroundGroupUnitCount(right)
+      })[0]
+    if (!candidate) return
+
+    dissolveGroundGroupIntoReplacementPool({
+      campaign: draft,
+      coalition,
+      group: candidate,
+      objectiveId: candidate.objectiveId ?? crowdedObjective?.objectiveId ?? candidate.id
+    })
+  }
+}
+
 export function spawnGroundGroups(
   draft: z.infer<typeof schemas.campaign.campaign>,
   coalition: z.infer<typeof schemas.coalition>
@@ -75,6 +261,8 @@ export function spawnGroundGroups(
 
   const theatre = theatres.find((t) => t.name === scenario.theatreName)
   if (!theatre) return
+
+  pruneExcessGroundGroups(draft, coalition, theatre)
 
   const enemyCoalition = coalition === 'player' ? 'opponent' : 'player'
   const enemyObjectiveIds = draft.coalitions[enemyCoalition].objectiveIds
@@ -87,7 +275,11 @@ export function spawnGroundGroups(
     )
   )
 
-  const structures = draft.coalitions[coalition].structures
+  const structures = [...draft.coalitions[coalition].structures].sort(
+    (left, right) =>
+      nearestEnemyDistance(draft, coalition, theatre, left.position) -
+      nearestEnemyDistance(draft, coalition, theatre, right.position)
+  )
   const coalitionData = draft.coalitions[coalition]
   const reservedTargetObjectives = new Set(
     draft.coalitions[coalition].groundGroups
@@ -105,6 +297,7 @@ export function spawnGroundGroups(
 
     // Only Barrack and Depot structures can spawn ground groups
     if (structure.type !== 'Barrack' && structure.type !== 'Depot') continue
+    if (!canRaiseGroundGroup(draft, coalition, theatre, structure.objectiveId, 10)) continue
 
     const aliveBuildings = structure.buildings.filter((building) => building.alive)
     if (aliveBuildings.length === 0) continue
@@ -113,6 +306,7 @@ export function spawnGroundGroups(
       if (spawnsThisTick >= maxSpawnsThisTick) break
 
       if (structure.type === 'Barrack' && (structure.resources || 0) >= INFANTRY_COST) {
+        if (!canRaiseGroundGroup(draft, coalition, theatre, structure.objectiveId, 10)) break
         const infantryTypes = coalitionData.groundUnitTypes['Infantry']
         const unitName =
           infantryTypes && infantryTypes.length > 0
@@ -130,6 +324,14 @@ export function spawnGroundGroups(
           reservedTargetAirdromes,
           INFANTRY_MAX_TARGET_RANGE_METERS
         )
+        const holding = hasOtherGarrison(draft, coalition, theatre, structure.objectiveId)
+        if (!target && holding) continue
+        if (
+          !target &&
+          idleGarrisonCount(draft, coalition, theatre) >= MAX_IDLE_GARRISONS
+        ) {
+          continue
+        }
 
         const groundGroupId = GroundGroup.create(draft, coalition, {
           position: structure.position,
@@ -153,12 +355,14 @@ export function spawnGroundGroups(
               reason: 'creation'
             })
           : null
-        if (!groundGroup || !site) {
+        // A formation marching straight out does not need a free site; a garrison does.
+        if (!groundGroup || (!site && !target)) {
           draft.coalitions[coalition].groundGroups = draft.coalitions[
             coalition
           ].groundGroups.filter((group) => group.id !== groundGroupId)
           continue
         }
+        if (!site) expandGroundGroupUnits(groundGroup)
         consumeFormationAssets({
           draft,
           coalition,
@@ -168,6 +372,10 @@ export function spawnGroundGroups(
           unitName,
           count: 10
         })
+        // A formation that marches out frees its site for the next one.
+        if (target) groundGroup.deployment = undefined
+        if (target?.type === 'objective') reservedTargetObjectives.add(target.name)
+        else if (target?.type === 'airdrome') reservedTargetAirdromes.add(target.name)
         const targetLabel =
           target?.type === 'objective'
             ? ` moving to ${target.name}`
@@ -184,14 +392,10 @@ export function spawnGroundGroups(
             entityId: groundGroupId
           }
         )
-        if (target?.type === 'objective') {
-          reservedTargetObjectives.add(target.name)
-        } else if (target?.type === 'airdrome') {
-          reservedTargetAirdromes.add(target.name)
-        }
         structure.resources = (structure.resources || 0) - INFANTRY_COST
         spawnsThisTick++
       } else if (structure.type === 'Depot' && (structure.resources || 0) >= VEHICLE_COST) {
+        if (!canRaiseGroundGroup(draft, coalition, theatre, structure.objectiveId, 6)) break
         const vehicleTypes = coalitionData.groundUnitTypes['Vehicle']
         const unitName =
           vehicleTypes && vehicleTypes.length > 0
@@ -209,6 +413,14 @@ export function spawnGroundGroups(
           reservedTargetAirdromes,
           VEHICLE_MAX_TARGET_RANGE_METERS
         )
+        const holding = hasOtherGarrison(draft, coalition, theatre, structure.objectiveId)
+        if (!target && holding) continue
+        if (
+          !target &&
+          idleGarrisonCount(draft, coalition, theatre) >= MAX_IDLE_GARRISONS
+        ) {
+          continue
+        }
 
         const groundGroupId = GroundGroup.create(draft, coalition, {
           position: structure.position,
@@ -232,12 +444,14 @@ export function spawnGroundGroups(
               reason: 'creation'
             })
           : null
-        if (!groundGroup || !site) {
+        // A formation marching straight out does not need a free site; a garrison does.
+        if (!groundGroup || (!site && !target)) {
           draft.coalitions[coalition].groundGroups = draft.coalitions[
             coalition
           ].groundGroups.filter((group) => group.id !== groundGroupId)
           continue
         }
+        if (!site) expandGroundGroupUnits(groundGroup)
         consumeFormationAssets({
           draft,
           coalition,
@@ -247,6 +461,10 @@ export function spawnGroundGroups(
           unitName,
           count: 6
         })
+        // A formation that marches out frees its site for the next one.
+        if (target) groundGroup.deployment = undefined
+        if (target?.type === 'objective') reservedTargetObjectives.add(target.name)
+        else if (target?.type === 'airdrome') reservedTargetAirdromes.add(target.name)
         const targetLabel =
           target?.type === 'objective'
             ? ` moving to ${target.name}`
@@ -263,11 +481,6 @@ export function spawnGroundGroups(
             entityId: groundGroupId
           }
         )
-        if (target?.type === 'objective') {
-          reservedTargetObjectives.add(target.name)
-        } else if (target?.type === 'airdrome') {
-          reservedTargetAirdromes.add(target.name)
-        }
         structure.resources = (structure.resources || 0) - VEHICLE_COST
         spawnsThisTick++
       }
@@ -326,7 +539,6 @@ function findNearestEnemyObjective(
 
   for (const objId of enemyObjectiveIds) {
     if (reservedTargetObjectives.has(objId)) continue
-
     const objective = theatre.objectives.find((o) => o.name === objId)
     if (!objective) continue
 

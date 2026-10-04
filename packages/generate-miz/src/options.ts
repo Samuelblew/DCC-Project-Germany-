@@ -1,7 +1,18 @@
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
-export function options(): z.infer<typeof schemas.dcs.options> {
+type Campaign = z.infer<typeof schemas.campaign.campaign>
+type DcsCheats = NonNullable<NonNullable<Campaign['campaignParams']>['dcsCheats']>
+
+const LABEL_VALUES: Record<NonNullable<DcsCheats['labels']>, number> = {
+  none: 0,
+  full: 1,
+  abbreviated: 2,
+  dot: 3
+}
+
+export function options(campaign?: Campaign): z.infer<typeof schemas.dcs.options> {
+  const cheats = campaign?.campaignParams?.dcsCheats
   return {
     playerName: 'FoxDelta2',
     miscellaneous: {
@@ -27,9 +38,9 @@ export function options(): z.infer<typeof schemas.dcs.options> {
       force_feedback_enabled: true
     },
     difficulty: {
-      fuel: false,
+      fuel: cheats?.unlimitedFuel === true,
       spottingDot: 2,
-      miniHUD: false,
+      miniHUD: cheats?.miniHud === true,
       optionsView: 'optview_all',
       setGlobal: true,
       avionicsLanguage: 'english',
@@ -39,18 +50,18 @@ export function options(): z.infer<typeof schemas.dcs.options> {
       spectatorExternalViews: true,
       userSnapView: true,
       iconsTheme: 'nato',
-      weapons: false,
+      weapons: cheats?.unlimitedWeapons === true,
       padlock: true,
       birds: 440,
-      permitCrash: true,
-      immortal: false,
+      permitCrash: cheats?.crashRecover !== false,
+      immortal: cheats?.immortal === true,
       easyCommunication: true,
       wakeTurbulence: true,
-      easyFlight: false,
+      easyFlight: cheats?.easyFlight === true,
       hideStick: false,
-      radio: false,
+      radio: cheats?.radioAssist === true,
       geffect: 'realistic',
-      unrestrictedSATNAV: false,
+      unrestrictedSATNAV: cheats?.unrestrictedSatnav === true,
       reports: true,
       tips: true,
       cockpitStatusBarAllowed: false,
@@ -60,7 +71,7 @@ export function options(): z.infer<typeof schemas.dcs.options> {
       controlsIndicator: true,
       units: 'imperial',
       userMarks: true,
-      labels: 0
+      labels: LABEL_VALUES[cheats?.labels ?? 'none']
     },
     VR: {
       handOffsetZ: 0,

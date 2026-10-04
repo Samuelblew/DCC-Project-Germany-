@@ -1,9 +1,8 @@
 import { schemas, config } from '@dcc/contracts'
-import { samTemplates } from '@dcc/data'
+import { findGermanyIadsSite, getSamSitePosition, samTemplates } from '@dcc/data'
 import * as z from 'zod'
 import { FlightGroup } from './flight-group'
 import { calculateDistance } from '../utils/calculate-distance'
-import { getObjectivePosition } from '../utils/get-objective-position'
 import { buildDeadMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
 import { logCombatAction } from '../simulation-log'
 import { maybeCreateDownedPilotFromAircraftLoss } from '../systems/downed-pilots'
@@ -93,13 +92,19 @@ export class DeadFlightGroup extends FlightGroup {
     const samGroup = enemy.samGroups.find((s) => s.id === this._data.target?.id)
     const ewrGroup = enemy.ewrGroups?.find((ewr) => ewr.id === this._data.target?.id)
 
-    if (!samGroup && !ewrGroup) {
+    const site = this._data.target ? findGermanyIadsSite(this._data.target.id) : undefined
+
+    if (!samGroup && !ewrGroup && !site) {
       return
     }
 
     const emitterPosition = samGroup
-      ? getObjectivePosition(theatre, samGroup.objectiveId)
-      : ewrGroup?.position
+      ? getSamSitePosition(theatre, samGroup.objectiveId)
+      : ewrGroup
+        ? ewrGroup.position
+        : site
+          ? { x: site.x, y: site.y }
+          : undefined
     if (!emitterPosition) {
       return
     }
@@ -109,13 +114,14 @@ export class DeadFlightGroup extends FlightGroup {
       return
     }
 
-    const emitterType = samGroup?.type ?? ewrGroup!.type
-    const emitterObjectiveId = samGroup?.objectiveId ?? ewrGroup!.objectiveId
+    const emitterType = samGroup?.type ?? ewrGroup?.type ?? site?.campaignType ?? site?.id ?? 'SAM'
+    const emitterObjectiveId =
+      samGroup?.objectiveId ?? ewrGroup?.objectiveId ?? site?.objectiveId ?? ''
     const distanceToEmitter = calculateDistance(this._data.position, emitterPosition)
 
-    // DEAD attacks SAMs at standoff range and approaches dedicated EWR sites closely enough to
-    // identify and destroy the radar installation.
-    const attackRange = samTemplate ? samTemplate.range * 1.2 : EWR_ATTACK_RANGE_METERS
+    const attackRange = samTemplate
+      ? samTemplate.range * 1.2
+      : (site?.range ?? EWR_ATTACK_RANGE_METERS) * (site?.kind === 'sam' ? 1.2 : 1)
     const isInRange = distanceToEmitter <= attackRange
 
     if (isInRange) {

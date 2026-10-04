@@ -3,6 +3,7 @@ import { aircrafts } from '@dcc/data'
 import { ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
+import { resolveAiSkill } from './ai-skill'
 import { AWACS_FREQUENCY } from './radio-plan'
 
 // Build lookup map once
@@ -230,7 +231,11 @@ export function addAwacsGroups(
         gun: 100
       },
       livery_id: 'default',
-      skill: 'High',
+      skill: resolveAiSkill(
+        campaign,
+        coalition.missionCoalitionKey === 'red' ? 'opponent' : 'player',
+        'High'
+      ),
       speed: cruiseSpeed,
       type: aircraftDef.name,
       unitId: unitId,

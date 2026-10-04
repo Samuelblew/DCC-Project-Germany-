@@ -1,6 +1,8 @@
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
+import { resolveAiSkill } from './ai-skill'
+
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Mission = z.infer<typeof schemas.dcs.mission>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -62,7 +64,7 @@ function addOpponentEwrGroups(mission: Mission, campaign: Campaign) {
           y: ewr.position.y,
           type: ewr.type,
           heading: 0,
-          skill: 'High'
+          skill: resolveAiSkill(campaign, 'opponent', 'High')
         }
       ],
       x: ewr.position.x,

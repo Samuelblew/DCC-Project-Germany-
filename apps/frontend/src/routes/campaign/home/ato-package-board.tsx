@@ -20,7 +20,7 @@ function formatTime(date: Date | string) {
 }
 
 function getPackageTone(missionPackage: MissionPackage) {
-  if ((missionPackage.priority ?? 0) >= 70) return 'border-cyan-400/30 bg-cyan-500/10'
+  if ((missionPackage.priority ?? 0) >= 70) return 'border-amber-400/30 bg-amber-500/10'
   if ((missionPackage.priority ?? 0) >= 55) return 'border-amber-300/30 bg-amber-300/10'
   return 'border-synthwave-pink/18 bg-synthwave-pink/[0.055]'
 }
@@ -91,7 +91,7 @@ export function AtoPackageBoard() {
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="flex items-center justify-end gap-1 text-xs text-cyan-300">
+                    <div className="flex items-center justify-end gap-1 text-xs text-amber-300">
                       <Clock className="h-3 w-3" />
                       <span>{formatTime(missionPackage.tot)}</span>
                     </div>

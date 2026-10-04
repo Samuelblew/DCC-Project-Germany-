@@ -7,10 +7,21 @@ import {
   recoverCasualtyPoint
 } from '@dcc/campaign'
 import { schemas } from '@dcc/contracts'
-import { samTemplates, scenarios, theatres } from '@dcc/data'
+import {
+  campaignIadsEra,
+  germanyIadsControllingCoalition,
+  germanyIadsOwnersFromObjectives,
+  germanyIadsSamGroupName,
+  getGermanyIadsSites,
+  isGermanyIadsTheatre,
+  samTemplates,
+  scenarios,
+  theatres
+} from '@dcc/data'
 import * as z from 'zod'
 
 import { FlightGroup } from '@/logic/entities/flight-group'
+import { logCombatAction } from '@/logic/simulation-log'
 import { updatePackages } from '@/logic/systems/update-packages'
 import { syncDownedPilotsFromMissionState } from '@/logic/systems/downed-pilots'
 
@@ -54,6 +65,72 @@ function getGeneratedUnitIndex(unitName: string): number | null {
 function getGeneratedGroundGroupId(name: string): string | null {
   const match = name.match(/^Ground-(.+)-\d+(?:-\d+)?$/)
   return match?.[1] ?? null
+}
+
+function syncGermanySamLosses(
+  draft: Campaign,
+  theatre: z.infer<typeof schemas.theatre> | undefined,
+  lostUnits: MissionState['lostUnits'],
+  groupPositions: MissionState['groupPositions']
+) {
+  if (!theatre || !isGermanyIadsTheatre(theatre.name)) return
+
+  const aliveUnitNames = new Set<string>()
+  for (const side of [groupPositions?.blue?.ground, groupPositions?.red?.ground]) {
+    for (const group of side ?? []) {
+      for (const unit of group.units) aliveUnitNames.add(unit.name)
+    }
+  }
+
+  const lostNames = new Set(lostUnits.map((unit) => unit.name))
+  const lostGroups = new Set(lostUnits.flatMap((unit) => (unit.groupName ? [unit.groupName] : [])))
+  const deadUnits = { ...(draft.germanyIadsDeadUnits ?? {}) }
+  const owners = germanyIadsOwnersFromObjectives(
+    theatre.objectives,
+    draft.coalitions.player.objectiveIds,
+    draft.coalitions.opponent.objectiveIds
+  )
+  let changed = false
+
+  for (const site of getGermanyIadsSites(campaignIadsEra(draft))) {
+    if (site.kind !== 'sam' || site.units.length === 0) continue
+
+    const previous = new Set(deadUnits[site.id] ?? [])
+    const next = new Set(previous)
+    const living = site.units.filter((unit) => !previous.has(unit.name))
+    const groupNames = [
+      site.id,
+      germanyIadsSamGroupName(site, 'player'),
+      germanyIadsSamGroupName(site, 'opponent')
+    ]
+
+    if (living.some((unit) => aliveUnitNames.has(unit.name))) {
+      for (const unit of living) {
+        if (!aliveUnitNames.has(unit.name)) next.add(unit.name)
+      }
+    } else if (
+      groupNames.some((name) => lostGroups.has(name)) ||
+      living.some((unit) => lostNames.has(unit.name))
+    ) {
+      for (const unit of living) next.add(unit.name)
+    }
+
+    if (next.size === previous.size) continue
+
+    changed = true
+    deadUnits[site.id] = [...next]
+    const destroyed = site.units.every((unit) => next.has(unit.name))
+    const wasDestroyed = site.units.every((unit) => previous.has(unit.name))
+    if (destroyed && !wasDestroyed) {
+      logCombatAction(
+        draft,
+        germanyIadsControllingCoalition(site, owners),
+        `SAM ${site.id} destroyed`
+      )
+    }
+  }
+
+  if (changed) draft.germanyIadsDeadUnits = deadUnits
 }
 
 function addLostSamUnitIndex(
@@ -542,6 +619,7 @@ export function applyMissionStateUpdate(campaign: Campaign, missionState: Missio
     const theatre = scenario
       ? theatres.find((entry) => entry.name === scenario.theatreName)
       : undefined
+    syncGermanySamLosses(draft, theatre, lostUnits, groupPositions)
     for (const coalition of ['player', 'opponent'] as const) {
       for (const group of [...draft.coalitions[coalition].groundGroups]) {
         const previousInfantry = infantryBefore.get(`${coalition}:${group.id}`) ?? 0

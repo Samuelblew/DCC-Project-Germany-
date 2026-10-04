@@ -1,16 +1,18 @@
 import { schemas } from '@dcc/contracts'
 import { advanceFalklandsCampaign } from '@dcc/campaign'
-import { theatres } from '@dcc/data'
+import { scenarios, theatres } from '@dcc/data'
 import * as z from 'zod'
 
 import { debugLog } from '@/lib/debug'
 import { logCampaignAction } from '@/logic/simulation-log'
+import { updateCareer } from '@/logic/career/career'
 
 import { updateCampaignGoal } from './systems/campaign-goal'
 import { removeDestroyedStructures } from './systems/remove-destroyed-structures'
 import { spawn } from './systems/spawn'
+import { updateEscalation } from './systems/update-escalation'
 import { updateFlightGroups } from './systems/update-flight-groups'
-import { updateGroundGroups } from './systems/update-ground-groups'
+import { resolveFieldEngagements, updateGroundGroups } from './systems/update-ground-groups'
 import { updatePackages } from './systems/update-packages'
 import { updateResources } from './systems/update-resources'
 import { updateSupply } from './systems/update-supply'
@@ -27,8 +29,8 @@ function forEachActiveCoalition(callback: (coalition: Coalition) => void) {
   }
 }
 
-function isCampaignActive(draft: Campaign) {
-  return (draft.status ?? 'active') === 'active'
+function isCampaignHalted(draft: Campaign) {
+  return draft.status === 'lost'
 }
 
 function updateFalklandsCampaign(draft: Campaign) {
@@ -40,7 +42,7 @@ function updateFalklandsCampaign(draft: Campaign) {
 }
 
 export function applyFastTick(draft: Campaign, delta: number) {
-  if (!isCampaignActive(draft)) return
+  if (isCampaignHalted(draft)) return
 
   debugLog('fast tick', draft.time)
 
@@ -55,15 +57,25 @@ export function applyFastTick(draft: Campaign, delta: number) {
   updateCampaignGoal(draft)
 }
 
+function updateCareerUpkeep(draft: Campaign) {
+  if (!draft.career) return
+  const scenario = scenarios.find((entry) => entry.id === draft.scenarioId)
+  const theatre = theatres.find((entry) => entry.name === scenario?.theatreName)
+  if (theatre) updateCareer(draft, theatre)
+}
+
 export function applyLogicTick(draft: Campaign, delta: number) {
-  if (!isCampaignActive(draft)) return
+  if (isCampaignHalted(draft)) return
 
   forEachActiveCoalition((coalition) => updateResources(draft, coalition))
   forEachActiveCoalition((coalition) => updateSupply(draft, coalition, delta))
   forEachActiveCoalition((coalition) =>
     updateGroundGroups(draft, coalition, delta, { move: false })
   )
+  resolveFieldEngagements(draft, delta)
+  updateEscalation(draft)
   forEachActiveCoalition((coalition) => spawn(draft, coalition))
+  updateCareerUpkeep(draft)
   updateFalklandsCampaign(draft)
   updateCampaignGoal(draft)
 }

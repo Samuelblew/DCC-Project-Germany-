@@ -332,6 +332,108 @@ export function buildCapMissionWaypoints(
   ]
 }
 
+export function buildFighterSweepMissionWaypoints(
+  homeBasePosition: Position,
+  conflictPosition: Position
+): Waypoint[] {
+  const dx = conflictPosition.x - homeBasePosition.x
+  const dy = conflictPosition.y - homeBasePosition.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  const ux = distance > 0 ? dx / distance : 1
+  const uy = distance > 0 ? dy / distance : 0
+  const px = -uy
+  const py = ux
+  const pushDistance = Math.min(40_000, Math.max(15_000, distance * 0.4))
+
+  return [
+    {
+      name: 'Push',
+      position: {
+        x: conflictPosition.x - ux * pushDistance,
+        y: conflictPosition.y - uy * pushDistance
+      },
+      altitude: 7500,
+      speed: 240,
+      type: 'Nav'
+    },
+    {
+      name: 'Sweep',
+      position: conflictPosition,
+      altitude: 8000,
+      altitudeType: 'BARO',
+      speed: 250,
+      type: 'Task'
+    },
+    {
+      name: 'Sweep Turn',
+      position: {
+        x: conflictPosition.x + ux * 20_000 + px * 20_000,
+        y: conflictPosition.y + uy * 20_000 + py * 20_000
+      },
+      altitude: 8000,
+      speed: 250,
+      type: 'Nav'
+    },
+    {
+      name: 'Egress',
+      position: {
+        x: conflictPosition.x - ux * pushDistance - px * 15_000,
+        y: conflictPosition.y - uy * pushDistance - py * 15_000
+      },
+      altitude: 7500,
+      speed: 240,
+      type: 'Nav'
+    }
+  ]
+}
+
+/**
+ * A loop of practice legs on the friendly side of the home base, with varied altitudes.
+ */
+export function buildTrainingMissionWaypoints(
+  homeBasePosition: Position,
+  awayFromEnemy: { x: number; y: number },
+  routeRadius: number,
+  isHelicopter = false,
+  rotation = Math.random() * Math.PI * 2
+): Waypoint[] {
+  const length = Math.hypot(awayFromEnemy.x, awayFromEnemy.y)
+  const ux = length > 0 ? awayFromEnemy.x / length : 1
+  const uy = length > 0 ? awayFromEnemy.y / length : 0
+  const radius = isHelicopter ? routeRadius * 0.4 : routeRadius
+  const center = {
+    x: homeBasePosition.x + ux * radius,
+    y: homeBasePosition.y + uy * radius
+  }
+  const legs = isHelicopter
+    ? [
+        { name: 'Training 1', altitude: 300, speed: 60 },
+        { name: 'Training 2', altitude: 600, speed: 70 },
+        { name: 'Training 3', altitude: 450, speed: 65 },
+        { name: 'Training 4', altitude: 150, speed: 55 }
+      ]
+    : [
+        { name: 'Training 1', altitude: 3000, speed: 220 },
+        { name: 'Training 2', altitude: 6000, speed: 240 },
+        { name: 'Training 3', altitude: 4500, speed: 230 },
+        { name: 'Training 4', altitude: 1500, speed: 200 }
+      ]
+
+  return legs.map((leg, index) => {
+    const angle = rotation + (index / legs.length) * Math.PI * 2
+    return {
+      name: leg.name,
+      position: {
+        x: center.x + Math.cos(angle) * radius * 0.8,
+        y: center.y + Math.sin(angle) * radius * 0.8
+      },
+      altitude: leg.altitude,
+      speed: leg.speed,
+      type: 'Nav' as const
+    }
+  })
+}
+
 export function buildTransportMissionWaypoints(
   homeBasePosition: Position,
   destinationPosition: Position

@@ -22,6 +22,8 @@ export const flightGroup = z.object({
   homeBase: z.string(),
   callsign: z.string(),
   spawnSource: z.enum(['automatic', 'manual']).optional(),
+  /** Planned by the career player for their own aircraft; never flown by the AI. */
+  careerMission: z.boolean().optional(),
   target: structureTarget.optional(),
   targetDestroyed: z.boolean().optional(),
   tot: z.date().optional(),

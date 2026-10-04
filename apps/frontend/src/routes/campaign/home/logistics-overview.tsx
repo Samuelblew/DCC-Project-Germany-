@@ -26,7 +26,7 @@ function formatPercent(value: number) {
 function getTone(value: number) {
   if (value <= 0.15) return 'text-red-300'
   if (value <= 0.35) return 'text-amber-300'
-  return 'text-cyan-300'
+  return 'text-amber-300'
 }
 
 function getBarColor(value: number) {
@@ -169,13 +169,13 @@ export function LogisticsOverview() {
       <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-wide">
         <div className="rounded border border-synthwave-pink/12 bg-black/18 px-2 py-1.5">
           <div className="text-secondary/55">Interdicted</div>
-          <div className={summary.disruptedRoutes > 0 ? 'text-amber-300' : 'text-cyan-300'}>
+          <div className={summary.disruptedRoutes > 0 ? 'text-amber-300' : 'text-amber-300'}>
             {summary.disruptedRoutes} routes
           </div>
         </div>
         <div className="rounded border border-synthwave-pink/12 bg-black/18 px-2 py-1.5">
           <div className="text-secondary/55">Recovering</div>
-          <div className={summary.recoveringNodes > 0 ? 'text-amber-300' : 'text-cyan-300'}>
+          <div className={summary.recoveringNodes > 0 ? 'text-amber-300' : 'text-amber-300'}>
             {summary.recoveringNodes} bases
           </div>
         </div>

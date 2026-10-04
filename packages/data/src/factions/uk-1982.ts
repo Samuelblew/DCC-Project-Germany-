@@ -30,6 +30,7 @@ export const Uk1982: z.infer<typeof schemas.faction> = {
     Refueling: [],
     RescueHelo: ['UH-1H'],
     AFAC: [],
-    Intercept: ['AV8BNA']
+    Intercept: ['AV8BNA'],
+    Training: []
   }
 }

@@ -2,11 +2,13 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { useSelector } from '@xstate/store/react'
 import { activeStore } from '@/stores/active'
+import { uiStore } from '@/stores/ui'
 import { useQuery } from '@tanstack/react-query'
 import { orpc } from '@/lib/orpc'
 import { memo, useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import * as z from 'zod'
 import { schemas } from '@dcc/contracts'
+import { getCareerAircraft } from '@dcc/data'
 import MaplibreMap, {
   Marker as MaplibreMarker,
   Source,
@@ -17,7 +19,7 @@ import MaplibreMap, {
 } from 'react-map-gl/maplibre'
 import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
-import { RotateCcw, Star } from 'lucide-react'
+import { Plane, RotateCcw, Star } from 'lucide-react'
 import MilSymbol from 'milsymbol'
 import * as turf from '@turf/turf'
 import { getMilSymbolCode } from './unit-code'
@@ -25,7 +27,14 @@ import { type ObjectiveMarker as ObjectiveMarkerType, useMapItems } from './use-
 import { cn } from '@/lib/utils'
 import { DetailsCard } from './details-card'
 import { CAUCASUS_DETAIL_MAX_ZOOM, offlineCaucasusMapStyle } from './offline-map-style'
-import { tryDcsPositionToLngLat } from '@/logic/dcs-coordinates'
+import {
+  longRangeSamMinRangeMeters,
+  resolveAircraftCullingRadiusMeters,
+  resolveCullingRadiusMeters,
+  resolveSamCullingRadiusMeters
+} from '@dcc/contracts'
+import { tryDcsPositionToLngLat, tryLngLatToDcsPosition } from '@/logic/dcs-coordinates'
+import { isEditableWaypoint, isFlightRouteEditable } from '@/stores/active'
 
 const globalWithPmtiles = globalThis as typeof globalThis & {
   __dccPmtilesProtocol?: Protocol
@@ -51,10 +60,11 @@ const Marker = memo(function Marker({
     return symbol.asSVG()
   }, [item])
 
-  const isPersistentCommandAsset = item.type === 'Airdrome' || item.type === 'Naval Group'
+  const isPersistentCommandAsset =
+    item.type === 'Airdrome' || item.type === 'Naval Group' || item.type === 'GCI'
   const showTitleCard = isPersistentCommandAsset || isSelected
   const isInactive = 'active' in item && item.active === false
-  const coalitionColor = item.coalition === 'player' ? 'var(--synthwave-cyan)' : 'var(--enemy-red)'
+  const coalitionColor = item.coalition === 'player' ? 'var(--friendly-blue)' : 'var(--enemy-red)'
 
   return (
     <MaplibreMarker
@@ -108,6 +118,31 @@ const Marker = memo(function Marker({
   )
 })
 
+/** Yellow pin over each airfield where the career aircraft are parked, labelled by type and tail. */
+const CareerBaseMarker = memo(function CareerBaseMarker({
+  base
+}: {
+  base: { name: string; lng: number; lat: number; tails: string[]; flying: boolean }
+}) {
+  return (
+    <MaplibreMarker longitude={base.lng} latitude={base.lat} anchor="bottom" style={{ zIndex: 50 }}>
+      <div
+        className="pointer-events-none flex -translate-y-4 flex-col items-center"
+        title={base.name}
+      >
+        <div className="flex items-center gap-1 rounded-full border-2 border-[#f5d020] bg-black/80 px-2 py-0.5 text-[11px] font-bold text-[#f5d020] shadow-[0_0_12px_rgba(245,208,32,0.55)]">
+          <Plane className="h-3.5 w-3.5" fill="#f5d020" />
+          {base.tails.join(' · ')}
+          {base.flying ? (
+            <span className="text-[9px] font-semibold opacity-80">· SORTIE</span>
+          ) : null}
+        </div>
+        <div className="h-2.5 w-0.5 bg-[#f5d020]" />
+      </div>
+    </MaplibreMarker>
+  )
+})
+
 const ObjectiveCircleMarker = memo(function ObjectiveCircleMarker({
   marker,
   onClick,
@@ -117,8 +152,8 @@ const ObjectiveCircleMarker = memo(function ObjectiveCircleMarker({
   onClick: () => void
   isSelected: boolean
 }) {
-  const color = marker.coalition === 'player' ? 'var(--synthwave-cyan)' : 'var(--enemy-red)'
-  const showTitleCard = marker.isGoal || isSelected
+  const color = marker.coalition === 'player' ? 'var(--friendly-blue)' : 'var(--enemy-red)'
+  const showTitleCard = marker.isGoal || marker.labeled || isSelected
 
   return (
     <MaplibreMarker
@@ -306,11 +341,113 @@ const WaypointLabelMarker = memo(function WaypointLabelMarker({
       style={{ zIndex: 30 }}
     >
       <div
-        className="pointer-events-none relative z-30 rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40 shadow-[0_0_8px_rgba(255,0,170,0.35)]"
+        className="pointer-events-none relative z-30 rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40 shadow-[0_0_8px_rgba(217,68,58,0.35)]"
         style={{ transform: 'translateY(5px)' }}
       >
         {waypoint.name}
       </div>
+    </MaplibreMarker>
+  )
+})
+
+type RouteDragPreview = {
+  kind: 'move' | 'insert'
+  index: number
+  lng: number
+  lat: number
+}
+
+const EditableWaypointMarker = memo(function EditableWaypointMarker({
+  waypoint,
+  index,
+  lngLat,
+  onDrag,
+  onDragEnd,
+  onRemove
+}: {
+  waypoint: z.infer<typeof schemas.waypoint>
+  index: number
+  lngLat: { lng: number; lat: number }
+  onDrag: (preview: RouteDragPreview) => void
+  onDragEnd: (preview: RouteDragPreview) => void
+  onRemove: (index: number) => void
+}) {
+  const removable = waypoint.type === 'Nav'
+  return (
+    <MaplibreMarker
+      longitude={lngLat.lng}
+      latitude={lngLat.lat}
+      anchor="center"
+      draggable
+      style={{ zIndex: 50 }}
+      onDrag={(event) =>
+        onDrag({ kind: 'move', index, lng: event.lngLat.lng, lat: event.lngLat.lat })
+      }
+      onDragEnd={(event) =>
+        onDragEnd({ kind: 'move', index, lng: event.lngLat.lng, lat: event.lngLat.lat })
+      }
+    >
+      <div
+        className="group relative flex cursor-move flex-col items-center"
+        title={
+          removable
+            ? `${waypoint.name}: drag to move, right-click to delete`
+            : `${waypoint.name}: drag to move`
+        }
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (removable) onRemove(index)
+        }}
+      >
+        <span className="block h-3.5 w-3.5 rounded-full border-2 border-synthwave-pink bg-synthwave-dark shadow-[0_0_8px_rgba(217,68,58,0.6)] transition-transform group-hover:scale-125" />
+        <span className="pointer-events-none absolute top-4 whitespace-nowrap rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40">
+          {waypoint.name}
+        </span>
+      </div>
+    </MaplibreMarker>
+  )
+})
+
+const RouteInsertHandle = memo(function RouteInsertHandle({
+  afterIndex,
+  lngLat,
+  onDrag,
+  onDragEnd
+}: {
+  afterIndex: number
+  lngLat: { lng: number; lat: number }
+  onDrag: (preview: RouteDragPreview) => void
+  onDragEnd: (preview: RouteDragPreview) => void
+}) {
+  return (
+    <MaplibreMarker
+      longitude={lngLat.lng}
+      latitude={lngLat.lat}
+      anchor="center"
+      draggable
+      style={{ zIndex: 45 }}
+      onDrag={(event) =>
+        onDrag({
+          kind: 'insert',
+          index: afterIndex,
+          lng: event.lngLat.lng,
+          lat: event.lngLat.lat
+        })
+      }
+      onDragEnd={(event) =>
+        onDragEnd({
+          kind: 'insert',
+          index: afterIndex,
+          lng: event.lngLat.lng,
+          lat: event.lngLat.lat
+        })
+      }
+    >
+      <span
+        className="block h-2.5 w-2.5 cursor-copy rounded-full border border-synthwave-pink/80 bg-synthwave-pink/30 opacity-70 hover:opacity-100"
+        title="Drag to add a waypoint here"
+      />
     </MaplibreMarker>
   )
 })
@@ -371,6 +508,26 @@ const GroundGroupPathOverlay = memo(function GroundGroupPathOverlay({
   )
 })
 
+/**
+ * Buffers a route area into a culling corridor. turf's buffer can leave interior rings at large
+ * radii; a corridor never has holes, so they are dropped.
+ */
+function bufferCorridor(
+  area:
+    | ReturnType<typeof turf.point>
+    | ReturnType<typeof turf.lineString>
+    | ReturnType<typeof turf.polygon>,
+  radiusKm: number
+) {
+  const corridor = turf.buffer(area, radiusKm, { units: 'kilometers', steps: 24 })
+  if (!corridor) return null
+  const geometry = corridor.geometry
+  // A route area is convex, so its buffer is one polygon; keep only that polygon's outer ring.
+  const outerRing =
+    geometry.type === 'Polygon' ? geometry.coordinates[0] : geometry.coordinates[0]?.[0]
+  return outerRing ? turf.polygon([outerRing]) : null
+}
+
 export function Map({
   selectedItem,
   previewItem,
@@ -428,6 +585,148 @@ export function Map({
   const { mapItems, objectiveMarkers, frontline, flightGroups } = useMapItems({
     showGoalMarkers
   })
+  const mapLayers = useSelector(uiStore, (state) => state.context.mapLayers)
+  const careerAirframes = useSelector(activeStore, (state) => state.context.career?.airframes)
+  const careerBases = useMemo(() => {
+    const theatre = theatreQuery.data
+    if (!careerAirframes || !theatre) return []
+    const byBase = new globalThis.Map<string, { tails: string[]; flying: boolean }>()
+    for (const airframe of careerAirframes) {
+      if (airframe.status === 'destroyed') continue
+      const entry = byBase.get(airframe.location) ?? { tails: [], flying: false }
+      const type = getCareerAircraft(airframe.aircraftName)?.shortName ?? airframe.aircraftName
+      entry.tails.push(
+        `${type} #${airframe.tailNumber}${airframe.status === 'delivering' ? ' (delivery)' : ''}`
+      )
+      entry.flying ||= airframe.status === 'flying'
+      byBase.set(airframe.location, entry)
+    }
+    return [...byBase].flatMap(([name, info]) => {
+      const airdrome = theatre.airdromeDetails[name]
+      const lngLat = airdrome ? tryDcsPositionToLngLat(theatre.name, airdrome.x, airdrome.y) : null
+      return lngLat ? [{ name, lng: lngLat.lng, lat: lngLat.lat, ...info }] : []
+    })
+  }, [careerAirframes, theatreQuery.data])
+  const campaign = useSelector(activeStore, (state) => state.context)
+  const selectedPlayerFlight = useMemo(() => {
+    if (!selectedItem || !('id' in selectedItem)) return null
+    return (
+      campaign.coalitions.player.flightGroups.find((group) => group.id === selectedItem.id) ?? null
+    )
+  }, [campaign, selectedItem])
+  const routeArea = useMemo(() => {
+    if (!selectedPlayerFlight || theatreQuery.data == null) return null
+    const coordinates: Array<[number, number]> = []
+    for (const waypoint of selectedPlayerFlight.flightplan.waypoints) {
+      const latLng = tryDcsPositionToLngLat(
+        theatreQuery.data!.name,
+        waypoint.position.x,
+        waypoint.position.y
+      )
+      if (!latLng) continue
+      const point: [number, number] = [latLng.lng, latLng.lat]
+      const previous = coordinates[coordinates.length - 1]
+      if (previous && previous[0] === point[0] && previous[1] === point[1]) continue
+      coordinates.push(point)
+    }
+    if (coordinates.length === 0) return null
+    if (coordinates.length === 1) return turf.point(coordinates[0]!)
+    // Mirrors mission culling: the route covers its convex hull, so a loop out and back to the base
+    // includes everything inside it rather than only a band along its legs.
+    return (
+      turf.convex(turf.featureCollection(coordinates.map((point) => turf.point(point)))) ??
+      turf.lineString(coordinates)
+    )
+  }, [selectedPlayerFlight, theatreQuery.data])
+  const routeCorridor = useMemo(() => {
+    if (!routeArea) return null
+    const radiusKm = resolveCullingRadiusMeters(campaign.campaignParams?.cullingRadius) / 1000
+    return bufferCorridor(routeArea, radiusKm)
+  }, [campaign.campaignParams?.cullingRadius, routeArea])
+  const aircraftCorridor = useMemo(() => {
+    if (!routeArea) return null
+    const radiusKm =
+      resolveAircraftCullingRadiusMeters(campaign.campaignParams?.cullingAircraftRadius) / 1000
+    return bufferCorridor(routeArea, radiusKm)
+  }, [campaign.campaignParams?.cullingAircraftRadius, routeArea])
+  const samCorridor = useMemo(() => {
+    if (!routeArea) return null
+    const radiusKm = resolveSamCullingRadiusMeters(campaign.campaignParams?.cullingSamRadius) / 1000
+    return bufferCorridor(routeArea, radiusKm)
+  }, [campaign.campaignParams?.cullingSamRadius, routeArea])
+  const insideSamCorridor = useCallback(
+    (lng: number, lat: number) => {
+      if (!samCorridor) return true
+      return turf.booleanPointInPolygon(turf.point([lng, lat]), samCorridor)
+    },
+    [samCorridor]
+  )
+  const insideRouteCorridor = useCallback(
+    (lng: number, lat: number) => {
+      if (!routeCorridor) return true
+      return turf.booleanPointInPolygon(turf.point([lng, lat]), routeCorridor)
+    },
+    [routeCorridor]
+  )
+  const insideAircraftCorridor = useCallback(
+    (lng: number, lat: number) => {
+      if (!aircraftCorridor) return true
+      return turf.booleanPointInPolygon(turf.point([lng, lat]), aircraftCorridor)
+    },
+    [aircraftCorridor]
+  )
+  const visibleMapItems = useMemo(
+    () =>
+      mapItems.filter((item) => {
+        if (routeCorridor && item.id !== selectedPlayerFlight?.id) {
+          // Mirrors mission culling: aircraft, long-range SAMs and everything else each have a band.
+          const inside =
+            item.type === 'Flight Group'
+              ? insideAircraftCorridor(item.position.lng, item.position.lat)
+              : item.type === 'SAM' && item.range >= longRangeSamMinRangeMeters
+                ? insideSamCorridor(item.position.lng, item.position.lat)
+                : insideRouteCorridor(item.position.lng, item.position.lat)
+          if (!inside) return false
+        }
+        switch (item.type) {
+          case 'Airdrome':
+            return mapLayers.airdromes
+          case 'Flight Group':
+            return mapLayers.flights
+          case 'Ground Group':
+            return mapLayers.ground
+          case 'Structure':
+            return mapLayers.structures
+          case 'SAM':
+            return mapLayers.sam
+          case 'EWR':
+            return mapLayers.ewr
+          case 'GCI':
+            return mapLayers.gci !== false
+          default:
+            return true
+        }
+      }),
+    [
+      insideAircraftCorridor,
+      insideRouteCorridor,
+      insideSamCorridor,
+      mapItems,
+      mapLayers,
+      routeCorridor,
+      selectedPlayerFlight?.id
+    ]
+  )
+  const visibleObjectiveMarkers = useMemo(
+    () =>
+      objectiveMarkers.filter(
+        (marker) =>
+          (marker.isGoal || mapLayers.towns) &&
+          insideRouteCorridor(marker.position.lng, marker.position.lat)
+      ),
+    [insideRouteCorridor, mapLayers.towns, objectiveMarkers]
+  )
+  const showSamRange = mapLayers.sam && mapLayers.samRange
 
   const measureSegments = useMemo<MeasureSegment[]>(() => {
     const segments: MeasureSegment[] = []
@@ -516,7 +815,80 @@ export function Map({
     return null
   }, [livePreviewItem, liveSelectedItem])
 
-  const campaign = useSelector(activeStore, (state) => state.context)
+  const [routeDragPreview, setRouteDragPreview] = useState<RouteDragPreview | null>(null)
+  const [routeRevision, setRouteRevision] = useState(0)
+  const editableFlight = useMemo(() => {
+    if (!flightPlanDisplayItem || !selectedPlayerFlight) return null
+    if (flightPlanDisplayItem.id !== selectedPlayerFlight.id) return null
+    return isFlightRouteEditable(selectedPlayerFlight, campaign.time) ? selectedPlayerFlight : null
+  }, [campaign.time, flightPlanDisplayItem, selectedPlayerFlight])
+  const displayedFlightplan = useMemo(() => {
+    if (!flightPlanDisplayItem) return null
+    const flightplan = flightPlanDisplayItem.flightplan
+    if (!routeDragPreview || !editableFlight || !theatreQuery.data) return flightplan
+    const position = tryLngLatToDcsPosition(
+      theatreQuery.data.name,
+      routeDragPreview.lng,
+      routeDragPreview.lat
+    )
+    if (!position) return flightplan
+    const waypoints = [...flightplan.waypoints]
+    if (routeDragPreview.kind === 'move') {
+      const waypoint = waypoints[routeDragPreview.index]
+      if (!waypoint) return flightplan
+      waypoints[routeDragPreview.index] = { ...waypoint, position }
+    } else {
+      const previous = waypoints[routeDragPreview.index]
+      if (!previous) return flightplan
+      waypoints.splice(routeDragPreview.index + 1, 0, {
+        ...previous,
+        name: 'Nav',
+        type: 'Nav',
+        position
+      })
+    }
+    return { ...flightplan, waypoints }
+  }, [editableFlight, flightPlanDisplayItem, routeDragPreview, theatreQuery.data])
+  const handleRouteDragEnd = useCallback(
+    (preview: RouteDragPreview) => {
+      setRouteDragPreview(null)
+      setRouteRevision((revision) => revision + 1)
+      if (!editableFlight || !theatreQuery.data) return
+      const position = tryLngLatToDcsPosition(theatreQuery.data.name, preview.lng, preview.lat)
+      if (!position) return
+      if (preview.kind === 'move') {
+        activeStore.send({
+          type: 'moveWaypoint',
+          flightGroupId: editableFlight.id,
+          index: preview.index,
+          position
+        })
+      } else {
+        activeStore.send({
+          type: 'insertWaypoint',
+          flightGroupId: editableFlight.id,
+          afterIndex: preview.index,
+          position
+        })
+      }
+    },
+    [editableFlight, theatreQuery.data]
+  )
+  const handleRemoveWaypoint = useCallback(
+    (index: number) => {
+      if (!editableFlight) return
+      activeStore.send({ type: 'removeWaypoint', flightGroupId: editableFlight.id, index })
+    },
+    [editableFlight]
+  )
+  const editableWaypointPositions = useMemo(() => {
+    if (!editableFlight || !theatreQuery.data) return []
+    const theatreName = theatreQuery.data.name
+    return editableFlight.flightplan.waypoints.map((waypoint) =>
+      tryDcsPositionToLngLat(theatreName, waypoint.position.x, waypoint.position.y)
+    )
+  }, [editableFlight, theatreQuery.data])
+
   const showDeploymentOverlay =
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('deployment-overlay')
   const deploymentOverlay = useMemo(() => {
@@ -645,7 +1017,9 @@ export function Map({
   const samRangeGeoJson = useMemo(() => {
     const features: GeoJSON.Feature<GeoJSON.Polygon>[] = []
 
-    for (const item of mapItems) {
+    if (!showSamRange) return turf.featureCollection(features)
+
+    for (const item of visibleMapItems) {
       if (item.type !== 'SAM') continue
       if (!item.active) continue
 
@@ -666,7 +1040,7 @@ export function Map({
     }
 
     return turf.featureCollection(features)
-  }, [mapItems])
+  }, [showSamRange, visibleMapItems])
 
   // Only show the map if the view state is available
   if (initialViewState == null) return null
@@ -685,9 +1059,9 @@ export function Map({
         maxZoom={CAUCASUS_DETAIL_MAX_ZOOM}
         onClick={handleMapClick}
       >
-        {flightPlanDisplayItem && theatreQuery.data && (
+        {displayedFlightplan && theatreQuery.data && (
           <FlightPlanOverlay
-            flightplan={flightPlanDisplayItem.flightplan}
+            flightplan={displayedFlightplan}
             theatreName={theatreQuery.data.name}
           />
         )}
@@ -700,13 +1074,44 @@ export function Map({
         )}
         {flightPlanDisplayItem && theatreQuery.data && (
           <>
-            {flightPlanDisplayItem.flightplan.waypoints.map((waypoint, index) => (
-              <WaypointLabelMarker
-                key={`${waypoint.name}-${index}`}
-                waypoint={waypoint}
-                theatreName={theatreQuery.data.name}
-              />
-            ))}
+            {flightPlanDisplayItem.flightplan.waypoints.map((waypoint, index) => {
+              const lngLat = editableWaypointPositions[index]
+              if (editableFlight && lngLat && isEditableWaypoint(waypoint)) {
+                return (
+                  <EditableWaypointMarker
+                    key={`edit-${routeRevision}-${index}`}
+                    waypoint={waypoint}
+                    index={index}
+                    lngLat={lngLat}
+                    onDrag={setRouteDragPreview}
+                    onDragEnd={handleRouteDragEnd}
+                    onRemove={handleRemoveWaypoint}
+                  />
+                )
+              }
+              return (
+                <WaypointLabelMarker
+                  key={`${waypoint.name}-${index}`}
+                  waypoint={waypoint}
+                  theatreName={theatreQuery.data.name}
+                />
+              )
+            })}
+            {editableFlight &&
+              !routeDragPreview &&
+              editableWaypointPositions.slice(0, -1).map((from, index) => {
+                const to = editableWaypointPositions[index + 1]
+                if (!from || !to) return null
+                return (
+                  <RouteInsertHandle
+                    key={`insert-${routeRevision}-${index}`}
+                    afterIndex={index}
+                    lngLat={{ lng: (from.lng + to.lng) / 2, lat: (from.lat + to.lat) / 2 }}
+                    onDrag={setRouteDragPreview}
+                    onDragEnd={handleRouteDragEnd}
+                  />
+                )
+              })}
           </>
         )}
         {/* SAM Range Circles - rendered first so they appear below other markers */}
@@ -758,7 +1163,59 @@ export function Map({
             />
           </Source>
         )}
-        {frontline && (
+        {samCorridor && (
+          <Source id="culling-sam-source" type="geojson" data={samCorridor}>
+            <Layer
+              id="culling-sam-fill"
+              type="fill"
+              paint={{ 'fill-color': '#d9443a', 'fill-opacity': 0.04 }}
+            />
+            <Layer
+              id="culling-sam-line"
+              type="line"
+              paint={{
+                'line-color': '#d9443a',
+                'line-width': 1.5,
+                'line-opacity': 0.75,
+                'line-dasharray': [1, 2]
+              }}
+            />
+          </Source>
+        )}
+        {aircraftCorridor && (
+          <Source id="culling-aircraft-source" type="geojson" data={aircraftCorridor}>
+            <Layer
+              id="culling-aircraft-fill"
+              type="fill"
+              paint={{ 'fill-color': '#ffb000', 'fill-opacity': 0.05 }}
+            />
+            <Layer
+              id="culling-aircraft-line"
+              type="line"
+              paint={{
+                'line-color': '#ffb000',
+                'line-width': 1.5,
+                'line-opacity': 0.7,
+                'line-dasharray': [3, 2]
+              }}
+            />
+          </Source>
+        )}
+        {routeCorridor && (
+          <Source id="culling-radius-source" type="geojson" data={routeCorridor}>
+            <Layer
+              id="culling-radius-fill"
+              type="fill"
+              paint={{ 'fill-color': '#e8b730', 'fill-opacity': 0.12 }}
+            />
+            <Layer
+              id="culling-radius-line"
+              type="line"
+              paint={{ 'line-color': '#e8b730', 'line-width': 1.5, 'line-opacity': 0.7 }}
+            />
+          </Source>
+        )}
+        {mapLayers.frontline && !routeCorridor && frontline && (
           <Source id="frontline-source" type="geojson" data={frontline}>
             <Layer
               id="frontline-player"
@@ -805,7 +1262,7 @@ export function Map({
                   ],
                   'circle-opacity': 0.85,
                   'circle-stroke-width': 2,
-                  'circle-stroke-color': '#090512'
+                  'circle-stroke-color': '#0b0a09'
                 }}
               />
               <Layer
@@ -847,7 +1304,7 @@ export function Map({
               id="measure-line-glow"
               type="line"
               paint={{
-                'line-color': '#0b0014',
+                'line-color': '#0f0e0d',
                 'line-width': 7,
                 'line-opacity': 0.75
               }}
@@ -856,7 +1313,7 @@ export function Map({
               id="measure-line"
               type="line"
               paint={{
-                'line-color': '#00ddff',
+                'line-color': '#e8b730',
                 'line-width': 3,
                 'line-dasharray': [1.5, 1.2]
               }}
@@ -896,7 +1353,7 @@ export function Map({
               </div>
             </MaplibreMarker>
           ))}
-        {mapItems.map((item) => (
+        {visibleMapItems.map((item) => (
           <Marker
             key={item.id}
             item={item}
@@ -904,13 +1361,16 @@ export function Map({
             isSelected={liveSelectedItem?.id === item.id}
           />
         ))}
-        {objectiveMarkers.map((marker) => (
+        {visibleObjectiveMarkers.map((marker) => (
           <ObjectiveCircleMarker
             key={marker.id}
             marker={marker}
             onClick={() => onSelect(marker)}
             isSelected={liveSelectedItem?.id === marker.id}
           />
+        ))}
+        {careerBases.map((base) => (
+          <CareerBaseMarker key={`career-${base.name}`} base={base} />
         ))}
       </MaplibreMap>
       <DetailsCard

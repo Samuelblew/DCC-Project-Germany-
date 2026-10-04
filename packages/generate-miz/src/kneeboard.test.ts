@@ -230,6 +230,21 @@ describe('kneeboard waypoint rows', () => {
     ])
   })
 
+  test('formats metres, km/h and kilometres for metric instruments', () => {
+    const startTime = new Date('2026-01-01T12:00:00Z')
+    const rows = buildKneeboardWaypointRows(
+      createFlightGroup('blue-client', 'Enfield-1', startTime),
+      'metric'
+    )
+
+    expect(rows[1]).toMatchObject({
+      altitude: '6,000',
+      speed: '667',
+      legDistance: '28.3',
+      totalDistance: '28.3'
+    })
+  })
+
   test('calculates bearings clockwise from north using DCS coordinates', () => {
     const startTime = new Date('2026-01-01T12:00:00Z')
     const flightGroup = createFlightGroup('blue-client', 'Enfield-1', startTime)
@@ -462,6 +477,48 @@ describe('kneeboard TACAN summaries', () => {
     expect(svg).toContain('R1 305.000 MHz')
     expect(svg).toContain('LANDING TACAN')
     expect(svg).toContain('11X HMS')
+  })
+
+  test('briefs a MiG-29 in metric units, with cockpit channel numbers and NDB instead of TACAN', async () => {
+    const startTime = new Date('2026-01-01T12:00:00Z')
+    const campaign = createCampaign(startTime)
+    const flightGroup = createFlightGroup('mig-client', 'Enfield-1', startTime)
+    flightGroup.aircrafts = flightGroup.aircrafts.map((aircraft) => ({
+      ...aircraft,
+      aircraftName: 'MiG-29 Fulcrum'
+    }))
+    flightGroup.aircrafts[0]!.client = true
+    flightGroup.homeBase = 'Cochstedt'
+    campaign.coalitions.player.flightGroups = [flightGroup]
+
+    const svg = await renderKneeboardSvg({
+      campaign,
+      theatre: { ...theatre, name: 'Cold War Germany' },
+      coalition: 'player',
+      flightGroup,
+      missionFlightConfigs: [
+        {
+          groupId: 101,
+          name: 'Enfield-1',
+          task: 'CAP',
+          unitNames: ['Enfield-1-1'],
+          frequency: 260.25,
+          radioPreset: { radio: 1, channel: 1, cockpitChannel: 0 },
+          radioChannels: [
+            { purpose: 'FLIGHT', radio: 1, channel: 1, cockpitChannel: 0, frequency: 260.25 },
+            { purpose: 'ATC', radio: 1, channel: 3, cockpitChannel: 2, frequency: 254.7 }
+          ]
+        }
+      ]
+    })
+
+    expect(svg).toContain('CH0 FLIGHT')
+    expect(svg).toContain('CH2 ATC')
+    expect(svg).toContain('ALT M')
+    expect(svg).toContain('KM/H')
+    expect(svg).toContain('HOME NDB')
+    expect(svg).toContain('950')
+    expect(svg).not.toContain('TACAN')
   })
 })
 

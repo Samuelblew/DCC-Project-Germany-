@@ -1,3 +1,57 @@
+export const cullingRadius = {
+  defaultMeters: 10_000,
+  minMeters: 5_000,
+  maxMeters: 80_000,
+  stepMeters: 5_000
+}
+
+export function resolveCullingRadiusMeters(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return cullingRadius.defaultMeters
+  return Math.min(cullingRadius.maxMeters, Math.max(cullingRadius.minMeters, value))
+}
+
+export const aircraftCullingRadius = {
+  defaultMeters: 150_000,
+  minMeters: 50_000,
+  maxMeters: 400_000,
+  stepMeters: 25_000
+}
+
+export function resolveAircraftCullingRadiusMeters(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return aircraftCullingRadius.defaultMeters
+  return Math.min(aircraftCullingRadius.maxMeters, Math.max(aircraftCullingRadius.minMeters, value))
+}
+
+/** Third culling band: long-range SAM batteries reach far past the ground corridor. */
+export const samCullingRadius = {
+  defaultMeters: 150_000,
+  minMeters: 50_000,
+  maxMeters: 300_000,
+  stepMeters: 25_000
+}
+
+/** SAMs reaching at least this far use the SAM band; shorter-range air defence stays with ground units. */
+export const longRangeSamMinRangeMeters = 20_000
+
+export function resolveSamCullingRadiusMeters(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return samCullingRadius.defaultMeters
+  return Math.min(samCullingRadius.maxMeters, Math.max(samCullingRadius.minMeters, value))
+}
+
+/**
+ * Short-range air defence outside the route band still loads (anti-air units only) when it sits
+ * this close to the band, so a battery just past its edge can still engage the player.
+ */
+export const shortRangeAirDefenseReachMeters = 15_000
+
+/** Multiplier on how many AI air packages each side keeps active. */
+export const airActivity = { default: 1, min: 0.5, max: 3, step: 0.25 }
+
+export function resolveAirActivity(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return airActivity.default
+  return Math.min(airActivity.max, Math.max(airActivity.min, value))
+}
+
 export const config = {
   packages: {
     'Pinpoint Strike': {
@@ -61,6 +115,16 @@ export const config = {
       aircraftsPerGroup: 2,
       engagementRange: 80_000, // Radar + missile range for A2A engagement
       patrolDuration: 60 * 60 * 1000 // 1 hour patrol time
+    },
+    'Fighter Sweep': {
+      maxDistance: 250_000,
+      aircraftsPerGroup: 2,
+      conflictSeparation: 25_000,
+      engagementZoneRadius: 40_000
+    },
+    Training: {
+      aircraftsPerGroup: 2,
+      routeRadius: 35_000
     },
     CSAR: {
       maxActive: {

@@ -32,6 +32,7 @@ export const persianGulf: z.infer<typeof schemas.theatre> = {
     night: {
       startHour: 19,
       endHour: 6
-    }
+    },
+    magneticVariationDegrees: 2
   }
 }

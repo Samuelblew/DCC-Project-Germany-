@@ -200,7 +200,7 @@ export function Settings() {
                         type="checkbox"
                         checked={enableDcsPersistence}
                         onChange={(event) => setEnableDcsPersistence(event.target.checked)}
-                        className="h-4 w-4 accent-cyan-400"
+                        className="h-4 w-4 accent-amber-400"
                       />
                       <span className="text-sm text-gray-200">
                         Enable MissionScripting persistence patch while app is running
@@ -220,7 +220,7 @@ export function Settings() {
                         type="checkbox"
                         checked={enableAutoUpdate}
                         onChange={(event) => setEnableAutoUpdate(event.target.checked)}
-                        className="h-4 w-4 accent-cyan-400"
+                        className="h-4 w-4 accent-amber-400"
                       />
                       <span className="text-sm text-gray-200">Enable automatic update checks</span>
                     </label>

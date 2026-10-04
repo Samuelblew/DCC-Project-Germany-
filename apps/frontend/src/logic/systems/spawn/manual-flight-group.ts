@@ -8,8 +8,10 @@ import {
   buildCasMissionWaypoints,
   buildCapMissionWaypoints,
   buildDeadMissionWaypoints,
+  buildFighterSweepMissionWaypoints,
   buildSeadMissionWaypoints,
   buildStrikeMissionWaypoints,
+  buildTrainingMissionWaypoints,
   buildTransportMissionWaypoints,
   spawnPlannedFlightGroup
 } from '../../entities/flight-group-spawn'
@@ -19,10 +21,11 @@ import { getIadsEmitterTargets } from '@/logic/iads-emitter-targets'
 import {
   getCoalitionAirdromes,
   getCoalitionCasHomeBases,
-  pickRandomAircraftType,
+  pickRandomAircraftType as pickRandomAircraftTypeFrom,
   resolveSpawnContext,
   selectCapPatrolAssignment,
-  selectHomeBaseAndTarget
+  selectHomeBaseAndTarget,
+  type AirdromeSelection
 } from './packages/common'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -67,6 +70,25 @@ type ManualSpawnPlan =
       destinationNode: string
       cargoAmount: number
     }
+  | {
+      task: 'Fighter Sweep'
+      aircraftType: AircraftName
+      homeBase: string
+      homeBasePosition: Position
+      runwayAngle?: number
+      conflictPosition: Position
+      objectiveId: string
+    }
+  | {
+      task: 'Training'
+      aircraftType: AircraftName
+      homeBase: string
+      homeBasePosition: Position
+      runwayAngle?: number
+      awayFromEnemy: { x: number; y: number }
+    }
+
+type GroundConflict = { id: string; objectiveId: string; position: Position }
 
 type SupplyNode = {
   id: string
@@ -169,16 +191,92 @@ function getNearestSupplySource(
   return nearest
 }
 
+/**
+ * Ground fights to cover, most urgent first: groups in combat, then advancing groups, then the
+ * enemy groups closest to friendly objectives.
+ */
+function getGroundConflicts(
+  draft: Campaign,
+  coalition: Coalition,
+  enemyCoalition: Coalition,
+  theatre: z.infer<typeof schemas.theatre>
+): GroundConflict[] {
+  const allGroups = [
+    ...draft.coalitions[coalition].groundGroups,
+    ...draft.coalitions[enemyCoalition].groundGroups
+  ]
+  const toConflict = (group: (typeof allGroups)[number]): GroundConflict | null => {
+    const objectiveId = group.targetObjectiveId ?? group.objectiveId
+    return objectiveId ? { id: group.id, objectiveId, position: group.position } : null
+  }
+  const isConflict = (conflict: GroundConflict | null): conflict is GroundConflict =>
+    conflict != null
+
+  const fighting = allGroups
+    .filter((group) => group.state === 'combat')
+    .map(toConflict)
+    .filter(isConflict)
+  if (fighting.length > 0) return fighting
+
+  const advancing = allGroups
+    .filter((group) => group.state === 'moving' && group.targetObjectiveId != null)
+    .map(toConflict)
+    .filter(isConflict)
+  if (advancing.length > 0) return advancing
+
+  const friendlyObjectivePositions = draft.coalitions[coalition].objectiveIds
+    .map((objectiveId) => getObjectivePosition(theatre, objectiveId))
+    .filter((position): position is Position => position != null)
+  if (friendlyObjectivePositions.length === 0) return []
+
+  return draft.coalitions[enemyCoalition].groundGroups
+    .map((group) => ({
+      conflict: toConflict(group),
+      distance: Math.min(
+        ...friendlyObjectivePositions.map((position) => calculateDistance(position, group.position))
+      )
+    }))
+    .filter(
+      (entry): entry is { conflict: GroundConflict; distance: number } => entry.conflict != null
+    )
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, 5)
+    .map((entry) => entry.conflict)
+}
+
+function getSweepPosition(flightGroup: z.infer<typeof schemas.flightGroup>): Position | null {
+  return (
+    flightGroup.flightplan.waypoints.find((waypoint) => waypoint.name === 'Sweep')?.position ?? null
+  )
+}
+
+function pickControllableAircraftTypeFrom(aircraftTypes: string[]): AircraftName | null {
+  const controllable = aircraftTypes.filter((aircraftType) =>
+    Object.values(aircrafts).some(
+      (aircraft) => aircraft.name === aircraftType && aircraft.controllable
+    )
+  )
+  return pickRandomAircraftTypeFrom(controllable.length > 0 ? controllable : aircraftTypes)
+}
+
 function createManualSpawnPlan(
   draft: Campaign,
   coalition: Coalition,
-  task: FlightTask
+  task: FlightTask,
+  constraints: ManualFlightConstraints = {}
 ): ManualSpawnPlan | null {
+  // Career flights take the owned aircraft type from the airfields it is parked at.
+  const pickRandomAircraftType = (types: string[]) =>
+    constraints.aircraftType ?? pickRandomAircraftTypeFrom(types)
+  const pickControllableAircraftType = (types: string[]) =>
+    constraints.aircraftType ?? pickControllableAircraftTypeFrom(types)
+  const allowBase = (base: { name: string }) =>
+    !constraints.homeBases || constraints.homeBases.has(base.name)
   const context = resolveSpawnContext(draft, coalition)
   if (!context) return null
 
   const { theatre, enemyCoalition } = context
-  const homeBases = getCoalitionAirdromes(draft, theatre, coalition)
+  const homeBases = getCoalitionAirdromes(draft, theatre, coalition).filter(allowBase)
   const flightGroups = draft.coalitions[coalition].flightGroups
 
   if (task === 'CAP') {
@@ -302,7 +400,9 @@ function createManualSpawnPlan(
   if (task === 'CAS') {
     const aircraftType = pickRandomAircraftType(draft.coalitions[coalition].aircraftTypes.CAS)
     if (!aircraftType) return null
-    const casHomeBases = getCoalitionCasHomeBases(draft, theatre, coalition, aircraftType)
+    const casHomeBases = getCoalitionCasHomeBases(draft, theatre, coalition, aircraftType).filter(
+      allowBase
+    )
 
     const targetedGroundGroupIds = new Set(
       flightGroups
@@ -352,6 +452,81 @@ function createManualSpawnPlan(
     }
   }
 
+  if (task === 'Fighter Sweep') {
+    const aircraftType = pickRandomAircraftType(
+      schemas.resolveTaskAircraftTypes(draft.coalitions[coalition].aircraftTypes, 'Fighter Sweep')
+    )
+    if (!aircraftType) return null
+
+    const sweepConfig = config.packages['Fighter Sweep']
+    const coveredPositions = flightGroups
+      .filter((g) => g.task === 'Fighter Sweep')
+      .map(getSweepPosition)
+      .filter((position): position is Position => position != null)
+    const targets = getGroundConflicts(draft, coalition, enemyCoalition, theatre)
+      .filter(
+        (conflict) =>
+          !coveredPositions.some(
+            (position) =>
+              calculateDistance(position, conflict.position) < sweepConfig.conflictSeparation
+          )
+      )
+      .map((conflict) => ({ target: conflict, position: conflict.position }))
+
+    const assignment = selectHomeBaseAndTarget({
+      homeBases,
+      targets,
+      maxDistance: sweepConfig.maxDistance,
+      preference: 'nearest'
+    })
+    if (!assignment) return null
+
+    return {
+      task,
+      aircraftType,
+      homeBase: assignment.homeBase.name,
+      homeBasePosition: assignment.homeBase.position,
+      runwayAngle: assignment.homeBase.runwayAngle,
+      conflictPosition: assignment.targetPosition,
+      objectiveId: assignment.target.objectiveId
+    }
+  }
+
+  if (task === 'Training') {
+    const aircraftType = pickControllableAircraftType(
+      schemas.resolveTaskAircraftTypes(draft.coalitions[coalition].aircraftTypes, 'Training')
+    )
+    const homeBase = homeBases[Math.floor(Math.random() * homeBases.length)]
+    if (!aircraftType || !homeBase) return null
+
+    const enemyAirdromes = getCoalitionAirdromes(draft, theatre, enemyCoalition)
+    const nearestEnemy = enemyAirdromes.reduce<AirdromeSelection | null>(
+      (nearest, airdrome) =>
+        nearest == null ||
+        calculateDistance(homeBase.position, airdrome.position) <
+          calculateDistance(homeBase.position, nearest.position)
+          ? airdrome
+          : nearest,
+      null
+    )
+    const randomAngle = Math.random() * Math.PI * 2
+    const awayFromEnemy = nearestEnemy
+      ? {
+          x: homeBase.position.x - nearestEnemy.position.x,
+          y: homeBase.position.y - nearestEnemy.position.y
+        }
+      : { x: Math.cos(randomAngle), y: Math.sin(randomAngle) }
+
+    return {
+      task,
+      aircraftType,
+      homeBase: homeBase.name,
+      homeBasePosition: homeBase.position,
+      runwayAngle: homeBase.runwayAngle,
+      awayFromEnemy
+    }
+  }
+
   if (task === 'Transport') {
     const transportAircraft = draft.coalitions[coalition].aircraftTypes.Transport
     const targetNode = getNodesNeedingResupply(draft, coalition, theatre)[0]
@@ -392,20 +567,27 @@ function createManualSpawnPlan(
   return null
 }
 
+export type ManualFlightConstraints = {
+  homeBases?: ReadonlySet<string>
+  aircraftType?: AircraftName
+}
+
 export function canCreateManualFlightGroup(
   draft: Campaign,
   coalition: Coalition,
-  task: FlightTask
+  task: FlightTask,
+  constraints?: ManualFlightConstraints
 ) {
-  return createManualSpawnPlan(draft, coalition, task) != null
+  return createManualSpawnPlan(draft, coalition, task, constraints) != null
 }
 
 export function createManualFlightGroup(
   draft: Campaign,
   coalition: Coalition,
-  task: FlightTask
+  task: FlightTask,
+  constraints?: ManualFlightConstraints
 ): string | null {
-  const plan = createManualSpawnPlan(draft, coalition, task)
+  const plan = createManualSpawnPlan(draft, coalition, task, constraints)
   if (!plan) return null
 
   const startTime = new Date(draft.time)
@@ -421,6 +603,53 @@ export function createManualFlightGroup(
       homeBase: plan.homeBase,
       homeBasePosition: plan.homeBasePosition,
       destination: plan.patrolCenter,
+      missionWaypoints,
+      startTime,
+      runwayAngle: plan.runwayAngle,
+      spawnSource: 'manual'
+    }).flightGroupId
+  }
+
+  if (plan.task === 'Fighter Sweep') {
+    const missionWaypoints = buildFighterSweepMissionWaypoints(
+      plan.homeBasePosition,
+      plan.conflictPosition
+    )
+    return spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: plan.task,
+      aircraftType: plan.aircraftType,
+      aircraftCount: config.packages['Fighter Sweep'].aircraftsPerGroup,
+      homeBase: plan.homeBase,
+      homeBasePosition: plan.homeBasePosition,
+      destination: plan.conflictPosition,
+      missionWaypoints,
+      startTime,
+      runwayAngle: plan.runwayAngle,
+      spawnSource: 'manual'
+    }).flightGroupId
+  }
+
+  if (plan.task === 'Training') {
+    const isHelicopter =
+      Object.values(aircrafts).find((aircraft) => aircraft.name === plan.aircraftType)
+        ?.isHelicopter ?? false
+    const missionWaypoints = buildTrainingMissionWaypoints(
+      plan.homeBasePosition,
+      plan.awayFromEnemy,
+      config.packages.Training.routeRadius,
+      isHelicopter
+    )
+    return spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: plan.task,
+      aircraftType: plan.aircraftType,
+      aircraftCount: config.packages.Training.aircraftsPerGroup,
+      homeBase: plan.homeBase,
+      homeBasePosition: plan.homeBasePosition,
+      destination: missionWaypoints[0]?.position ?? plan.homeBasePosition,
       missionWaypoints,
       startTime,
       runwayAngle: plan.runwayAngle,

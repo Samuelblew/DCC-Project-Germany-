@@ -8,6 +8,7 @@ import log from 'electron-log/main'
 import AdmZip from 'adm-zip'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
+import windowsIcon from '../../resources/icon.ico?asset'
 import { rpcHandler } from './api'
 import { readFile, parseJson, writeFile } from './utils'
 import { enableDcsPersistenceForAppRuntime, findMissionScriptingPath } from './dcs-persistence'
@@ -441,17 +442,17 @@ let pendingUpdateUi: UpdateUiState | null = null
 const updateHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
   body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0a0a14; color: #e0e0ff; height: 100vh;
+    background: #0f0e0d; color: #ede6d6; height: 100vh;
     display: flex; align-items: center; justify-content: center;
     -webkit-app-region: drag; user-select: none; }
   .card { width: 100%; padding: 24px 28px; box-sizing: border-box; }
-  h1 { margin: 0 0 8px 0; font-size: 14px; color: #ff6ec7;
+  h1 { margin: 0 0 8px 0; font-size: 14px; color: #ef7f70;
     letter-spacing: 0.08em; text-transform: uppercase; }
   p { margin: 0 0 14px 0; font-size: 13px; color: #c0c0e0; }
   .bar { height: 8px; background: rgba(255,255,255,0.08);
     border-radius: 4px; overflow: hidden; }
   .fill { height: 100%; width: 0%;
-    background: linear-gradient(90deg, #ff6ec7, #4dd0e1);
+    background: linear-gradient(90deg, #ef7f70, #e8b730);
     transition: width 0.2s ease; }
   .meta { margin-top: 8px; font-size: 11px; color: #707090;
     font-variant-numeric: tabular-nums; }
@@ -636,7 +637,11 @@ async function createWindow(): Promise<void> {
     show: false,
     autoHideMenuBar: true,
     frame: false,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'linux'
+      ? { icon }
+      : process.platform === 'win32'
+        ? { icon: windowsIcon }
+        : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -826,6 +831,11 @@ app.whenReady().then(() => {
     void isAutoUpdateDisabled().then((disabled) => {
       if (disabled) {
         console.log('Auto-update disabled in settings; skipping update check.')
+        return
+      }
+      // Local builds are packaged without a publish feed so they never replace themselves with a release.
+      if (!existsSync(join(process.resourcesPath, 'app-update.yml'))) {
+        console.log('No update feed in this build; skipping update check.')
         return
       }
       startAutoUpdate()

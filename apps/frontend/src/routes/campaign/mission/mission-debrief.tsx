@@ -7,10 +7,7 @@ import { useSelector } from '@xstate/store/react'
 import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import MaplibreMap, {
-  Marker as MaplibreMarker,
-  type MapRef
-} from 'react-map-gl/maplibre'
+import MaplibreMap, { Marker as MaplibreMarker, type MapRef } from 'react-map-gl/maplibre'
 import * as z from 'zod'
 
 import { Button } from '@/components/ui/button'
@@ -20,10 +17,7 @@ import { orpc } from '@/lib/orpc'
 import { cn } from '@/lib/utils'
 import { activeStore } from '@/stores/active'
 import { FlightGroupCard } from '../components/flight-group-card'
-import {
-  CAUCASUS_DETAIL_MAX_ZOOM,
-  offlineCaucasusMapStyle
-} from '../home/offline-map-style'
+import { CAUCASUS_DETAIL_MAX_ZOOM, offlineCaucasusMapStyle } from '../home/offline-map-style'
 
 type MissionState = z.infer<typeof schemas.missionState>
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -51,6 +45,8 @@ export type MissionDebrief = {
   missionState: MissionState
   clientFlightGroups: FlightGroup[]
   targetOutcomes: Record<string, TargetOutcome>
+  /** Career money, losses and damage from this mission. */
+  careerLines?: string[]
 }
 
 function formatTime(date: Date | string) {
@@ -101,7 +97,9 @@ function groupLostUnitsBySide(lostUnits: LostUnit[]) {
   )
 
   for (const side of ['blue', 'red', 'unknown'] as const) {
-    grouped[side].sort((a, b) => (a.time ?? Number.POSITIVE_INFINITY) - (b.time ?? Number.POSITIVE_INFINITY))
+    grouped[side].sort(
+      (a, b) => (a.time ?? Number.POSITIVE_INFINITY) - (b.time ?? Number.POSITIVE_INFINITY)
+    )
   }
 
   return grouped
@@ -138,7 +136,7 @@ function DebriefViewToggle({
           className={cn(
             'flex h-8 items-center gap-2 rounded px-3 text-xs font-semibold uppercase tracking-[0.12em] transition-colors',
             view === option
-              ? 'bg-[#00ddff]/15 text-[#00ddff] ring-1 ring-[#00ddff]/35'
+              ? 'bg-[#e8b730]/15 text-[#e8b730] ring-1 ring-[#e8b730]/35'
               : 'text-white/45 hover:bg-white/5 hover:text-white/75'
           )}
           onClick={() => onViewChange(option)}
@@ -167,8 +165,7 @@ function DebriefEventMarker({
     () => tryDcsPositionToLngLat(theatreName, unit.x, unit.y),
     [theatreName, unit.x, unit.y]
   )
-  const color =
-    side === 'blue' ? '#00ddff' : side === 'red' ? '#ff3366' : 'rgba(255,255,255,0.72)'
+  const color = side === 'blue' ? '#00ddff' : side === 'red' ? '#ff3366' : 'rgba(255,255,255,0.72)'
   const time = formatEventTime(unit)
 
   if (!position) return null
@@ -206,13 +203,7 @@ function DebriefEventMarker({
   )
 }
 
-function ExplosionIcon({
-  className,
-  style
-}: {
-  className?: string
-  style?: CSSProperties
-}) {
+function ExplosionIcon({ className, style }: { className?: string; style?: CSSProperties }) {
   return (
     <svg
       className={className}
@@ -252,7 +243,9 @@ function countRemainingTargetUnits(missionState: MissionState, targetId: string)
 }
 
 function getTargetUnitTotal(group: FlightGroup) {
-  const target = group.target as (Record<string, unknown> & NonNullable<FlightGroup['target']>) | undefined
+  const target = group.target as
+    | (Record<string, unknown> & NonNullable<FlightGroup['target']>)
+    | undefined
   if (!target) return undefined
 
   return (
@@ -450,16 +443,16 @@ export function MissionDebriefScreen({
   ]
 
   return (
-    <div className="h-full overflow-hidden bg-[#0b0014] text-white">
+    <div className="h-full overflow-hidden bg-[#0f0e0d] text-white">
       <div
         className="fixed inset-0"
         style={{
           backgroundImage:
-            'linear-gradient(to right, rgba(0,221,255,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,51,102,0.08) 1px, transparent 1px)',
+            'linear-gradient(to right, rgba(232,183,48,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,51,102,0.08) 1px, transparent 1px)',
           backgroundSize: '44px 44px'
         }}
       />
-      <div className="fixed inset-x-0 bottom-0 h-[34vh] bg-gradient-to-t from-[#00ddff]/20 via-[#ff3366]/10 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-[34vh] bg-gradient-to-t from-[#e8b730]/20 via-[#ff3366]/10 to-transparent" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col gap-5 p-6">
         <div className="flex items-start justify-between gap-4">
@@ -490,13 +483,13 @@ export function MissionDebriefScreen({
 
         {view === 'table' ? (
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
-            <section className="flex min-h-[320px] flex-col rounded-lg border border-[#ff00aa]/35 bg-black/35 p-4 backdrop-blur-sm">
+            <section className="flex min-h-[320px] flex-col rounded-lg border border-[#d9443a]/35 bg-black/35 p-4 backdrop-blur-sm">
               <div className="mb-4 flex items-center gap-2">
-                <Plane className="h-5 w-5 text-[#ff00aa]" />
+                <Plane className="h-5 w-5 text-[#d9443a]" />
                 <span className="text-sm font-semibold uppercase tracking-[0.18em]">
                   Client Flights
                 </span>
-                <span className="ml-auto text-2xl font-black tabular-nums text-[#ff00aa]">
+                <span className="ml-auto text-2xl font-black tabular-nums text-[#d9443a]">
                   {clientFlightGroups.length}
                 </span>
               </div>
@@ -520,6 +513,18 @@ export function MissionDebriefScreen({
                     />
                   ))
                 )}
+                {debrief.careerLines && debrief.careerLines.length > 0 ? (
+                  <div className="rounded border border-synthwave-cyan/30 bg-synthwave-cyan/5 p-3">
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-synthwave-cyan">
+                      Career
+                    </div>
+                    <ul className="space-y-1 text-sm text-white/80">
+                      {debrief.careerLines.map((line, index) => (
+                        <li key={index}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             </section>
 

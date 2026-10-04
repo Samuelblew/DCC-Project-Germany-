@@ -39,7 +39,11 @@ export function CampaignLayout() {
       input: scenarioId
     })
   )
-  const scenarioBriefing = scenarioQuery.data?.briefing
+  const playerSide = useSelector(activeStore, (state) => state.context.playerSide)
+  const scenarioBriefing =
+    playerSide === 'red'
+      ? (scenarioQuery.data?.opponentBriefing ?? scenarioQuery.data?.briefing)
+      : scenarioQuery.data?.briefing
   const scenarioGoal = campaignGoal ?? scenarioQuery.data?.goal
 
   const saveCurrentCampaign = async (setTimeMultiplierToZero = false) => {
@@ -166,12 +170,12 @@ function WelcomeCampaignDialog({
     <Dialog open={open}>
       <DialogContent
         showCloseButton={false}
-        className="app-no-drag grid max-h-[min(90vh,760px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-synthwave-cyan/35 bg-synthwave-dark/95 p-0 text-synthwave-light shadow-[0_0_55px_rgba(0,221,255,0.18)] backdrop-blur sm:max-w-2xl"
+        className="app-no-drag grid max-h-[min(90vh,760px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden overflow-y-hidden border-synthwave-cyan/35 bg-synthwave-dark/95 p-0 text-synthwave-light shadow-[0_0_55px_rgba(232,183,48,0.18)] backdrop-blur sm:max-w-2xl"
       >
         <div className="relative border-b border-synthwave-pink/25 px-6 py-5">
           <div className="absolute inset-0 bg-linear-to-r from-synthwave-purple/18 via-synthwave-pink/10 to-synthwave-cyan/12" />
           <DialogHeader className="relative gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-synthwave-cyan/40 bg-synthwave-cyan/10 text-synthwave-cyan shadow-[0_0_22px_rgba(0,221,255,0.22)]">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-synthwave-cyan/40 bg-synthwave-cyan/10 text-synthwave-cyan shadow-[0_0_22px_rgba(232,183,48,0.22)]">
               <PlaneTakeoff className="h-5 w-5" />
             </div>
             <div>
@@ -396,7 +400,7 @@ function WelcomeStep({
       type="button"
       className={`rounded-md border p-4 text-left transition-all focus-visible:ring-2 focus-visible:ring-synthwave-cyan focus-visible:outline-none ${
         selected
-          ? 'border-synthwave-cyan/55 bg-synthwave-cyan/[0.09] shadow-[0_0_22px_rgba(0,221,255,0.14)]'
+          ? 'border-synthwave-cyan/55 bg-synthwave-cyan/[0.09] shadow-[0_0_22px_rgba(232,183,48,0.14)]'
           : 'border-synthwave-purple/25 bg-white/[0.04] hover:border-synthwave-pink/40 hover:bg-synthwave-pink/[0.06]'
       }`}
       aria-pressed={selected}

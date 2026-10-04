@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "vite",
     "cache:map": "bun scripts/cache-theatre-maps.ts",
+    "sim:ground": "bun scripts/simulate-ground-war.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

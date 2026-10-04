@@ -375,6 +375,23 @@ local function addOrUpdateLandedUnit(landedUnit)
     landedUnitIndexesByName[landedUnit.name] = #missionState.landedUnits
 end
 
+-- Stores still carried by a unit, for returning unused weapons to a career inventory.
+local function getUnitAmmo(unit)
+    local ammo = safeCall(function() return unit:getAmmo() end, nil)
+    local result = {}
+    if ammo then
+        for _, entry in ipairs(ammo) do
+            local desc = entry.desc or {}
+            result[#result + 1] = {
+                typeName = desc.typeName,
+                displayName = desc.displayName,
+                count = entry.count or 0
+            }
+        end
+    end
+    return result
+end
+
 local function recordLandedUnit(unit, eventName)
     if not unit or not unit.getName then
         return false
@@ -415,6 +432,9 @@ local function recordLandedUnit(unit, eventName)
         coalition = coalitionName,
         event = eventName,
         time = timer.getAbsTime(),
+        life = safeCall(function() return unit:getLife() end, nil),
+        life0 = safeCall(function() return unit:getLife0() end, nil),
+        ammo = getUnitAmmo(unit),
         x = position and position.x or cached.x or 0,
         y = position and position.z or cached.y or 0
     })
@@ -584,7 +604,9 @@ local function getAircraftGroupPositions(coalition)
                                 y = position.z,
                                 altitude = position.y,
                                 life = unit:getLife(),
-                                inAir = unit:inAir()
+                                life0 = safeCall(function() return unit:getLife0() end, nil),
+                                inAir = unit:inAir(),
+                                ammo = getUnitAmmo(unit)
                             }
                             unitData[#unitData + 1] = unitInfo
                         end

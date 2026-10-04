@@ -1263,6 +1263,50 @@ describe('addFlightGroups mission script config', () => {
     )
   })
 
+  test('orders Fighter Sweep flights to engage aircraft around the sweep point', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    campaign.coalitions.player.flightGroups = [
+      createTaskFlightGroup('blue-sweep', 'Enfield-1', startTime, 'Fighter Sweep')
+    ]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, theatre)
+
+    expect(result.isOk()).toBe(true)
+    const dcsGroup = mission.coalition.blue.country?.[0]?.plane?.group?.[0]
+    const sweepWaypoint = dcsGroup?.route?.points.find((point) => point.name === 'Fighter Sweep')
+
+    expect(dcsGroup?.task).toBe('Fighter Sweep')
+    expect(sweepWaypoint?.task?.params?.tasks).toContainEqual(
+      expect.objectContaining({
+        id: 'EngageTargetsInZone',
+        params: expect.objectContaining({ x: 2000, y: 2000, targetTypes: ['Air'] })
+      })
+    )
+  })
+
+  test('gives Training flights no DCS combat task', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const group = createFlightGroup('blue-training', 'Enfield-1', startTime)
+    group.task = 'Training'
+    group.flightplan.waypoints[1] = {
+      ...group.flightplan.waypoints[1]!,
+      name: 'Training 1',
+      type: 'Nav'
+    }
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, theatre)
+
+    expect(result.isOk()).toBe(true)
+    expect(mission.coalition.blue.country?.[0]?.plane?.group?.[0]?.task).toBe('Nothing')
+  })
+
   test('equips Harrier CAS flights with air-to-ground weapons and a targeting pod', () => {
     const startTime = new Date('2026-01-01T00:00:00Z')
     const mission = createMission()
@@ -1396,11 +1440,14 @@ describe('addFlightGroups mission script config', () => {
       result.value.map(({ groupId: _groupId, radioChannels: _radioChannels, ...group }) => group)
     ).toEqual([
       {
+        client: true,
         frequency: 251.05,
+        gci: true,
         name: 'Enfield-1',
         radioPreset: { radio: 1, channel: 1 },
         task: 'CAP',
-        unitNames: ['Enfield-1-1', 'Enfield-1-2']
+        unitNames: ['Enfield-1-1', 'Enfield-1-2'],
+        units: 'imperial'
       }
     ])
   })
@@ -1518,6 +1565,7 @@ describe('addFlightGroups mission script config', () => {
       result.value.map(({ groupId: _groupId, radioChannels: _radioChannels, ...group }) => group)
     ).toEqual([
       {
+        client: true,
         frequency: 251.05,
         name: 'Enfield-1',
         navigation: {
@@ -1530,7 +1578,8 @@ describe('addFlightGroups mission script config', () => {
         },
         radioPreset: { radio: 1, channel: 1 },
         task: 'CAS',
-        unitNames: ['Enfield-1-1', 'Enfield-1-2']
+        unitNames: ['Enfield-1-1', 'Enfield-1-2'],
+        units: 'imperial'
       }
     ])
   })
@@ -1742,5 +1791,128 @@ describe('addFlightGroups mission script config', () => {
         }
       }
     })
+  })
+
+  test('marks a Fulcrum CAP client for native KRU GCI instead of F10 picture calls', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const group = createFlightGroup('mig', 'Enfield-1', startTime)
+    group.aircrafts = [
+      { id: 'mig-1', unitName: 'Enfield-1-1', aircraftName: 'MiG-29 Fulcrum', client: true }
+    ]
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, theatre)
+    if (result.isErr()) throw result.error
+
+    expect(result.value[0]).toMatchObject({
+      client: true,
+      nativeGci: true,
+      task: 'CAP',
+      units: 'metric'
+    })
+    expect(result.value[0]?.gci).toBeUndefined()
+  })
+})
+
+describe('addFlightGroups career flights', () => {
+  test('flies owned stores, hired wingman skill, armed failures and MiG-29 radio presets', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    campaign.campaignParams = { aiWingmanSpawn: 'never' }
+    const group = createFlightGroup('career', 'Enfield-1', startTime)
+    const pylons = [
+      { num: 1, CLSID: '{MISSILE_R-73_APU-73}' },
+      { num: 4, CLSID: '{PTB_1500_MIG29A}' }
+    ]
+    group.aircrafts = [
+      {
+        id: 'career-1',
+        unitName: 'Enfield-1-1',
+        aircraftName: 'MiG-29 Fulcrum',
+        client: true,
+        pylons,
+        failures: [{ id: 'RSBN_FAILURE_RECEIVER', label: 'RSBN receiver', afterMinutes: 75 }],
+        careerAirframeId: 'airframe-1'
+      },
+      {
+        id: 'career-2',
+        unitName: 'Enfield-1-2',
+        aircraftName: 'MiG-29 Fulcrum',
+        skill: 'Excellent',
+        pylons,
+        careerAirframeId: 'airframe-2'
+      }
+    ]
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, theatre)
+    if (result.isErr()) throw result.error
+
+    const units = mission.coalition.blue.country?.[0]?.plane?.group?.[0]?.units ?? []
+    // The paid wingman flies even though AI wingmen are switched off.
+    expect(units.map((unit) => unit.skill)).toEqual(['Client', 'Excellent'])
+    expect(units[0]?.payload?.pylons).toEqual({
+      1: { CLSID: '{MISSILE_R-73_APU-73}', num: 1 },
+      4: { CLSID: '{PTB_1500_MIG29A}', num: 4 }
+    })
+    expect(units[0]?.Radio?.[0]?.channels).toMatchObject({ 2: 251, 4: 305 })
+    expect(mission.failures?.['RSBN_FAILURE_RECEIVER']).toEqual({
+      id: 'RSBN_FAILURE_RECEIVER',
+      enable: true,
+      prob: 100,
+      hh: 1,
+      mm: 15,
+      mmint: 1
+    })
+  })
+
+  test('gives a profiled aircraft without TACAN no TACAN beacon and its own channel numbers', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    campaign.campaignParams = { navigationAid: 'targetTacan' }
+    const group = createFlightGroup('mig', 'Enfield-1', startTime)
+    group.aircrafts = [
+      { id: 'mig-1', unitName: 'Enfield-1-1', aircraftName: 'MiG-29 Fulcrum', client: true }
+    ]
+    group.target = { id: 'objective-1', objectiveId: 'objective-1', type: 'Structure' }
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, {
+      ...theatre,
+      objectives: [{ name: 'objective-1', type: 'Frontline', position: { x: 3000, y: 4000 } }]
+    })
+    if (result.isErr()) throw result.error
+
+    expect(result.value[0]?.navigation?.tacan).toBeUndefined()
+    expect(result.value[0]?.navigation?.landingTacan).toBeUndefined()
+    expect(mission.coalition.blue.country?.[0]?.vehicle?.group ?? []).toHaveLength(0)
+    // The R-862 numbers its presets from "Channel 0".
+    expect(result.value[0]?.radioPreset).toEqual({ radio: 1, channel: 1, cockpitChannel: 0 })
+  })
+})
+
+describe('addFlightGroups career missions', () => {
+  test('leaves an uncrewed career mission out of the mission', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const own = createFlightGroup('own', 'Enfield-1', startTime)
+    own.careerMission = true
+    const ato = createFlightGroup('ato', 'Uzi-1', startTime)
+    campaign.coalitions.player.flightGroups = [own, ato]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const result = addFlightGroups(mission, campaign, theatre)
+    if (result.isErr()) throw result.error
+
+    const groups = mission.coalition.blue.country?.[0]?.plane?.group ?? []
+    expect(groups.map((group) => group.name)).toEqual([expect.stringContaining('Uzi-1')])
   })
 })

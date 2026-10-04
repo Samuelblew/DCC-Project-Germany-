@@ -2,6 +2,7 @@ import { oc } from '@orpc/contract'
 import * as z from 'zod'
 
 import { campaign as campaignSchemas } from './campaign/schemas'
+import { dcs } from './dcs'
 import * as missionGeneratorSchemas from './mission-generator/schemas'
 import * as schemas from './schemas'
 
@@ -60,7 +61,13 @@ const createCampaign = base
       playerFaction: schemas.faction.optional(),
       opponentFaction: schemas.faction.optional(),
       campaignYear: z.number().int().optional(),
-      forceGpsEnabledDate: z.boolean().optional()
+      forceGpsEnabledDate: z.boolean().optional(),
+      playerSide: z.enum(['blue', 'red']).optional(),
+      mode: campaignSchemas.campaignMode.optional(),
+      careerAircraft: dcs.aircraftName.optional(),
+      careerAcquisitionRule: campaignSchemas.careerAcquisitionRule.optional(),
+      escalation: z.boolean().optional(),
+      escalationEraDays: z.number().int().min(1).max(30).optional()
     })
   )
   .errors({

@@ -84,7 +84,7 @@ describe('virtual logistics network', () => {
 
     expect(campaign.coalitions.player.supplyNodes?.Kobuleti).toMatchObject({
       max: 10_000,
-      productionRate: 20
+      productionRate: 700
     })
     expect(campaign.coalitions.player.supplyNodes?.['Enguri Dam']).toMatchObject({
       max: 1_000,
@@ -105,7 +105,7 @@ describe('virtual logistics network', () => {
     const supply = campaign.coalitions.opponent.supplyNodes?.['Sukhumi-Babushara']
     expect(supply).toMatchObject({
       max: 10_000,
-      productionRate: 20,
+      productionRate: 700,
       logistics: { hub: true, hubLevel: 2 }
     })
     expect(supply?.current).toBeGreaterThanOrEqual(5_000)
@@ -118,10 +118,18 @@ describe('virtual logistics network', () => {
     campaign.coalitions.player.supplyNodes!.Kobuleti.current = 5_000
     campaign.coalitions.player.supplyNodes!['Enguri Dam'].current = 100
 
-    updateSupply(campaign, 'player', 1_000)
+    const slow = createCampaign()
+    slow.coalitions.player.supplyNodes!.Kobuleti.current = 5_000
+    slow.coalitions.player.supplyNodes!['Enguri Dam'].current = 100
 
-    expect(campaign.coalitions.player.supplyNodes?.Kobuleti.current).toBeGreaterThan(5_000)
-    expect(campaign.coalitions.player.supplyNodes?.['Enguri Dam'].current).toBe(1_000)
+    updateSupply(campaign, 'player', 1_000)
+    updateSupply(slow, 'player', 1_000)
+
+    const fastForward = campaign.coalitions.player.supplyNodes?.['Enguri Dam'].current ?? 0
+    const normal = slow.coalitions.player.supplyNodes?.['Enguri Dam'].current ?? 0
+    expect(fastForward).toBeGreaterThan(normal)
+    expect(fastForward).toBeLessThan(1_000)
+    expect(campaign.coalitions.player.supplyNodes?.Kobuleti.current ?? 0).toBeGreaterThan(4_000)
   })
 
   test('moves supply from a hub to a low owned node over a virtual route', () => {

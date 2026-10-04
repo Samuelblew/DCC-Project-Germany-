@@ -364,6 +364,29 @@ function recoveryObjectiveIds(theatre: Theatre, coalitionObjectiveIds: string[])
   )
 }
 
+/** Objectives this close to a broken formation are where it is fighting, not a place to recover. */
+const FALLBACK_EXCLUSION_RADIUS = 5_000
+
+function findNearestFallbackObjective(
+  theatre: Theatre,
+  ownedObjectiveIds: ReadonlySet<string>,
+  position: Position
+) {
+  let nearest: Theatre['objectives'][number] | undefined
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const objective of theatre.objectives) {
+    if (!ownedObjectiveIds.has(objective.name)) continue
+    const distance = Math.hypot(
+      objective.position.x - position.x,
+      objective.position.y - position.y
+    )
+    if (distance <= FALLBACK_EXCLUSION_RADIUS || distance >= nearestDistance) continue
+    nearest = objective
+    nearestDistance = distance
+  }
+  return nearest
+}
+
 export function beginGroundGroupRetreat(params: {
   campaign: Campaign
   coalition: Coalition
@@ -397,6 +420,25 @@ export function beginGroundGroupRetreat(params: {
       startedAt: now.toISOString()
     }
     return 'withdrawing'
+  }
+
+  // Only the South Atlantic has an authored road network. Elsewhere a broken formation falls back
+  // in a straight line to the nearest owned objective away from the fight, instead of surrendering.
+  if ((params.theatre.connections ?? []).length === 0) {
+    const fallback = findNearestFallbackObjective(
+      params.theatre,
+      ownedObjectiveIds,
+      params.group.position
+    )
+    if (fallback) {
+      params.group.state = 'withdrawing'
+      params.group.retreat = {
+        destinationObjectiveId: fallback.name,
+        route: [{ ...fallback.position }],
+        startedAt: now.toISOString()
+      }
+      return 'withdrawing'
+    }
   }
 
   const pickupSite = getDeploymentSites(params.theatre).find(

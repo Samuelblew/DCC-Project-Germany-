@@ -7,6 +7,8 @@ import * as z from 'zod'
 
 import { addAwacsGroups } from './add-awacs-groups'
 import { addFlightGroups, type MissionFlightConfig } from './add-flight-groups'
+import { addPlayerGciStations } from './add-gci'
+import { addGermanyIads } from './add-germany-iads'
 import { addGroundGroups } from './add-ground-groups'
 import { addNavalGroups } from './add-naval-groups'
 import { addStructures } from './add-structures'
@@ -76,6 +78,7 @@ type MissionScriptConfig = {
   crashPilotSurvivalChance: number
   welcomeMessage?: MissionWelcomeMessage
   cullingManifest?: MissionCullingManifest
+  magneticVariationDegrees?: number
 }
 
 type CarrierOpsConfig = {
@@ -97,7 +100,9 @@ const DCS_COUNTRY_IDS: Record<string, number> = {
   USA: 2,
   UK: 4,
   France: 5,
+  Germany: 6,
   Israel: 15,
+  GDR: 78,
   Argentina: 83
 }
 
@@ -110,7 +115,10 @@ function hasCustomClientAircraft(
   coalition: z.infer<typeof schemas.campaign.campaign>['coalitions']['player']
 ) {
   return coalition.flightGroups.some((flightGroup) => {
-    const factionAircraftTypes = coalition.aircraftTypes[flightGroup.task] ?? []
+    const factionAircraftTypes = schemas.resolveTaskAircraftTypes(
+      coalition.aircraftTypes,
+      flightGroup.task
+    )
 
     return flightGroup.aircrafts.some(
       (aircraft) => aircraft.client && !factionAircraftTypes.includes(aircraft.aircraftName)
@@ -183,7 +191,7 @@ function createMissionMapConfig(theatre: z.infer<typeof schemas.theatre>) {
 
 function createWelcomeMessage(
   flightGroups: MissionFlightConfig[],
-  options: { ewrEnabled: boolean; carrierOpsEnabled: boolean }
+  options: { ewrEnabled: boolean; carrierOpsEnabled: boolean; gciStationEnabled: boolean }
 ): MissionWelcomeMessage | undefined {
   const features = new Set<string>()
 
@@ -207,8 +215,15 @@ function createWelcomeMessage(
     features.add('CSAR pilot status, smoke, and pickup')
   }
 
-  if (options.ewrEnabled && flightGroups.length > 0) {
-    features.add('EWR picture calls')
+  if (options.gciStationEnabled) {
+    features.add('MiG-29 GCI (KRU) covering the theatre')
+  }
+
+  if (
+    options.ewrEnabled &&
+    flightGroups.some((flightGroup) => flightGroup.client && !flightGroup.nativeGci)
+  ) {
+    features.add('GCI picture calls')
   }
 
   if (options.carrierOpsEnabled) {
@@ -844,7 +859,11 @@ export async function generateMizFromCampaign(
     return err(groundGroupsResult.error)
   }
 
+  const germanyIads = addGermanyIads(mission, campaign, theatre, cullingPlan)
   const iadsConfig = buildIadsConfig(mission, campaign)
+  if (iadsConfig && germanyIads) {
+    iadsConfig.commandCenters.push(...germanyIads.commandCenters)
+  }
   if (iadsRequested && !iadsConfig) {
     delete (mission.trig as MissionTriggerTables).actions[8]
     delete (mission.trig as MissionTriggerTables).actions[9]
@@ -862,10 +881,14 @@ export async function generateMizFromCampaign(
   if (flightGroupsResult.isErr()) {
     return err(flightGroupsResult.error)
   }
+  const gciStations = addPlayerGciStations(mission, campaign, theatre, cullingPlan, {
+    enabled: ewrEnabled
+  })
   const carrierOps = createCarrierOpsConfig(campaign)
   const welcomeMessage = createWelcomeMessage(flightGroupsResult.value, {
     ewrEnabled,
-    carrierOpsEnabled: carrierOps.length > 0
+    carrierOpsEnabled: carrierOps.length > 0,
+    gciStationEnabled: gciStations.length > 0
   })
   const scriptConfig: MissionScriptConfig = {
     missionId: campaign.id,
@@ -873,7 +896,10 @@ export async function generateMizFromCampaign(
     ...(carrierOps.length > 0 ? { carrierOps } : {}),
     crashPilotSurvivalChance: config.packages.CSAR.pilotSurvivalChance,
     ...(welcomeMessage ? { welcomeMessage } : {}),
-    ...(cullingPlan.enabled ? { cullingManifest: cullingPlan.manifest } : {})
+    ...(cullingPlan.enabled ? { cullingManifest: cullingPlan.manifest } : {}),
+    ...(theatre.info.magneticVariationDegrees != null
+      ? { magneticVariationDegrees: theatre.info.magneticVariationDegrees }
+      : {})
   }
   const scriptConfigLuaResult = luaTable.stringify(scriptConfig, {
     mixedKeyTypes: true,
@@ -933,7 +959,7 @@ export async function generateMizFromCampaign(
   }
   const missionLua = missionLuaResult.value
 
-  const optionsLuaResult = luaTable.stringify(options(), { mixedKeyTypes: true })
+  const optionsLuaResult = luaTable.stringify(options(campaign), { mixedKeyTypes: true })
   if (optionsLuaResult.isErr()) {
     return err(optionsLuaResult.error)
   }

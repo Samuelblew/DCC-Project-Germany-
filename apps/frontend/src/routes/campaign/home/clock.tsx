@@ -1,6 +1,8 @@
 import { activeStore } from '@/stores/active'
 import { useSelector } from '@xstate/store/react'
 
+import { EscalationBar } from './escalation-bar'
+
 export function Clock() {
   const time = useSelector(activeStore, (state) => state.context.time)
 
@@ -24,9 +26,10 @@ export function Clock() {
     .toUpperCase()
 
   return (
-    <div className="tactical-inset flex min-w-[92px] flex-col items-center justify-center rounded-md px-3 py-1.5 text-secondary">
-      <span className="retro-font text-lg leading-none">{formattedTime}</span>
-      <span className="retro-font mt-1 text-xs leading-none">{formattedDate}</span>
+    <div className="tactical-inset flex min-w-[148px] flex-col items-stretch justify-center rounded-md px-3 py-1.5 text-secondary">
+      <span className="retro-font text-center text-lg leading-none">{formattedTime}</span>
+      <span className="retro-font mt-1 text-center text-xs leading-none">{formattedDate}</span>
+      <EscalationBar />
     </div>
   )
 }

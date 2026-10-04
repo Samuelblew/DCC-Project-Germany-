@@ -20,7 +20,7 @@ export class GroundGroup {
     const id = crypto.randomUUID()
     const newGroup: GroundGroupData = {
       id,
-      position: params.position,
+      position: { ...params.position },
       objectiveId: params.objectiveId,
       targetObjectiveId: params.targetObjectiveId,
       targetAirdromeName: params.targetAirdromeName,

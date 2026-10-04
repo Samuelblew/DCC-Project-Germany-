@@ -222,8 +222,13 @@ export function assignStructures(
     coveredObjectives.set(type, new Set())
   })
 
+  // A scenario that places its own barracks or depots decides where troops are raised; the greedy
+  // pass then only spreads the other structure types.
+  const scenarioPlacesSpawns = (options.requiredStructures ?? []).some((requirement) =>
+    requiredSpawnStructureTypeSet.has(requirement.type)
+  )
   const requiredTypes = [
-    ...requiredSpawnStructureTypes,
+    ...(scenarioPlacesSpawns ? [] : requiredSpawnStructureTypes),
     ...StructureType.filter((type) => !requiredSpawnStructureTypeSet.has(type))
   ]
   const structureExclusionRangeOverrides: Partial<Record<StructureType, number>> =
@@ -329,8 +334,9 @@ export function assignStructures(
   )
 
   // Convert assignments map to array
-  const completedAssignments = ensureRequiredStructures(
-    ensureRequiredSpawnStructures(
+  // Scenario structures go in first so the spawn-structure fallback only fills a real gap.
+  const completedAssignments = ensureRequiredSpawnStructures(
+    ensureRequiredStructures(
       Array.from(assignments.entries()).map(([objectiveId, info]) => ({
         objectiveId,
         type: info.type,
@@ -339,10 +345,10 @@ export function assignStructures(
         resources: info.resources,
         buildings: info.buildings
       })),
-      objectives
+      objectives,
+      options.requiredStructures ?? []
     ),
-    objectives,
-    options.requiredStructures ?? []
+    objectives
   )
 
   return options.ensureEveryObjective

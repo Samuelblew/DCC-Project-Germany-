@@ -2,6 +2,7 @@ import { schemas } from '@dcc/contracts'
 import { err, ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
+import { resolveAiSkill } from './ai-skill'
 import { DEFAULT_ATC_FREQUENCY } from './radio-plan'
 
 type Coalition = z.infer<typeof schemas.coalition>
@@ -171,7 +172,7 @@ export function addNavalGroups(
             x: navalGroup.position.x + Math.cos(formationBearing) * index * 700,
             y: navalGroup.position.y + Math.sin(formationBearing) * index * 700,
             heading: spawnHeading,
-            skill: 'Excellent'
+            skill: resolveAiSkill(campaign, coalitionKey as Coalition, 'Excellent')
           }))
         })
         if (units.length === 0) continue

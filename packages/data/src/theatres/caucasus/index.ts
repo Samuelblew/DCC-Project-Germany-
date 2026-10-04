@@ -32,6 +32,7 @@ export const caucasus: z.infer<typeof schemas.theatre> = {
     night: {
       startHour: 20,
       endHour: 6
-    }
+    },
+    magneticVariationDegrees: 6
   }
 }

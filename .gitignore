@@ -12,3 +12,7 @@ out
 .codex/
 
 .vercel
+
+# Germany Cold War UI map is ~1 GB (GitHub file limit is 100 MB).
+# Download locally with `bun run cache:map` or by running install.bat.
+apps/frontend/public/maps/germany-cold-war/*.pmtiles

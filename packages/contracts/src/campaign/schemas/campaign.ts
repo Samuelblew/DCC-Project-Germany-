@@ -11,7 +11,8 @@ import { position } from '../../schemas/position'
 import { samType } from '../../schemas/sam'
 import { structureBuilding } from '../../schemas/structure-building'
 import { supply } from '../../schemas/supply'
-import { task } from '../../schemas/task'
+import { aircraftTypesByTask } from '../../schemas/task'
+import { campaignMode, career } from './career'
 
 const campaignLogEntry = z.object({
   id: z.string(),
@@ -23,6 +24,23 @@ const campaignLogEntry = z.object({
   campaignTime: z.string(),
   message: z.string(),
   createdAt: z.string()
+})
+
+export const escalationStage = z.enum(['Korea', 'Vietnam', 'Late CW', 'Modern'])
+
+export const campaignEscalation = z.object({
+  enabled: z.boolean(),
+  stage: escalationStage,
+  stageStartedAt: z.date(),
+  eraDurationDays: z.number().int().min(1).max(30),
+  history: z
+    .array(
+      z.object({
+        stage: escalationStage,
+        startedAt: z.date()
+      })
+    )
+    .default([])
 })
 
 const campaignStatus = z.enum(['active', 'won', 'lost'])
@@ -161,7 +179,7 @@ export const campaignEwrGroup = z.object({
 const campaignCoalition = z.object({
   id: z.string(),
   countryName: z.string().optional(),
-  aircraftTypes: z.record(task, z.array(z.string())),
+  aircraftTypes: aircraftTypesByTask,
   groundUnitTypes: z.record(groundUnitType, z.array(z.string())),
   airdromeNames: z.array(z.string()),
   objectiveIds: z.array(z.string()),
@@ -340,6 +358,11 @@ export const campaign = z.preprocess(
     createdAt: z.date(),
     updatedAt: z.date(),
     era: era.optional(),
+    escalation: campaignEscalation.optional(),
+    playerSide: z.enum(['blue', 'red']).optional(),
+    /** Classic plays the whole coalition; career flies one owned aircraft with a budget. */
+    mode: campaignMode.optional(),
+    career: career.optional(),
     time: z.date(),
     timeMultiplier: z.number(),
     timeTarget: z.date().optional(),
@@ -363,6 +386,13 @@ export const campaign = z.preprocess(
         hotStart: z.boolean().optional(),
         aiWingmanSpawn: z.enum(['never', 'landOnly', 'always']).optional(),
         culling: z.boolean().optional(),
+        cullingRadius: z.number().optional(),
+        cullingAircraftRadius: z.number().optional(),
+        cullingSamRadius: z.number().optional(),
+        /** Multiplier on AI air traffic; see resolveAirActivity. */
+        airActivity: z.number().optional(),
+        /** DCS skill for every enemy AI unit; unset keeps the generator's per-unit defaults. */
+        enemySkill: z.enum(['Average', 'Good', 'High', 'Excellent', 'Random']).optional(),
         ewr: z.boolean().optional(),
         iads: z.boolean().optional(),
         exactTarget: z.boolean().optional(),
@@ -371,10 +401,26 @@ export const campaign = z.preprocess(
         navigationTargetVectors: z.boolean().optional(),
         navigationTargetTacan: z.boolean().optional(),
         navigationLandingVectors: z.boolean().optional(),
-        navigationAid: z.enum(['targetVector', 'targetTacan', 'landingAirport']).optional()
+        navigationAid: z.enum(['targetVector', 'targetTacan', 'landingAirport']).optional(),
+        escalationEraDays: z.number().int().min(1).max(30).optional(),
+        /** DCS Gameplay cheats written into the mission options.lua. */
+        dcsCheats: z
+          .object({
+            unlimitedWeapons: z.boolean().optional(),
+            unlimitedFuel: z.boolean().optional(),
+            immortal: z.boolean().optional(),
+            easyFlight: z.boolean().optional(),
+            labels: z.enum(['none', 'full', 'abbreviated', 'dot']).optional(),
+            miniHud: z.boolean().optional(),
+            radioAssist: z.boolean().optional(),
+            crashRecover: z.boolean().optional(),
+            unrestrictedSatnav: z.boolean().optional()
+          })
+          .optional()
       })
       .optional(),
     logs: z.array(campaignLogEntry).default([]),
+    germanyIadsDeadUnits: z.record(z.string(), z.array(z.string())).optional(),
     scenarioId: z.string(),
     coalitions: z.record(coalition, campaignCoalition)
   })

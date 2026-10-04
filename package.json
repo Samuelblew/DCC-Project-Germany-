@@ -16,6 +16,8 @@
     "clean": "turbo run clean",
     "dev": "turbo run dev",
     "cache:map": "cd apps/frontend && bun run cache:map",
+    "sim:ground": "cd apps/frontend && bun run sim:ground",
+    "build:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local.ps1",
     "build": "turbo run build",
     "build:unpack": "turbo run build && turbo run build:unpack --filter=@dcc/core",
     "build:win": "turbo run build && turbo run build:win --filter=@dcc/core",

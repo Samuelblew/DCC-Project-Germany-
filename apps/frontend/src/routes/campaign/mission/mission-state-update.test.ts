@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { schemas } from '@dcc/contracts'
+import { findGermanyIadsSite } from '@dcc/data'
 import type * as z from 'zod'
 
 import { applyMissionStateUpdate } from './mission-state-update'
@@ -852,5 +853,84 @@ describe('applyMissionStateUpdate naval groups', () => {
       damage: 0,
       units: [{ state: 'operational', damage: 0 }]
     })
+  })
+})
+
+describe('applyMissionStateUpdate Germany SAM losses', () => {
+  const foundSite = findGermanyIadsSite('BSAM-HAWK-1')
+  if (!foundSite) throw new Error('BSAM-HAWK-1 is missing from the Germany IADS network')
+  const site = foundSite
+
+  function fuldaCampaign(): Campaign {
+    return { ...createCampaign(), scenarioId: 'fulda-gap', era: 'Late CW' }
+  }
+
+  function samPosition(
+    units: Array<{ name: string }>
+  ): NonNullable<MissionState['groupPositions']>['red']['ground'][number] {
+    return {
+      name: site.id,
+      x: site.x,
+      y: site.y,
+      units: units.map((unit) => ({
+        name: unit.name,
+        type: 'Hawk ln',
+        x: site.x,
+        y: site.y
+      }))
+    }
+  }
+
+  test('records a destroyed SAM and leaves an untouched battery alone', () => {
+    const updated = applyMissionStateUpdate(
+      fuldaCampaign(),
+      createMissionState({
+        lostUnits: site.units.map((unit) => trackedUnit(unit.name, site.id))
+      })
+    )
+
+    expect(updated.germanyIadsDeadUnits?.[site.id]).toEqual(site.units.map((unit) => unit.name))
+    expect(updated.germanyIadsDeadUnits?.['BSAM-HAWK-10']).toBeUndefined()
+    expect(updated.logs.map((entry) => entry.message)).toContain(`SAM ${site.id} destroyed`)
+  })
+
+  test('keeps a damaged battery and removes only the vehicles that died', () => {
+    const survivor = site.units[0]
+    const killed = site.units[1]
+    if (!survivor || !killed) throw new Error('SAM site has no vehicles')
+
+    const updated = applyMissionStateUpdate(
+      fuldaCampaign(),
+      createMissionState({
+        groupPositions: {
+          blue: { aircraft: [], ground: [], ships: [] },
+          red: {
+            aircraft: [],
+            ground: [samPosition(site.units.filter((unit) => unit.name !== killed.name))],
+            ships: []
+          }
+        }
+      })
+    )
+
+    expect(updated.germanyIadsDeadUnits?.[site.id]).toEqual([killed.name])
+    expect(updated.logs).toHaveLength(0)
+  })
+
+  test('does not delete a SAM that was never in the mission', () => {
+    const updated = applyMissionStateUpdate(fuldaCampaign(), createMissionState({}))
+
+    expect(updated.germanyIadsDeadUnits).toBeUndefined()
+  })
+
+  test('ignores Germany SAM names outside the Germany campaign', () => {
+    const updated = applyMissionStateUpdate(
+      createCampaign(),
+      createMissionState({
+        lostUnits: site.units.map((unit) => trackedUnit(unit.name, site.id))
+      })
+    )
+
+    expect(updated.germanyIadsDeadUnits).toBeUndefined()
   })
 })

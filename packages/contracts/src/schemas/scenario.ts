@@ -37,5 +37,8 @@ export const scenario = z.object({
   navalGroups: z.record(coalition, z.array(navalGroup)).optional(),
   deferredObjectiveIds: z.array(z.string()).optional(),
   goal: scenarioGoal.optional(),
+  opponentGoal: scenarioGoal.optional(),
+  opponentBriefing: z.string().optional(),
+  sideSelectable: z.boolean().optional(),
   start: z.record(coalition, startObjectives)
 })

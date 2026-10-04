@@ -1,4 +1,4 @@
-import type { schemas } from '@dcc/contracts'
+import { resolveAirActivity, type schemas } from '@dcc/contracts'
 import * as z from 'zod'
 import { featureFlags } from '@/lib/feature-flags'
 import { enforcePackageStartSpacing } from './package-start-spacing'
@@ -32,9 +32,13 @@ export function spawnPackages(
         ? { maxNewPackagesPerLogicTick: 3, maxActiveAircraft: 34 }
         : {}
 
+  const base = { ...defaultAtoPlannerPolicy, ...tempoPolicy }
+  const activity = resolveAirActivity(draft.campaignParams?.airActivity)
   const result = planAtoPackages(draft, coalition, context, {
-    ...defaultAtoPlannerPolicy,
-    ...tempoPolicy,
+    ...base,
+    maxNewPackagesPerLogicTick: Math.max(1, Math.round(base.maxNewPackagesPerLogicTick * activity)),
+    maxActivePackages: Math.max(1, Math.round(base.maxActivePackages * activity)),
+    maxActiveAircraft: Math.max(2, Math.round(base.maxActiveAircraft * activity)),
     enableTransport: featureFlags.transportFlightGroups,
     ...policy
   })

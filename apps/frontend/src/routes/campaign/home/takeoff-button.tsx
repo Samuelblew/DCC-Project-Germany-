@@ -8,11 +8,16 @@ import { activeStore } from '@/stores/active'
 import { coreClient } from '@/lib/orpc'
 import { cn } from '@/lib/utils'
 import { SelectFlightDialog } from './select-flight-dialog'
+import { CareerOpsDialog } from './career-ops-dialog'
+import { CareerDialog } from './career-dialog'
 
 export function TakeoffButton() {
   const navigate = useNavigate()
   const [isSaving, setIsSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [opsOpen, setOpsOpen] = useState(false)
+  const [hangarOpen, setHangarOpen] = useState(false)
+  const isCareer = useSelector(activeStore, (state) => state.context.career != null)
   const clientFlightGroup = useSelector(activeStore, (state) =>
     state.context.coalitions.player.flightGroups.find((fg) => fg.aircrafts.some((ac) => ac.client))
   )
@@ -36,18 +41,37 @@ export function TakeoffButton() {
       size="sm"
       variant={primary ? 'tacticalAction' : 'outline'}
       className={`h-10 w-full rounded-md px-4 ${primary ? '' : 'tactical-button text-secondary'}`}
-      onClick={() => setDialogOpen(true)}
+      onClick={() => (isCareer ? setOpsOpen(true) : setDialogOpen(true))}
     >
       <Plane className="mr-1.5 h-4 w-4" />
-      Select Flight
+      {isCareer ? 'Ops' : 'Select Flight'}
     </Button>
+  )
+  const dialogs = (
+    <>
+      <SelectFlightDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      {isCareer ? (
+        <>
+          <CareerOpsDialog
+            open={opsOpen}
+            onOpenChange={setOpsOpen}
+            onOpenHangar={() => setHangarOpen(true)}
+            onOpenOtherMissions={() => {
+              setOpsOpen(false)
+              setDialogOpen(true)
+            }}
+          />
+          <CareerDialog open={hangarOpen} onOpenChange={setHangarOpen} />
+        </>
+      ) : null}
+    </>
   )
 
   if (!hasClient) {
     return (
       <div className="grid flex-1 min-w-0 grid-cols-1">
         {selectFlightButton(true)}
-        <SelectFlightDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        {dialogs}
       </div>
     )
   }
@@ -80,7 +104,7 @@ export function TakeoffButton() {
             <span className="text-xs">Forward to Takeoff</span>
           </span>
         </Button>
-        <SelectFlightDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        {dialogs}
       </div>
     )
   }
@@ -107,7 +131,7 @@ export function TakeoffButton() {
         <PlaneTakeoff className="mr-2 h-4 w-4" />
         Takeoff
       </Button>
-      <SelectFlightDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      {dialogs}
     </div>
   )
 }

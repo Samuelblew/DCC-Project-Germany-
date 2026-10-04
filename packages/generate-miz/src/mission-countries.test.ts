@@ -83,4 +83,19 @@ describe('configureMissionCountries', () => {
 
     expect(mission.coalition.blue.country?.[0]).toMatchObject({ id: 2, name: 'USA' })
   })
+
+  test('uses the DCS Germany and GDR countries for the German factions', () => {
+    const mission = createMission()
+    const campaign = createCampaign('MiG-21Bis')
+    campaign.coalitions.player.id = 'east-germany-1985'
+    campaign.coalitions.player.aircraftTypes.CAP = ['MiG-21Bis']
+    campaign.coalitions.opponent.id = 'west-germany-1985'
+
+    configureMissionCountries(mission, campaign)
+
+    expect(mission.coalition.blue.country?.[0]).toMatchObject({ id: 78, name: 'GDR' })
+    expect(mission.coalition.red.country?.[0]).toMatchObject({ id: 6, name: 'Germany' })
+    expect(mission.coalitions.blue).toContain(78)
+    expect(mission.coalitions.red).toContain(6)
+  })
 })

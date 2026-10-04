@@ -28,7 +28,7 @@ function statusTone(state: string) {
   if (state === 'damaged' || state === 'withdrawing' || state === 'awaiting-extraction') {
     return 'text-amber-300'
   }
-  return 'text-cyan-300'
+  return 'text-amber-300'
 }
 
 export function CampaignOperationsOverview() {
@@ -89,7 +89,7 @@ export function CampaignOperationsOverview() {
           <span className="retro-font text-xs uppercase text-primary">Campaign operations</span>
         </div>
         {isFalklands && (
-          <span className="rounded-sm border border-synthwave-cyan/25 bg-synthwave-cyan/8 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-cyan-200">
+          <span className="rounded-sm border border-synthwave-cyan/25 bg-synthwave-cyan/8 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-amber-200">
             {campaign.campaignPhase === 'sea-control'
               ? 'sea control & landing preparation'
               : (campaign.campaignPhase?.replaceAll('-', ' ') ?? 'sea control')}
@@ -103,7 +103,7 @@ export function CampaignOperationsOverview() {
             <span className="flex items-center gap-1.5 text-secondary/70">
               <MapPinned className="h-3 w-3 text-synthwave-pink" /> Phase goals
             </span>
-            <span className={remainingPhaseGoals === 0 ? 'text-cyan-300' : 'text-amber-300'}>
+            <span className={remainingPhaseGoals === 0 ? 'text-amber-300' : 'text-amber-300'}>
               {remainingPhaseGoals === 0 ? 'Cleared' : `${remainingPhaseGoals} remaining`}
             </span>
           </div>
@@ -113,11 +113,11 @@ export function CampaignOperationsOverview() {
                 key={goal.id}
                 className={cn(
                   'flex items-start gap-2 text-[11px] leading-4',
-                  goal.complete ? 'text-cyan-200/75' : 'text-secondary/80'
+                  goal.complete ? 'text-amber-200/75' : 'text-secondary/80'
                 )}
               >
                 {goal.complete ? (
-                  <Check className="mt-0.5 h-3 w-3 shrink-0 text-cyan-300" />
+                  <Check className="mt-0.5 h-3 w-3 shrink-0 text-amber-300" />
                 ) : (
                   <Circle className="mt-0.5 h-3 w-3 shrink-0 text-amber-300" />
                 )}
@@ -127,7 +127,7 @@ export function CampaignOperationsOverview() {
           </ul>
           {campaign.campaignPhase === 'san-carlos-landing' &&
           campaign.landingOperation?.completesAt ? (
-            <div className="mt-2 border-t border-synthwave-pink/10 pt-2 text-[10px] text-cyan-200/75">
+            <div className="mt-2 border-t border-synthwave-pink/10 pt-2 text-[10px] text-amber-200/75">
               Scheduled completion ·{' '}
               {new Intl.DateTimeFormat('en-GB', {
                 hour: '2-digit',

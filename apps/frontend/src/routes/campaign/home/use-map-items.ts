@@ -3,7 +3,16 @@ import { useSelector } from '@xstate/store/react'
 import { useMemo } from 'react'
 import * as z from 'zod'
 import { schemas } from '@dcc/contracts'
-import { isSamOperational, samTemplates } from '@dcc/data'
+import {
+  germanyIadsControllingCoalition,
+  germanyIadsOwnersFromObjectives,
+  getGermanyIadsSites,
+  getSamSitePosition,
+  isGermanyIadsSamDestroyed,
+  isGermanyIadsTheatre,
+  isSamOperational,
+  samTemplates
+} from '@dcc/data'
 import { useQuery } from '@tanstack/react-query'
 import { orpc } from '@/lib/orpc'
 import * as turf from '@turf/turf'
@@ -11,6 +20,7 @@ import { tryDcsPositionToLngLat } from '@/logic/dcs-coordinates'
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { getGroundGroupSpawnCost } from '@/logic/systems/spawn/ground-group-costs'
 import { createEwrMapItems } from './ewr-map-items'
+import { createGciMapItems } from './gci-map-items'
 import { createNavalGroupMapItems } from './naval-map-items'
 
 export type ObjectiveMarker = {
@@ -18,6 +28,7 @@ export type ObjectiveMarker = {
   name: string
   coalition: z.infer<typeof schemas.coalition>
   isGoal?: boolean
+  labeled?: boolean
   position: {
     lng: number
     lat: number
@@ -48,6 +59,16 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
   const theatre = theatreQuery.data
   const scenarioGoal = scenarioQuery.data?.goal
   const campaignTime = useSelector(activeStore, (state) => state.context.time)
+  const campaignEra = useSelector(activeStore, (state) =>
+    state.context.escalation?.enabled
+      ? (state.context.escalation.stage ?? state.context.era)
+      : state.context.era
+  )
+  const germanyIadsDeadUnits = useSelector(
+    activeStore,
+    (state) => state.context.germanyIadsDeadUnits
+  )
+  const campaign = useSelector(activeStore, (state) => state.context)
 
   return useMemo(() => {
     if (theatre == null) {
@@ -253,11 +274,10 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
         const samTemplate = samTemplates[samGroup.type]
         if (samTemplate == null) continue
 
-        const latLng = tryDcsPositionToLngLat(
-          theatre.name,
-          objective.position.x,
-          objective.position.y
-        )
+        const samPosition = getSamSitePosition(theatre, samGroup.objectiveId)
+        if (!samPosition) continue
+
+        const latLng = tryDcsPositionToLngLat(theatre.name, samPosition.x, samPosition.y)
         if (!latLng) continue
 
         mapItems.push({
@@ -301,11 +321,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       coalition: z.infer<typeof schemas.coalition>
     ) => {
       for (const pilot of downedPilots) {
-        const position = tryDcsPositionToLngLat(
-          theatre.name,
-          pilot.position.x,
-          pilot.position.y
-        )
+        const position = tryDcsPositionToLngLat(theatre.name, pilot.position.x, pilot.position.y)
         if (!position) continue
         mapItems.push({
           id: pilot.id,
@@ -331,16 +347,89 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       const objective = objectivesByName.get(objectiveId)
       if (objective != null) opponentObjectives.push(objective.position)
     }
+    for (const [coalition, objectiveIds] of [
+      ['player', playerCoalition.objectiveIds ?? []],
+      ['opponent', opponentCoalition.objectiveIds ?? []]
+    ] as const) {
+      for (const objectiveId of objectiveIds) {
+        const objective = objectivesByName.get(objectiveId)
+        if (objective?.type !== 'Town') continue
+        const position = tryDcsPositionToLngLat(
+          theatre.name,
+          objective.position.x,
+          objective.position.y
+        )
+        if (!position) continue
+        objectiveMarkers.push({
+          id: `town-${objectiveId}`,
+          name: objective.name,
+          coalition,
+          labeled: true,
+          position
+        })
+      }
+    }
     addStructureMarkers(playerCoalition.structures ?? [], 'player')
     addStructureMarkers(opponentCoalition.structures ?? [], 'opponent')
     addGroundGroupMarkers(playerCoalition.groundGroups ?? [], 'player')
     addGroundGroupMarkers(opponentCoalition.groundGroups ?? [], 'opponent')
-    addSamMarkers(playerCoalition.samGroups ?? [], 'player')
-    addSamMarkers(opponentCoalition.samGroups ?? [], 'opponent')
+    if (!isGermanyIadsTheatre(theatre.name)) {
+      addSamMarkers(playerCoalition.samGroups ?? [], 'player')
+      addSamMarkers(opponentCoalition.samGroups ?? [], 'opponent')
+    }
     mapItems.push(
       ...createEwrMapItems(playerCoalition.ewrGroups ?? [], 'player', theatre.name),
-      ...createEwrMapItems(opponentCoalition.ewrGroups ?? [], 'opponent', theatre.name)
+      ...createEwrMapItems(opponentCoalition.ewrGroups ?? [], 'opponent', theatre.name),
+      ...createGciMapItems(campaign, theatre)
     )
+    if (isGermanyIadsTheatre(theatre.name)) {
+      const iadsOwners = germanyIadsOwnersFromObjectives(
+        theatre.objectives,
+        playerCoalition.objectiveIds ?? [],
+        opponentCoalition.objectiveIds ?? []
+      )
+      for (const site of getGermanyIadsSites(campaignEra)) {
+        if (site.kind === 'support' || site.kind === 'airbase') continue
+        const position = tryDcsPositionToLngLat(theatre.name, site.x, site.y)
+        if (!position) continue
+        const coalition = germanyIadsControllingCoalition(site, iadsOwners)
+        if (site.kind === 'sam' || site.kind === 'aaa') {
+          if (isGermanyIadsSamDestroyed(site, germanyIadsDeadUnits)) continue
+          mapItems.push({
+            id: site.id,
+            type: 'SAM',
+            objectiveId: site.objectiveId,
+            name: site.id,
+            coalition,
+            position,
+            range: site.range ?? 0,
+            active: true
+          })
+          continue
+        }
+        if (site.kind === 'ewr') {
+          mapItems.push({
+            id: site.id,
+            type: 'EWR',
+            objectiveId: site.objectiveId,
+            name: site.units[0]?.type ?? site.id,
+            coalition,
+            position,
+            active: true
+          })
+          continue
+        }
+        mapItems.push({
+          id: site.id,
+          type: 'Structure',
+          objectiveId: site.objectiveId,
+          name: site.id,
+          structureType: 'Command Center',
+          coalition,
+          position
+        })
+      }
+    }
     mapItems.push(
       ...createNavalGroupMapItems(playerCoalition.navalGroups ?? [], 'player', theatre.name),
       ...createNavalGroupMapItems(opponentCoalition.navalGroups ?? [], 'opponent', theatre.name)
@@ -463,6 +552,9 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     scenarioGoal,
     theatre,
     campaignTime,
-    options.showGoalMarkers
+    campaignEra,
+    germanyIadsDeadUnits,
+    options.showGoalMarkers,
+    campaign
   ])
 }

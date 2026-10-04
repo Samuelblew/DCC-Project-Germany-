@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plane, PlaneTakeoff, Plus, RotateCcw, User } from 'lucide-react'
 import { useSelector } from '@xstate/store/react'
+import { schemas } from '@dcc/contracts'
 
 import { CardContent } from '@/components/ui/card'
 import {
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { activeStore } from '@/stores/active'
+import { activeStore, isCareerCrewedOnly } from '@/stores/active'
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { canCreateManualFlightGroup } from '@/logic/systems/spawn/manual-flight-group'
 import { getTaskAircraftTypeOptions } from '@/lib/aircraft-display'
@@ -24,7 +25,15 @@ import {
   sortFlightGroupsByStartTime
 } from './flight-group-task-groups'
 
-const MANUAL_FLIGHT_TASKS = ['CAP', 'CAS', 'DEAD', 'Pinpoint Strike', 'SEAD'] as const
+const MANUAL_FLIGHT_TASKS = [
+  'CAP',
+  'CAS',
+  'DEAD',
+  'Pinpoint Strike',
+  'SEAD',
+  'Fighter Sweep',
+  'Training'
+] as const
 
 interface ActiveFlightGroupsProps {
   selectedItem: SelectedItem
@@ -172,13 +181,18 @@ export function ActiveFlightGroups({ selectedItem, onSelect, onPreview }: Active
                     group={group}
                     isAirborne={hasFlightGroupTakenOff(group, currentTime)}
                     selected={selectedItem?.id === group.id}
-                    showClientControls={selectedItem?.id === group.id}
+                    showClientControls={
+                      selectedItem?.id === group.id && !isCareerCrewedOnly(campaign, group)
+                    }
                     showAircraftType
                     aircraftTypeOptions={getTaskAircraftTypeOptions(
                       group.task,
                       showAllAircraft
                         ? undefined
-                        : campaign.coalitions.player.aircraftTypes[group.task]
+                        : schemas.resolveTaskAircraftTypes(
+                            campaign.coalitions.player.aircraftTypes,
+                            group.task
+                          )
                     )}
                     showAllAircraftTypes={showAllAircraft}
                     onAircraftTypeChange={(aircraftType) =>

@@ -1,5 +1,7 @@
 # DCC - DCS Campaign Creator
 
+This repository is a Germany Cold War / Escalation fork of DCC.
+
 DCC is an Electron desktop app for building and managing DCS World campaigns.
 It combines a campaign planning UI, map-based operations tooling, shared DCS
 data packages, and mission generation logic in one TypeScript monorepo.
@@ -40,15 +42,32 @@ packages/
 
 ## Getting Started
 
+On Windows, clone this repo and double-click `install.bat`. That installs
+[Bun](https://bun.sh/), downloads dependencies, fetches the Germany campaign
+map (~1 GB, not stored on GitHub), and builds `dist\win-unpacked\dcc.exe`.
+
+DCS World must already be installed. On first launch, pick the game folder
+that contains `bin\DCS.exe` (not Saved Games).
+
+Manual steps (no `.bat`) are in
+`INSTALL (if you don't want to run the .bat).txt`.
+
 ### Prerequisites
 
 - [Bun](https://bun.sh/) 1.3+
 - Node.js 20+
+- Windows 10 or 11 to use `install.bat` / the packaged `dcc.exe`
 
 ### Install
 
 ```bash
 bun install
+```
+
+Germany campaign map (only if the file is not already on disk):
+
+```bash
+bun run cache:map
 ```
 
 ### Run In Development

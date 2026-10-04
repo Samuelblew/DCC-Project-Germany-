@@ -1,0 +1,82 @@
+Installing DCC from source
+==========================
+
+This is a Windows Electron app, not a ready-made .exe on GitHub.
+You build the executable once. After that, open dcc.exe like any
+other program.
+
+What you need
+-------------
+- Windows 10 or 11
+- Internet for the first install
+- DCS World already installed
+- About 3 GB free (dependencies + the Germany map)
+
+Easy path
+---------
+1. Install Git and clone the repo, or download the ZIP and extract it.
+2. Double-click install.bat.
+3. Wait. The first run installs Bun, the libraries, and the Germany
+   map (about 1 GB).
+4. When it finishes, DCC should open. After that, use:
+
+   dist\win-unpacked\dcc.exe
+
+5. On first launch, point DCC at your DCS World folder: the one that
+   contains bin\DCS.exe (not Saved Games).
+
+If Windows blocks the .bat: right-click > Run anyway.
+If it asks for a firewall exception, you can allow it; DCC only talks
+to DCS on this machine.
+
+
+Manual path (no .bat)
+---------------------
+1. Install Bun: https://bun.sh
+   In PowerShell:
+
+   powershell -ExecutionPolicy Bypass -Command "irm https://bun.sh/install.ps1 | iex"
+
+   Close the terminal and open a new one so Bun is on PATH.
+
+2. Open a terminal in the DCC folder (the one with this INSTALL.txt)
+   and run:
+
+   bun install
+
+3. DCC campaign maps (the map background in the app, not DCS terrain).
+   Only needed if the Germany file is not already on disk:
+
+   bun run cache:map
+
+   Files go into apps\frontend\public\maps\
+
+4. Build and launch:
+
+   powershell -ExecutionPolicy Bypass -File scripts\build-local.ps1
+
+   Output: dist\win-unpacked\dcc.exe
+
+5. Pick your DCS World folder on first launch.
+
+
+After install
+-------------
+No commands day to day. Open dist\win-unpacked\dcc.exe.
+
+Run install.bat again only when the code changed and you want a new
+build. Close DCC first or the build cannot replace dcc.exe.
+
+AI keys (OpenAI and so on), if you use them, go in DCC settings.
+They are not in this repository.
+
+
+If something fails
+------------------
+- "bun is not recognized": the terminal was opened before Bun was
+  installed. Close it and open a new one.
+- Blank Germany map: run bun run cache:map and build again.
+- DCS not found: the correct folder is the game install
+  (with bin\DCS.exe), not Saved Games\DCS.
+- Out of disk space or a dropped connection during cache:map: run
+  the same command again.

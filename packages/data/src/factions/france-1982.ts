@@ -28,7 +28,8 @@ export const France1982: z.infer<typeof schemas.faction> = {
     Refueling: [],
     RescueHelo: ['SA342L'],
     AFAC: [],
-    Intercept: ['M-2000C', 'Mirage-F1EE']
+    Intercept: ['M-2000C', 'Mirage-F1EE'],
+    Training: []
   },
   color: 'blue',
   templateName: 'France - Modern'

@@ -17,8 +17,23 @@ import path from 'path'
 import { getTheatre } from '../data/get-theatre'
 import { assignObjectivesToCoalitions } from './assign-objectives-to-coalitions'
 import { assignSams } from './assign-sams'
-import { assignStructures } from '@dcc/frontend/mission-generator'
+import {
+  addCareerAircraftToTasks,
+  assignStructures,
+  createInitialCareer,
+  pickCareerHomeBase
+} from '@dcc/frontend/mission-generator'
+import {
+  createInitialEscalation,
+  getAcquirableCareerAircraft,
+  isFactionCareerAircraft,
+  applyEscalationAircraftTypes,
+  escalationFactionIds,
+  isGermanyIadsTheatre,
+  resolveCreateCampaignEra
+} from '@dcc/data'
 import { assignGroundGroups } from './assign-ground-groups'
+import { mirrorScenarioSides } from './mirror-scenario-sides'
 import { campaignsDir, stateFile } from '../../app-data'
 
 type Coalition = z.infer<typeof schemas.coalition>
@@ -165,12 +180,22 @@ async function setActiveCampaignId(id: string) {
 
 export const createCampaign = pub.campaign.createCampaign.handler(async ({ errors, input }) => {
   const scenarios = getScenarios()
-  const scenario = scenarios.find((entry) => entry.id === input.scenarioId && entry.available)
-  if (scenario == null) {
+  const baseScenario = scenarios.find((entry) => entry.id === input.scenarioId && entry.available)
+  if (baseScenario == null) {
     throw errors.NOT_FOUND({
       data: { message: 'Scenario not found or unavailable', path: input.scenarioId }
     })
   }
+  const playerSide = input.playerSide ?? 'blue'
+  if (playerSide === 'red' && baseScenario.sideSelectable === false) {
+    throw errors.NOT_FOUND({
+      data: {
+        message: 'This scenario can only be played from the blue side',
+        path: input.scenarioId
+      }
+    })
+  }
+  const scenario = playerSide === 'red' ? mirrorScenarioSides(baseScenario) : baseScenario
 
   const theatre = getTheatre(scenario.theatreName)
   if (theatre == null) {
@@ -283,17 +308,31 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
         objectiveId: assignment.objectiveId,
         position: assignment.position,
         name: assignment.name,
-        resources: assignment.resources,
+        resources:
+          scenario.id === 'fulda-gap' && assignment.type === 'Barrack'
+            ? 500
+            : scenario.id === 'fulda-gap' && assignment.type === 'Depot'
+              ? 1000
+              : assignment.resources,
         buildings: assignment.buildings
       }
     })
   }
 
   const factions = getFactions()
+  const escalationIds = input.escalation ? escalationFactionIds('Korea', playerSide) : undefined
   const playerFaction =
-    input.playerFaction ?? factions.find((faction) => faction.id === input.playerFactionId)
+    (escalationIds
+      ? factions.find((faction) => faction.id === escalationIds.player)
+      : undefined) ??
+    input.playerFaction ??
+    factions.find((faction) => faction.id === input.playerFactionId)
   const opponentFaction =
-    input.opponentFaction ?? factions.find((faction) => faction.id === input.opponentFactionId)
+    (escalationIds
+      ? factions.find((faction) => faction.id === escalationIds.opponent)
+      : undefined) ??
+    input.opponentFaction ??
+    factions.find((faction) => faction.id === input.opponentFactionId)
 
   if (playerFaction == null || opponentFaction == null) {
     throw errors.NOT_FOUND({
@@ -339,6 +378,9 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   const playerObjectiveInfos = getObjectiveInfos(objectiveAssignments.player ?? [])
   const opponentObjectiveInfos = getObjectiveInfos(objectiveAssignments.opponent ?? [])
 
+  // Germany fields the authored IADS network; template SAM groups would ignore the era ladder.
+  const germanyIads = isGermanyIadsTheatre(theatre.name)
+
   // Get SAM types from templates (first SAM type defined in groundUnitTypes.SAM)
   const playerSamType = playerTemplate.groundUnitTypes.SAM?.[0] as
     | z.infer<typeof schemas.samType>
@@ -348,12 +390,13 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     | undefined
 
   // Player SAMs: cover all player objectives, no restrictions
-  const playerSamAssignments = playerSamType
-    ? assignSams({
-        coalitionObjectives: playerObjectiveInfos,
-        samType: playerSamType
-      })
-    : []
+  const playerSamAssignments =
+    !germanyIads && playerSamType
+      ? assignSams({
+          coalitionObjectives: playerObjectiveInfos,
+          samType: playerSamType
+        })
+      : []
 
   const falklandsSamAssignments: Array<{
     objectiveId: string
@@ -367,8 +410,9 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
 
   // Opponent SAMs: the Falklands scenario has a deterministic reviewed network. Other scenarios
   // retain the randomized coverage allocator and its player-objective exclusion rule.
-  const opponentSamAssignments =
-    scenario.id === 'falklands-1982'
+  const opponentSamAssignments = germanyIads
+    ? []
+    : scenario.id === 'falklands-1982'
       ? falklandsSamAssignments.filter((assignment) =>
           opponentObjectiveInfos.some(
             (objective) => objective.id === assignment.objectiveId && objective.hasSamTarget
@@ -512,11 +556,17 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   const now = new Date()
   const selectedCampaignTime = getCampaignDateForYear(
     scenario.date,
-    input.campaignYear ?? scenario.date.getUTCFullYear()
+    input.escalation
+      ? scenario.date.getUTCFullYear()
+      : (input.campaignYear ?? scenario.date.getUTCFullYear())
   )
   const campaignTime = input.forceGpsEnabledDate
     ? getGpsEnabledCampaignDate(selectedCampaignTime)
     : selectedCampaignTime
+  const escalation = input.escalation
+    ? createInitialEscalation(campaignTime, input.escalationEraDays)
+    : undefined
+  const campaignEra = resolveCreateCampaignEra(input.era, input.escalation)
   const opponentStrategicStrikeCooldownUntil = createInitialStrategicStrikeCooldown(
     campaignTime,
     opponentFaction
@@ -528,7 +578,9 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     updatedAt: now,
     id: crypto.randomUUID(),
     name: scenario.name,
-    era: input.era,
+    era: campaignEra,
+    escalation,
+    playerSide,
     time: campaignTime,
     timeMultiplier: 0,
     campaignParams: {
@@ -540,7 +592,8 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
       exactTarget: true,
       casJtac: true,
       navigationVectors: true,
-      navigationTargetTacan: false
+      navigationTargetTacan: false,
+      ...(escalation ? { escalationEraDays: escalation.eraDurationDays } : {})
     },
     status: 'active',
     goal: scenario.goal,
@@ -600,6 +653,10 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     }
   }
 
+  if (input.escalation) {
+    applyEscalationAircraftTypes(defaultState, 'Korea')
+  }
+
   for (const coalition of ['player', 'opponent'] as const) {
     for (const group of defaultState.coalitions[coalition].groundGroups) {
       expandGroundGroupUnits(group)
@@ -615,6 +672,41 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
         now: campaignTime
       })
     }
+  }
+
+  if (input.mode === 'career') {
+    const acquisitionRule = input.careerAcquisitionRule ?? 'fidelity'
+    const player = defaultState.coalitions.player
+    const acquirable = getAcquirableCareerAircraft(acquisitionRule, player.aircraftTypes)
+    const careerAircraft = input.careerAircraft
+      ? acquirable.find((entry) => entry.aircraftName === input.careerAircraft)
+      : acquirable[0]
+    if (careerAircraft == null) {
+      throw errors.NOT_FOUND({
+        data: {
+          message: `Career aircraft not available to the player's coalition under the ${acquisitionRule} rule`,
+          path: String(input.careerAircraft)
+        }
+      })
+    }
+    player.aircraftTypes = structuredClone(player.aircraftTypes)
+    // Types from outside the coalition (arcade) stay the player's own; the AI keeps its fleet.
+    if (isFactionCareerAircraft(careerAircraft, player.aircraftTypes)) {
+      addCareerAircraftToTasks(player.aircraftTypes, careerAircraft)
+    }
+    const location = pickCareerHomeBase(defaultState, theatre)
+    if (location == null) {
+      throw errors.NOT_FOUND({
+        data: { message: 'No player airfield to base the career aircraft', path: scenario.id }
+      })
+    }
+    defaultState.mode = 'career'
+    defaultState.career = createInitialCareer({
+      aircraft: careerAircraft,
+      acquisitionRule,
+      location,
+      time: campaignTime
+    })
   }
 
   ensurePersistentIadsEwrs(defaultState, theatre)

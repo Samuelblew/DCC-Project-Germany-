@@ -76,7 +76,7 @@ export function FlightGroupCard({
     aircraftTypeOptions.length > 0 &&
     onAircraftTypeChange
   const targetOutcomeTone = targetOutcome?.complete
-    ? 'text-cyan-300'
+    ? 'text-amber-300'
     : targetOutcome?.label === 'Target damaged'
       ? 'text-amber-300'
       : 'text-red-300'
@@ -91,10 +91,10 @@ export function FlightGroupCard({
             : 'border-amber-400/40 bg-amber-400/7 hover:bg-amber-400/12'
           : selected
             ? hasClients
-              ? 'border-cyan-400 bg-cyan-500/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(34,211,238,0.16)]'
-              : 'border-synthwave-pink bg-synthwave-pink/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(255,0,170,0.16)]'
+              ? 'border-amber-400 bg-amber-500/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(232,183,48,0.16)]'
+              : 'border-synthwave-pink bg-synthwave-pink/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(217,68,58,0.16)]'
             : hasClients
-              ? 'border-cyan-400/30 bg-cyan-500/10 hover:border-cyan-400/45 hover:bg-cyan-500/16'
+              ? 'border-amber-400/30 bg-amber-500/10 hover:border-amber-400/45 hover:bg-amber-500/16'
               : 'border-synthwave-pink/16 bg-synthwave-pink/[0.055] hover:border-synthwave-pink/34 hover:bg-synthwave-pink/10'
       )}
       onClick={onClick}
@@ -105,7 +105,7 @@ export function FlightGroupCard({
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-2">
             <span
-              className={cn('text-sm font-medium', hasClients ? 'text-cyan-300' : 'text-primary')}
+              className={cn('text-sm font-medium', hasClients ? 'text-amber-300' : 'text-primary')}
             >
               {group.callsign}
             </span>
@@ -142,7 +142,7 @@ export function FlightGroupCard({
                 : 'Aircraft'}
             </span>
             <div
-              className={cn('flex items-center gap-1', hasClients && 'text-cyan-300')}
+              className={cn('flex items-center gap-1', hasClients && 'text-amber-300')}
               title="Client slots"
             >
               <User className="h-3 w-3" />
@@ -175,7 +175,7 @@ export function FlightGroupCard({
             disabled={aircraftTypeDisabled}
           >
             <SelectTrigger
-              className="h-8 border-[#00ddff]/25 bg-black/35 text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-[#00ddff]/45 focus:ring-[#00ddff]/25 disabled:cursor-default disabled:opacity-55"
+              className="h-8 border-[#e8b730]/25 bg-black/35 text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-[#e8b730]/45 focus:ring-[#e8b730]/25 disabled:cursor-default disabled:opacity-55"
               title="Aircraft type"
             >
               <SelectValue placeholder="Aircraft type">
@@ -183,21 +183,20 @@ export function FlightGroupCard({
               </SelectValue>
             </SelectTrigger>
             <SelectContent
-              className="border-[#00ddff]/25 bg-[#100019]/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur"
-              viewportClassName="!h-auto max-h-80"
+              className="border-[#e8b730]/25 bg-[#161412]/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur"
             >
               {aircraftTypeOptions.map((aircraftType) => (
                 <SelectItem
                   key={aircraftType}
                   value={aircraftType}
-                  className="text-xs focus:bg-[#00ddff]/15 focus:text-white"
+                  className="text-xs focus:bg-[#e8b730]/15 focus:text-white"
                 >
                   {getAircraftDisplayName(aircraftType)}
                 </SelectItem>
               ))}
               {onShowAllAircraftTypesChange && (
                 <>
-                  <SelectSeparator className="bg-[#00ddff]/15" />
+                  <SelectSeparator className="bg-[#e8b730]/15" />
                   <AircraftRosterFilterToggle
                     checked={showAllAircraftTypes}
                     onCheckedChange={onShowAllAircraftTypesChange}
@@ -233,14 +232,14 @@ export function FlightGroupCard({
                 <ToggleGroupItem
                   key={index}
                   value={index.toString()}
-                  className="tactical-button h-6 w-6 rounded-sm border-0 p-0 text-xs text-secondary data-[state=on]:text-cyan-300"
+                  className="tactical-button h-6 w-6 rounded-sm border-0 p-0 text-xs text-secondary data-[state=on]:text-amber-300"
                 >
                   {index}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
           ) : (
-            <div className="inline-flex rounded-md shadow-[0_0_18px_rgba(255,0,170,0.14)]">
+            <div className="inline-flex rounded-md shadow-[0_0_18px_rgba(217,68,58,0.14)]">
               <button
                 type="button"
                 className={cn(

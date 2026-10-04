@@ -416,7 +416,7 @@ function GlobalErrorScreen({ error }: { error: unknown }) {
     <div className="flex h-screen flex-col bg-synthwave-dark text-synthwave-light">
       <AppTitleBar />
       <main className="app-no-drag flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-        <section className="w-full max-w-2xl rounded-md border border-synthwave-pink/30 bg-black/28 p-6 shadow-[0_0_45px_rgba(255,110,199,0.12)]">
+        <section className="w-full max-w-2xl rounded-md border border-synthwave-pink/30 bg-black/28 p-6 shadow-[0_0_45px_rgba(239,127,112,0.12)]">
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-amber-300/45 bg-amber-300/10 text-amber-200">
               <AlertTriangle className="h-5 w-5" />

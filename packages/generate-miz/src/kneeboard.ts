@@ -1,4 +1,10 @@
 import { schemas } from '@dcc/contracts'
+import {
+  type AircraftProfile,
+  getAircraftProfile,
+  getTheatreAirdromeRadio,
+  type InstrumentUnits
+} from '@dcc/data'
 import sharp from 'sharp'
 import * as z from 'zod'
 
@@ -58,6 +64,8 @@ const PAGE_INNER_BOTTOM = 990
 const METERS_PER_NAUTICAL_MILE = 1852
 const FEET_PER_METER = 3.28084
 const KNOTS_PER_METER_PER_SECOND = 1.94384
+const KMH_PER_METER_PER_SECOND = 3.6
+const DEFAULT_RADIO_CHANNELS = { FLIGHT: 1, AWACS: 2, ATC: 3, JTAC: 4 } as const
 
 export function getClientFlightGroups(campaign: Campaign): ClientFlightGroup[] {
   return schemas.coalition.options.flatMap((coalition) =>
@@ -106,6 +114,43 @@ function formatSpeedKnots(metersPerSecond: number): string {
   return Math.round(metersPerSecond * KNOTS_PER_METER_PER_SECOND).toString()
 }
 
+function formatDistanceKm(meters: number): string {
+  if (!Number.isFinite(meters)) return '---'
+  return (meters / 1000).toFixed(1)
+}
+
+function formatAltitudeMeters(meters: number): string {
+  if (!Number.isFinite(meters)) return '---'
+  return Math.round(meters).toLocaleString('en-US')
+}
+
+function formatSpeedKmh(metersPerSecond: number): string {
+  if (!Number.isFinite(metersPerSecond)) return '---'
+  return Math.round(metersPerSecond * KMH_PER_METER_PER_SECOND).toString()
+}
+
+const UNIT_FORMATS = {
+  imperial: {
+    altitude: formatAltitudeFeet,
+    speed: formatSpeedKnots,
+    distance: formatDistanceNm,
+    labels: { altitude: 'ALT FT', speed: 'KTS', leg: 'LEG', total: 'TOT' }
+  },
+  metric: {
+    altitude: formatAltitudeMeters,
+    speed: formatSpeedKmh,
+    distance: formatDistanceKm,
+    labels: { altitude: 'ALT M', speed: 'KM/H', leg: 'LEG KM', total: 'TOT KM' }
+  }
+} satisfies Record<InstrumentUnits, unknown>
+
+/** The profile of the aircraft the flight's players sit in, when the DCC knows that module. */
+export function getKneeboardAircraftProfile(flightGroup: FlightGroup): AircraftProfile | undefined {
+  const aircraft =
+    flightGroup.aircrafts.find((candidate) => candidate.client) ?? flightGroup.aircrafts[0]
+  return aircraft ? getAircraftProfile(aircraft.aircraftName) : undefined
+}
+
 function formatBearingDegrees(from: Waypoint, to: Waypoint): string {
   // DCS uses x for north/south and z for east/west. Campaign positions store z as y.
   const northing = to.position.x - from.position.x
@@ -130,7 +175,11 @@ function getWaypointRemark(waypoint: Waypoint, flightGroup: FlightGroup): string
   return ''
 }
 
-export function buildKneeboardWaypointRows(flightGroup: FlightGroup): KneeboardWaypointRow[] {
+export function buildKneeboardWaypointRows(
+  flightGroup: FlightGroup,
+  units: InstrumentUnits = 'imperial'
+): KneeboardWaypointRow[] {
+  const format = UNIT_FORMATS[units]
   let totalMeters = 0
   let elapsedSeconds = 0
   let waypointNumber = 0
@@ -159,10 +208,10 @@ export function buildKneeboardWaypointRows(flightGroup: FlightGroup): KneeboardW
       name: waypoint.name || waypoint.type,
       type: waypoint.type,
       eta: formatTime(addSeconds(flightGroup.flightplan.startTime, elapsedSeconds)),
-      altitude: formatAltitudeFeet(waypoint.altitude),
-      speed: formatSpeedKnots(waypoint.speed),
-      legDistance: index === 0 ? '---' : formatDistanceNm(legMeters),
-      totalDistance: index === 0 ? '---' : formatDistanceNm(totalMeters),
+      altitude: format.altitude(waypoint.altitude),
+      speed: format.speed(waypoint.speed),
+      legDistance: index === 0 ? '---' : format.distance(legMeters),
+      totalDistance: index === 0 ? '---' : format.distance(totalMeters),
       bearing,
       remarks: getWaypointRemark(waypoint, flightGroup)
     }
@@ -332,6 +381,14 @@ export function buildKneeboardMissionDescription(params: {
     return `Conduct combat air patrol from ${flightGroup.homeBase}. Protect assigned airspace and intercept hostile aircraft.`
   }
 
+  if (flightGroup.task === 'Fighter Sweep') {
+    return `Sweep the airspace over the ground fighting at the Sweep waypoint. Clear hostile aircraft so friendly ground forces keep air superiority, then recover to ${flightGroup.homeBase}.`
+  }
+
+  if (flightGroup.task === 'Training') {
+    return `Training sortie from ${flightGroup.homeBase}. Fly the practice legs behind friendly lines and recover to ${flightGroup.homeBase}. No tasking.`
+  }
+
   if (flightGroup.task === 'CAS') {
     return `Provide close air support against ${targetSummary}. Use JTAC calls, smoke, or laser marks when available.`
   }
@@ -423,7 +480,7 @@ export function getKneeboardFlightFrequencySummary(
 ): string {
   if (missionConfig?.frequency == null) return '---'
   const preset = missionConfig.radioPreset
-  const presetLabel = preset ? ` R${preset.radio} CH${preset.channel}` : ''
+  const presetLabel = preset ? ` R${preset.radio} CH${preset.cockpitChannel ?? preset.channel}` : ''
   return `${missionConfig.frequency.toFixed(3)} MHz${presetLabel}`
 }
 
@@ -438,6 +495,34 @@ export function getKneeboardRadioChannelSummary(
 
   const radio = preset.radio == null ? '' : `R${preset.radio} `
   return `${radio}${preset.frequency.toFixed(3)} MHz`
+}
+
+/** "CH0 FLIGHT": the preset as the cockpit numbers it, or the generic layout when unplanned. */
+export function getKneeboardRadioChannelLabel(
+  missionConfig: MissionFlightConfig | undefined,
+  purpose: 'FLIGHT' | 'AWACS' | 'ATC' | 'JTAC'
+): string {
+  const preset = missionConfig?.radioChannels?.find((channel) => channel.purpose === purpose)
+  const channel = preset
+    ? (preset.cockpitChannel ?? preset.channel)
+    : DEFAULT_RADIO_CHANNELS[purpose]
+  return `CH${channel} ${purpose}`
+}
+
+/** The home base's first approach NDBs, for aircraft that home on beacons rather than TACAN. */
+export function getKneeboardHomeNdbSummary(flightGroup: FlightGroup, theatre: Theatre): string {
+  const approach = getTheatreAirdromeRadio(theatre.name)[flightGroup.homeBase]?.approaches[0]
+  if (!approach) return '---'
+  const inner = approach.inner ? ` / ${approach.inner.callsign} ${approach.inner.khz}` : ''
+  return `${approach.outer.callsign} ${approach.outer.khz}${inner} kHz`
+}
+
+export function getKneeboardHomeTowerSummary(flightGroup: FlightGroup, theatre: Theatre): string {
+  const radio = getTheatreAirdromeRadio(theatre.name)[flightGroup.homeBase]?.radio
+  const frequencies = [radio?.uhf, radio?.vhf].filter((mhz): mhz is number => mhz != null)
+  return frequencies.length > 0
+    ? frequencies.map((mhz) => mhz.toFixed(3)).join(' / ') + ' MHz'
+    : '---'
 }
 
 type SectionPanelLayout = {
@@ -611,7 +696,12 @@ async function renderRouteSketch(
   `
 }
 
-function renderWaypointTable(rows: KneeboardWaypointRow[], layout: KneeboardLayout['waypoints']) {
+function renderWaypointTable(
+  rows: KneeboardWaypointRow[],
+  layout: KneeboardLayout['waypoints'],
+  units: InstrumentUnits
+) {
+  const unitLabels = UNIT_FORMATS[units].labels
   const x = CONTENT_X
   const y = layout.panelY
   const rowHeight = WAYPOINT_ROW_HEIGHT
@@ -623,10 +713,10 @@ function renderWaypointTable(rows: KneeboardWaypointRow[], layout: KneeboardLayo
     { label: 'WP', width: 42 },
     { label: 'DESCRIPTION', width: 180 },
     { label: 'ETA', width: 72 },
-    { label: 'ALT FT', width: 74 },
-    { label: 'KTS', width: 54 },
-    { label: 'LEG', width: 52 },
-    { label: 'TOT', width: 52 },
+    { label: unitLabels.altitude, width: 74 },
+    { label: unitLabels.speed, width: 54 },
+    { label: unitLabels.leg, width: 52 },
+    { label: unitLabels.total, width: 52 },
     { label: 'BRG', width: 48 },
     { label: 'REMARKS', width: 66 }
   ]
@@ -694,7 +784,10 @@ export async function renderKneeboardSvg(params: {
   flightGroup: FlightGroup
 }) {
   const { campaign, theatre, missionFlightConfigs, coalition, flightGroup } = params
-  const rows = buildKneeboardWaypointRows(flightGroup)
+  const profile = getKneeboardAircraftProfile(flightGroup)
+  const units = profile?.units ?? 'imperial'
+  const hasTacan = profile ? profile.navigationAids.includes('tacan') : true
+  const rows = buildKneeboardWaypointRows(flightGroup, units)
   const missionConfig = findMissionConfig(missionFlightConfigs, flightGroup)
   const missionPackage = findMissionPackage(campaign, flightGroup)
   const targetDescriptionX = 408
@@ -766,10 +859,17 @@ export async function renderKneeboardSvg(params: {
   ${renderField('COALITION', coalition.toUpperCase(), 424, flight.contentY + 50, 248)}
   ${renderField('AIRCRAFT', getAircraftSummary(flightGroup), 424, flight.contentY + 76, 248)}
   ${renderField('CLIENTS', `${clientCount} / ${flightGroup.aircrafts.length}`, 424, flight.contentY + 102, 248)}
-  ${renderField('CH1 FLIGHT', getKneeboardRadioChannelSummary(missionConfig, 'FLIGHT'), 424, flight.contentY + 128, 248)}
-  ${renderField('CH2 AWACS', getKneeboardRadioChannelSummary(missionConfig, 'AWACS'), 424, flight.contentY + 154, 248)}
-  ${renderField('CH3 ATC', getKneeboardRadioChannelSummary(missionConfig, 'ATC'), 424, flight.contentY + 180, 248)}
-  ${renderField('CH4 JTAC', getKneeboardRadioChannelSummary(missionConfig, 'JTAC'), 424, flight.contentY + 206, 248)}
+  ${(['FLIGHT', 'AWACS', 'ATC', 'JTAC'] as const)
+    .map((purpose, index) =>
+      renderField(
+        getKneeboardRadioChannelLabel(missionConfig, purpose),
+        getKneeboardRadioChannelSummary(missionConfig, purpose),
+        424,
+        flight.contentY + 128 + index * 26,
+        248
+      )
+    )
+    .join('')}
 
   <rect x="${CONTENT_X}" y="${target.panelY}" width="${CONTENT_WIDTH}" height="${target.height}" class="panel" />
   ${renderSectionHeader('TARGET / INTEL', CONTENT_X, target.panelY, CONTENT_WIDTH)}
@@ -788,17 +888,24 @@ export async function renderKneeboardSvg(params: {
       .join('')}
   </g>
 
-  ${renderWaypointTable(rows, layout.waypoints)}
+  ${renderWaypointTable(rows, layout.waypoints, units)}
 
   <rect x="${CONTENT_X}" y="${layout.routeSketch.panelY}" width="${CONTENT_WIDTH}" height="${layout.routeSketch.height}" class="panel" />
   ${renderSectionHeader('ROUTE SKETCH', CONTENT_X, layout.routeSketch.panelY, CONTENT_WIDTH)}
   ${await renderRouteSketch(flightGroup.flightplan.waypoints, theatre, layout.routeSketch)}
 
   <rect x="${CONTENT_X}" y="${layout.footer.panelY}" width="${CONTENT_WIDTH}" height="${layout.footer.height}" class="panel" />
-  <text x="82" y="${layout.footer.panelY + 22}" class="small">TARGET TACAN</text>
+  ${
+    hasTacan
+      ? `<text x="82" y="${layout.footer.panelY + 22}" class="small">TARGET TACAN</text>
   <text x="212" y="${layout.footer.panelY + 22}" class="value">${escapeXml(getKneeboardTargetTacanSummary(missionConfig))}</text>
   <text x="376" y="${layout.footer.panelY + 22}" class="small">LANDING TACAN</text>
-  <text x="520" y="${layout.footer.panelY + 22}" class="value">${escapeXml(getKneeboardLandingTacanSummary(flightGroup, theatre, missionConfig))}</text>
+  <text x="520" y="${layout.footer.panelY + 22}" class="value">${escapeXml(getKneeboardLandingTacanSummary(flightGroup, theatre, missionConfig))}</text>`
+      : `<text x="82" y="${layout.footer.panelY + 22}" class="small">HOME NDB</text>
+  <text x="152" y="${layout.footer.panelY + 22}" class="value">${escapeXml(getKneeboardHomeNdbSummary(flightGroup, theatre))}</text>
+  <text x="400" y="${layout.footer.panelY + 22}" class="small">TOWER</text>
+  <text x="452" y="${layout.footer.panelY + 22}" class="value">${escapeXml(getKneeboardHomeTowerSummary(flightGroup, theatre))}</text>`
+  }
 </svg>`
 }
 

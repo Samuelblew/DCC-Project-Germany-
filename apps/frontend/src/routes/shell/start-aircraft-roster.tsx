@@ -28,6 +28,7 @@ type AircraftRosterProps = {
   forceGpsEnabledDate: boolean
   factionsDiffer: boolean
   selectedFaction: Faction | undefined
+  lockFactions?: boolean
   onCustomizeFactions: () => void
   onForceGpsEnabledDateChange: (force: boolean) => void
   onCustomizeSelectedFaction: () => void
@@ -48,6 +49,7 @@ export function AircraftRoster({
   forceGpsEnabledDate,
   factionsDiffer,
   selectedFaction,
+  lockFactions = false,
   onCustomizeFactions,
   onForceGpsEnabledDateChange,
   onCustomizeSelectedFaction,
@@ -68,7 +70,7 @@ export function AircraftRoster({
     .toUpperCase()
 
   return (
-    <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-synthwave-pink/35 bg-black/30 shadow-[0_0_44px_rgba(255,0,170,0.14)] backdrop-blur">
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-synthwave-pink/35 bg-black/30 shadow-[0_0_44px_rgba(217,68,58,0.14)] backdrop-blur">
       <div className="border-b border-synthwave-purple/30 p-5">
         <div className="mb-2 flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.2em] text-synthwave-pink">
           <Plane className="h-3.5 w-3.5" />
@@ -88,7 +90,7 @@ export function AircraftRoster({
             <span className="rounded border border-synthwave-cyan/35 px-2 py-1 text-[0.65rem] text-synthwave-cyan">
               {aircraft.length} TYPES
             </span>
-            {step === 'factions' ? (
+            {step === 'factions' && !lockFactions ? (
               <Button
                 type="button"
                 variant="outline"
@@ -241,7 +243,7 @@ export function AircraftRoster({
             {gpsNaturallyAvailable ? 'GPS is already available.' : 'Enable GPS for this campaign.'}
           </label>
         </div>
-        {step === 'era' ? (
+        {step === 'era' && !lockFactions ? (
           <Button
             type="button"
             variant="outline"
@@ -252,7 +254,12 @@ export function AircraftRoster({
             Customize Factions
           </Button>
         ) : null}
-        {step === 'factions' ? (
+        {lockFactions ? (
+          <div className="mb-2 rounded border border-synthwave-cyan/25 bg-synthwave-dark/60 px-3 py-2 text-center text-[0.62rem] uppercase tracking-[0.16em] text-synthwave-cyan/75">
+            Fleets locked to Escalation
+          </div>
+        ) : null}
+        {step === 'factions' && !lockFactions ? (
           <Button
             type="button"
             variant="outline"

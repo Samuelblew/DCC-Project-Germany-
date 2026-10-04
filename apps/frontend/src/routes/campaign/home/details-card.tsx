@@ -6,10 +6,25 @@ import {
   CardContent,
   CardAction
 } from '@/components/ui/card'
-import { Fuel, Layers3, PackageCheck, Route, User, Wrench, X } from 'lucide-react'
+import { Crosshair, Fuel, Layers3, PackageCheck, Radio, Route, User, Wrench, X } from 'lucide-react'
+import { getTheatreAirdromeRadio, scenarios } from '@dcc/data'
 import { useSelector } from '@xstate/store/react'
-import type { ReactNode } from 'react'
-import { activeStore } from '@/stores/active'
+import { useEffect, useState, type ReactNode } from 'react'
+import {
+  aircraftCullingRadius,
+  cullingRadius,
+  longRangeSamMinRangeMeters,
+  resolveAircraftCullingRadiusMeters,
+  resolveCullingRadiusMeters,
+  resolveSamCullingRadiusMeters,
+  samCullingRadius
+} from '@dcc/contracts'
+import { Button } from '@/components/ui/button'
+import { activeStore, isFlightRouteEditable } from '@/stores/active'
+import {
+  planDirectedAttack,
+  type DirectedAttackTarget
+} from '@/logic/systems/spawn/directed-attack'
 import { calculateResourceGainPerLogicTick } from '@/logic/systems/update-resources'
 import type { SelectedItem } from './map'
 import { cn } from '@/lib/utils'
@@ -32,7 +47,7 @@ function getSupplyTone(current: number, max: number) {
   const value = max > 0 ? current / max : 0
   if (value <= 0.15) return 'text-red-300'
   if (value <= 0.35) return 'text-amber-300'
-  return 'text-cyan-300'
+  return 'text-amber-300'
 }
 
 function getConnectedRoutes(
@@ -59,6 +74,24 @@ export function DetailsCard({
   onSelectObjective?: (objectiveName: string) => void
 }) {
   const campaign = useSelector(activeStore, (state) => state.context)
+  const [attackMessage, setAttackMessage] = useState<string | null>(null)
+  const selectedPlayerFlight =
+    selectedItem && 'flightplan' in selectedItem
+      ? (campaign.coalitions.player.flightGroups.find((group) => group.id === selectedItem.id) ??
+        null)
+      : null
+  const corridorRadiusKm = resolveCullingRadiusMeters(campaign.campaignParams?.cullingRadius) / 1000
+  const aircraftCorridorRadiusKm =
+    resolveAircraftCullingRadiusMeters(campaign.campaignParams?.cullingAircraftRadius) / 1000
+  const samCorridorRadiusKm =
+    resolveSamCullingRadiusMeters(campaign.campaignParams?.cullingSamRadius) / 1000
+  const attackTarget = attackTargetFromSelection(selectedItem, campaign)
+  const attack = attackTarget ? planDirectedAttack(campaign, attackTarget) : null
+  const selectedId = selectedItem && 'id' in selectedItem ? selectedItem.id : null
+
+  useEffect(() => {
+    setAttackMessage(null)
+  }, [selectedId])
 
   if (!selectedItem) return null
 
@@ -89,6 +122,7 @@ export function DetailsCard({
     (selectedItem.type === 'Structure' ||
       selectedItem.type === 'SAM' ||
       selectedItem.type === 'EWR' ||
+      selectedItem.type === 'GCI' ||
       selectedItem.type === 'Ground Group')
   const headerTitle = isObjectiveLinkedItem && objectiveName != null ? objectiveName : defaultTitle
   const headerSubtitle = isObjectiveLinkedItem
@@ -136,6 +170,11 @@ export function DetailsCard({
   const selectedCoalition = 'coalition' in selectedItem ? selectedItem.coalition : 'player'
   const isSelectedAirdrome = 'type' in selectedItem && selectedItem.type === 'Airdrome'
   const selectedNodeName = isSelectedAirdrome ? selectedItem.name : null
+  const theatreName = scenarios.find((entry) => entry.id === campaign.scenarioId)?.theatreName
+  const selectedAirdromeRadio =
+    selectedNodeName != null && theatreName != null
+      ? getTheatreAirdromeRadio(theatreName)[selectedNodeName]
+      : undefined
   const selectedSupply =
     selectedNodeName != null
       ? (campaign.coalitions[selectedCoalition].supplyNodes?.[selectedNodeName] ?? null)
@@ -180,9 +219,9 @@ export function DetailsCard({
             )
 
   return (
-    <div className="absolute top-28 right-4 w-80 z-1100">
-      <Card className="backdrop-blur-md bg-synthwave-dark/80 border-synthwave-pink/30 text-synthwave-light shadow-[0_0_15px_rgba(255,0,170,0.3)]">
-        <CardHeader>
+    <div className="absolute top-28 right-4 z-1100 flex max-h-[calc(100vh-9rem)] w-80 flex-col">
+      <Card className="flex min-h-0 flex-col overflow-hidden backdrop-blur-md bg-synthwave-dark/80 border-synthwave-pink/30 text-synthwave-light shadow-[0_0_15px_rgba(217,68,58,0.3)]">
+        <CardHeader className="shrink-0">
           <CardTitle className="text-synthwave-cyan retro-font">{headerTitle}</CardTitle>
           <CardDescription className="text-secondary">{headerSubtitle}</CardDescription>
           <CardAction>
@@ -196,7 +235,123 @@ export function DetailsCard({
             </button>
           </CardAction>
         </CardHeader>
-        <CardContent>
+        <CardContent className="synthwave-scrollbar min-h-0 flex-1 overflow-y-auto">
+          {'type' in selectedItem && selectedItem.type === 'GCI' ? (
+            <div className="mb-3 space-y-1 text-[11px] text-secondary">
+              <p>MiG-29A KRU intercept station. WAVE {selectedItem.channel}.</p>
+              <p>Control range {Math.round(selectedItem.range / 1000)} km.</p>
+            </div>
+          ) : null}
+          {selectedPlayerFlight && (
+            <div className="mb-3 space-y-1">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-secondary/70">
+                <span>Route corridor</span>
+                <span>{corridorRadiusKm} km</span>
+              </div>
+              <input
+                type="range"
+                min={cullingRadius.minMeters / 1000}
+                max={cullingRadius.maxMeters / 1000}
+                step={cullingRadius.stepMeters / 1000}
+                value={corridorRadiusKm}
+                aria-label="Corridor width around the route"
+                className="w-full accent-synthwave-cyan"
+                onChange={(event) =>
+                  activeStore.send({
+                    type: 'setCullingRadius',
+                    meters: Number(event.target.value) * 1000
+                  })
+                }
+              />
+              <div className="flex items-center justify-between pt-2 text-[10px] uppercase tracking-wide text-secondary/70">
+                <span>Aircraft corridor</span>
+                <span>{aircraftCorridorRadiusKm} km</span>
+              </div>
+              <input
+                type="range"
+                min={aircraftCullingRadius.minMeters / 1000}
+                max={aircraftCullingRadius.maxMeters / 1000}
+                step={aircraftCullingRadius.stepMeters / 1000}
+                value={aircraftCorridorRadiusKm}
+                aria-label="Aircraft corridor width around the route"
+                className="w-full accent-[#ffb000]"
+                onChange={(event) =>
+                  activeStore.send({
+                    type: 'setCullingAircraftRadius',
+                    meters: Number(event.target.value) * 1000
+                  })
+                }
+              />
+              <div className="flex items-center justify-between pt-2 text-[10px] uppercase tracking-wide text-secondary/70">
+                <span>Long-range SAM corridor</span>
+                <span>{samCorridorRadiusKm} km</span>
+              </div>
+              <input
+                type="range"
+                min={samCullingRadius.minMeters / 1000}
+                max={samCullingRadius.maxMeters / 1000}
+                step={samCullingRadius.stepMeters / 1000}
+                value={samCorridorRadiusKm}
+                aria-label="Long-range SAM corridor width around the route"
+                className="w-full accent-synthwave-pink"
+                onChange={(event) =>
+                  activeStore.send({
+                    type: 'setCullingSamRadius',
+                    meters: Number(event.target.value) * 1000
+                  })
+                }
+              />
+              <p className="text-[10px] text-secondary/70">
+                The route band keeps ground units and short-range air defence, the SAM band keeps
+                SAMs reaching {longRangeSamMinRangeMeters / 1000} km or more, and the aircraft band
+                keeps aircraft. Turn Culling on when generating the mission to load only what is
+                inside them.
+              </p>
+              <p className="text-[10px] text-secondary/70">
+                {isFlightRouteEditable(selectedPlayerFlight, campaign.time)
+                  ? 'Route: drag waypoints on the map, drag the small dots between them to add one, right-click an added Nav point to delete it.'
+                  : 'Route is locked because this flight has already taken off.'}
+              </p>
+            </div>
+          )}
+          {attackTarget && (
+            <div className="mb-3 space-y-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="tacticalAction"
+                className="h-10 w-full gap-2"
+                disabled={!attack?.plan}
+                onClick={() => {
+                  if (!attack?.plan) return
+                  const before = campaign.coalitions.player.flightGroups.length
+                  activeStore.send({ type: 'createDirectedAttack', target: attackTarget })
+                  const after =
+                    activeStore.getSnapshot().context.coalitions.player.flightGroups.length
+                  setAttackMessage(
+                    after > before
+                      ? 'Flight added. Select it when you want to fly.'
+                      : 'Could not add the flight.'
+                  )
+                }}
+              >
+                <Crosshair className="h-4 w-4" />
+                {attack?.plan ? `Add ${attack.plan.task} flight` : (attack?.reason ?? 'Attack')}
+              </Button>
+              {attack?.plan && (
+                <p className="text-[10px] uppercase tracking-wide text-secondary/70">
+                  {attack.plan.aircraftType} from {attack.plan.homeBase}
+                </p>
+              )}
+              {attackMessage && (
+                <p
+                  className={`text-xs ${attackMessage.startsWith('Flight added') ? 'text-secondary/80' : 'text-red-400'}`}
+                >
+                  {attackMessage}
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 text-sm">
             {'structureType' in selectedItem && (
               <>
@@ -301,7 +456,7 @@ export function DetailsCard({
                   className={cn(
                     'capitalize',
                     selectedNavalGroup.state === 'operational'
-                      ? 'text-cyan-300'
+                      ? 'text-amber-300'
                       : selectedNavalGroup.state === 'sunk'
                         ? 'text-red-300'
                         : 'text-amber-300'
@@ -352,7 +507,7 @@ export function DetailsCard({
                           className={cn(
                             'shrink-0 capitalize',
                             unit.state === 'operational'
-                              ? 'text-cyan-300/80'
+                              ? 'text-amber-300/80'
                               : unit.state === 'sunk'
                                 ? 'text-red-300'
                                 : 'text-amber-300'
@@ -391,6 +546,56 @@ export function DetailsCard({
                   </>
                 )}
               </>
+            )}
+            {selectedAirdromeRadio && (
+              <div className="col-span-2 mt-2 border-t border-synthwave-pink/10 pt-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Radio className="h-3.5 w-3.5 shrink-0 text-synthwave-pink" />
+                  <span className="retro-font truncate text-[10px] uppercase text-primary">
+                    Radio
+                  </span>
+                  {selectedAirdromeRadio.radio ? (
+                    <span className="ml-auto text-[10px] uppercase text-secondary/70">
+                      {selectedAirdromeRadio.radio.callsign}
+                    </span>
+                  ) : null}
+                </div>
+                {selectedAirdromeRadio.radio ? (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-[10px] text-secondary/70">Tower UHF</div>
+                      <div className="tabular-nums">
+                        {selectedAirdromeRadio.radio.uhf?.toFixed(3) ?? '—'} MHz
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-secondary/70">Tower VHF</div>
+                      <div className="tabular-nums">
+                        {selectedAirdromeRadio.radio.vhf?.toFixed(3) ?? '—'} MHz
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedAirdromeRadio.approaches.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs">
+                    <div className="text-[10px] text-secondary/70">
+                      Approach NDBs (outer / inner)
+                    </div>
+                    {selectedAirdromeRadio.approaches.map((approach, index) => (
+                      <div key={index} className="flex justify-between gap-2 tabular-nums">
+                        <span className="text-secondary/70">{approach.heading}°</span>
+                        <span>
+                          {approach.outer.callsign} {approach.outer.khz}
+                          {approach.inner
+                            ? ` / ${approach.inner.callsign} ${approach.inner.khz}`
+                            : ''}{' '}
+                          kHz
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             )}
             {selectedSupply && (
               <div className="col-span-2 mt-2 border-t border-synthwave-pink/10 pt-3">
@@ -495,6 +700,53 @@ export function DetailsCard({
       </Card>
     </div>
   )
+}
+
+function attackTargetFromSelection(
+  item: SelectedItem,
+  campaign: ReturnType<typeof activeStore.getSnapshot>['context']
+): DirectedAttackTarget | null {
+  if (!item || 'callsign' in item) return null
+
+  if ('units' in item && !('type' in item)) {
+    const ownedByOpponent = campaign.coalitions.opponent.groundGroups.some(
+      (group) => group.id === item.id
+    )
+    if (!ownedByOpponent) return null
+    return {
+      kind: 'ground',
+      id: item.id,
+      name: item.units[0]?.name ?? 'Ground group',
+      objectiveId: item.objectiveId
+    }
+  }
+
+  if (!('coalition' in item) || item.coalition !== 'opponent') return null
+  if (!('type' in item)) {
+    return { kind: 'town', id: item.name, name: item.name, objectiveId: item.name }
+  }
+
+  switch (item.type) {
+    case 'SAM':
+      return { kind: 'sam', id: item.id, name: item.name, objectiveId: item.objectiveId }
+    case 'EWR':
+      return { kind: 'ewr', id: item.id, name: item.name, objectiveId: item.objectiveId }
+    case 'Airdrome':
+      return { kind: 'airdrome', id: item.name, name: item.name, objectiveId: item.name }
+    case 'Structure':
+      return {
+        kind: 'structure',
+        id: item.id,
+        name: item.name,
+        objectiveId: item.objectiveId
+      }
+    case 'Ground Group':
+      return { kind: 'ground', id: item.id, name: item.name, objectiveId: item.objectiveId }
+    case 'Naval Group':
+      return { kind: 'naval', id: item.id, name: item.name }
+    default:
+      return null
+  }
 }
 
 function PoolMeter({

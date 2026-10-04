@@ -222,6 +222,31 @@ describe('formation withdrawal', () => {
     expect(group.retreat?.destinationObjectiveId).toBe('Rear')
     expect(group.targetObjectiveId).toBeUndefined()
   })
+
+  test('falls back in a straight line when the theatre has no road network', () => {
+    const state = campaign()
+    state.coalitions.player.objectiveIds.push('Rear', 'Far Rear')
+    const group = groundGroup(3)
+    group.state = 'combat'
+    state.coalitions.player.groundGroups.push(group)
+    const openTheatre: Theatre = {
+      ...theatre,
+      objectives: [
+        ...theatre.objectives,
+        { name: 'Rear', type: 'Town', position: { x: -20_000, y: 0 } },
+        { name: 'Far Rear', type: 'Town', position: { x: -60_000, y: 0 } }
+      ]
+    }
+
+    expect(
+      beginGroundGroupRetreat({ campaign: state, coalition: 'player', theatre: openTheatre, group })
+    ).toBe('withdrawing')
+    // Front is where the fight is (within 5 km), so the nearest objective away from it is chosen.
+    expect(group.retreat).toMatchObject({
+      destinationObjectiveId: 'Rear',
+      route: [{ x: -20_000, y: 0 }]
+    })
+  })
 })
 
 describe('casevac casualties', () => {

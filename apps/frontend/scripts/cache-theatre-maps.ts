@@ -40,6 +40,11 @@ const theatreMaps = [
     name: 'South Atlantic',
     bbox: '-75,-56,-56,-45',
     outputPath: join(mapsRoot, 'south-atlantic', 'south-atlantic.pmtiles')
+  },
+  {
+    name: 'Cold War Germany',
+    bbox: '5.2,47.2,15.8,56.2',
+    outputPath: join(mapsRoot, 'germany-cold-war', 'germany-cold-war.pmtiles')
   }
 ]
 
@@ -203,7 +208,15 @@ async function extractPmtiles(
   await rename(tempOutputPath, outputPath)
 }
 
-for (const theatreMap of theatreMaps) {
+const selectedTheatreMaps = process.env.MAP_CACHE_ONLY
+  ? theatreMaps.filter((theatreMap) => theatreMap.name === process.env.MAP_CACHE_ONLY)
+  : theatreMaps
+
+if (process.env.MAP_CACHE_ONLY && selectedTheatreMaps.length === 0) {
+  throw new Error(`No theatre map named ${process.env.MAP_CACHE_ONLY}`)
+}
+
+for (const theatreMap of selectedTheatreMaps) {
   await mkdir(dirname(theatreMap.outputPath), { recursive: true })
 }
 await mkdir(dirname(worldOutputPath), { recursive: true })
@@ -211,8 +224,10 @@ await mkdir(dirname(worldOutputPath), { recursive: true })
 const pmtiles = await downloadPmtilesCli()
 const sourceUrl = process.env.PROTOMAPS_SOURCE_URL ?? (await getLatestBuildUrl())
 
-await extractPmtiles(pmtiles, sourceUrl, worldOutputPath, [`--maxzoom=${worldMaxZoom}`])
-for (const theatreMap of theatreMaps) {
+if (!process.env.MAP_CACHE_ONLY) {
+  await extractPmtiles(pmtiles, sourceUrl, worldOutputPath, [`--maxzoom=${worldMaxZoom}`])
+}
+for (const theatreMap of selectedTheatreMaps) {
   await extractPmtiles(pmtiles, sourceUrl, theatreMap.outputPath, [
     `--bbox=${theatreMap.bbox}`,
     `--maxzoom=${maxZoom}`
@@ -220,7 +235,9 @@ for (const theatreMap of theatreMaps) {
 }
 await cacheGlyphs()
 
-console.log(`World low-zoom PMTiles cache ready: ${worldOutputPath}`)
-for (const theatreMap of theatreMaps) {
+if (!process.env.MAP_CACHE_ONLY) {
+  console.log(`World low-zoom PMTiles cache ready: ${worldOutputPath}`)
+}
+for (const theatreMap of selectedTheatreMaps) {
   console.log(`${theatreMap.name} PMTiles cache ready: ${theatreMap.outputPath}`)
 }

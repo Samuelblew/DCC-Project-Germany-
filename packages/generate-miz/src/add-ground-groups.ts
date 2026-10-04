@@ -1,12 +1,78 @@
 import { schemas } from '@dcc/contracts'
-import { getSamDeadUnitIndexes, isSamFullyDestroyed, samTemplates } from '@dcc/data'
+import {
+  getSamDeadUnitIndexes,
+  isGermanyIadsTheatre,
+  isSamFullyDestroyed,
+  samTemplates
+} from '@dcc/data'
 import { err, ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
+import { resolveAiSkill } from './ai-skill'
 import { isAirDefenseUnit, type MissionCullingPlan } from './mission-culling'
 import { findTargetPlacement, positionsMatch } from './target-placement'
 
 type Coalition = z.infer<typeof schemas.coalition>
+
+const INFANTRY_UNIT_PATTERN = /infantry|soldier/i
+const MIN_VEHICLE_SPACING = 10
+const MIN_INFANTRY_SPACING = 3
+const SPACING_CELL_SIZE = 12
+const SPACING_SEARCH_RINGS = 12
+
+/**
+ * Keeps generated ground units from spawning inside each other. Campaign state can put several
+ * groups on the same spot (for example after converging on one objective), so each unit is
+ * nudged outwards to the nearest free position.
+ */
+export class GroundUnitSpacing {
+  private readonly cells = new Map<string, { x: number; y: number; infantry: boolean }[]>()
+
+  place(position: { x: number; y: number }, unitType: string): { x: number; y: number } {
+    const infantry = INFANTRY_UNIT_PATTERN.test(unitType)
+    for (let ring = 0; ring <= SPACING_SEARCH_RINGS; ring++) {
+      const candidates = ring === 0 ? 1 : ring * 8
+      for (let index = 0; index < candidates; index++) {
+        const angle = (index / candidates) * Math.PI * 2
+        const candidate = {
+          x: position.x + Math.cos(angle) * ring * SPACING_CELL_SIZE,
+          y: position.y + Math.sin(angle) * ring * SPACING_CELL_SIZE
+        }
+        if (this.isFree(candidate, infantry)) {
+          this.occupy(candidate, infantry)
+          return candidate
+        }
+      }
+    }
+    this.occupy(position, infantry)
+    return position
+  }
+
+  private cellKey(x: number, y: number) {
+    return `${Math.floor(x / SPACING_CELL_SIZE)}:${Math.floor(y / SPACING_CELL_SIZE)}`
+  }
+
+  private isFree(position: { x: number; y: number }, infantry: boolean) {
+    const cellX = Math.floor(position.x / SPACING_CELL_SIZE)
+    const cellY = Math.floor(position.y / SPACING_CELL_SIZE)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const other of this.cells.get(`${cellX + dx}:${cellY + dy}`) ?? []) {
+          const spacing = infantry && other.infantry ? MIN_INFANTRY_SPACING : MIN_VEHICLE_SPACING
+          if (Math.hypot(other.x - position.x, other.y - position.y) < spacing) return false
+        }
+      }
+    }
+    return true
+  }
+
+  private occupy(position: { x: number; y: number }, infantry: boolean) {
+    const key = this.cellKey(position.x, position.y)
+    const cell = this.cells.get(key) ?? []
+    cell.push({ ...position, infantry })
+    this.cells.set(key, cell)
+  }
+}
 
 /**
  * Arrange units in a circle around a center point.
@@ -66,6 +132,7 @@ export function addGroundGroups(
     mission.currentKey += 1
     return mission.currentKey
   }
+  const spacing = new GroundUnitSpacing()
 
   for (const [key, value] of Object.entries(campaign.coalitions)) {
     const missionCoalitionKey = key === 'player' ? 'blue' : key === 'opponent' ? 'red' : 'neutrals'
@@ -81,7 +148,7 @@ export function addGroundGroups(
 
     // --- SAM Groups ---
     const samGroups = value.samGroups
-    if (samGroups && samGroups.length > 0) {
+    if (!isGermanyIadsTheatre(theatre.name) && samGroups && samGroups.length > 0) {
       // eslint-disable-next-line no-console
       console.log(
         `Adding ${samGroups.length} SAM groups for coalition ${missionCoalitionKey} (${key})`
@@ -96,6 +163,20 @@ export function addGroundGroups(
         const template = samTemplates[sam.type]
         if (!template) continue
 
+        const placement = findTargetPlacement(theatre, {
+          objectiveName: sam.objectiveId,
+          type: 'SAM'
+        })
+        if (
+          cullingPlan?.getSamMode(
+            sam.id,
+            placement?.position ?? objective.position,
+            template.range
+          ) === 'omit'
+        ) {
+          continue
+        }
+
         const deadUnitIndexes = getSamDeadUnitIndexes(sam)
         const liveTemplateUnits = template.units
           .map((unitType, index) => ({ unitType, index }))
@@ -105,22 +186,20 @@ export function addGroundGroups(
 
         const groupId = nextId()
         const groupName = `SAM-${sam.id}-${sam.type}-${groupId}`
-        const target = findTargetPlacement(theatre, {
-          objectiveName: sam.objectiveId,
-          type: 'SAM'
-        })
+        const target = placement
         const positions = positionUnits(objective.position, template.units.length, 50, target)
 
         const units = liveTemplateUnits.map(({ unitType, index }) => {
           const pos = positions[index] ?? { ...objective.position, heading: 0 }
+          const placed = spacing.place(pos, unitType)
           return {
             unitId: nextId(),
             name: `${groupName}-${index + 1}`,
-            x: pos.x,
-            y: pos.y,
+            x: placed.x,
+            y: placed.y,
             type: unitType,
             heading: pos.heading,
-            skill: 'High'
+            skill: resolveAiSkill(campaign, coalitionKey, 'High')
           }
         })
 
@@ -254,15 +333,18 @@ export function addGroundGroups(
 
         if (expandedUnits.length === 0) continue
 
-        const units = expandedUnits.map((eu) => ({
-          unitId: nextId(),
-          name: `GroundUnit-${gg.id}-${eu.id}`,
-          x: eu.x,
-          y: eu.y,
-          type: eu.type,
-          heading: eu.heading,
-          skill: 'High'
-        }))
+        const units = expandedUnits.map((eu) => {
+          const placed = spacing.place(eu, eu.type)
+          return {
+            unitId: nextId(),
+            name: `GroundUnit-${gg.id}-${eu.id}`,
+            x: placed.x,
+            y: placed.y,
+            type: eu.type,
+            heading: eu.heading,
+            skill: resolveAiSkill(campaign, coalitionKey, 'High')
+          }
+        })
 
         const firstUnit = units[0]
         if (!firstUnit) continue

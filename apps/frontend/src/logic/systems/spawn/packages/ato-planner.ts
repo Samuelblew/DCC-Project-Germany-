@@ -1,4 +1,4 @@
-import { config, schemas } from '@dcc/contracts'
+import { config, resolveAirActivity, schemas } from '@dcc/contracts'
 import { evaluateCombatViability, getGroundGroupUnitCount } from '@dcc/campaign'
 import { aircrafts } from '@dcc/data'
 import * as z from 'zod'
@@ -125,6 +125,11 @@ export const defaultAtoPlannerPolicy: AtoPlannerPolicy = {
   maxActiveAircraft: 28,
   packageLookaheadMs: 90 * 60 * 1000,
   enableTransport: false
+}
+
+/** Per-task active limits follow the campaign's air activity multiplier. */
+function scaledMaxActive(draft: Campaign, base: number) {
+  return Math.max(1, Math.round(base * resolveAirActivity(draft.campaignParams?.airActivity)))
 }
 
 function hasAircraft(draft: Campaign, coalition: Coalition, task: FlightTask) {
@@ -394,7 +399,10 @@ function makeCapPlan(
   context: SpawnContext,
   rejected: RejectedAtoPackage[]
 ): AtoPackagePlan | null {
-  if (activeTaskCount(draft, coalition, 'CAP') >= config.packages.CAP.maxActive[coalition]) {
+  if (
+    activeTaskCount(draft, coalition, 'CAP') >=
+    scaledMaxActive(draft, config.packages.CAP.maxActive[coalition])
+  ) {
     pushRejection(rejected, 'cap', 'budget exhausted')
     return null
   }
@@ -467,7 +475,10 @@ function makeStrikePlan(
 ): AtoPackagePlan | null {
   const kind: AtoPackageKind = task === 'Strategic Strike' ? 'strategicStrike' : 'strike'
   if (task === 'Strategic Strike' && coalition !== 'opponent') return null
-  if (activeTaskCount(draft, coalition, task) >= config.packages[task].maxActive[coalition]) {
+  if (
+    activeTaskCount(draft, coalition, task) >=
+    scaledMaxActive(draft, config.packages[task].maxActive[coalition])
+  ) {
     pushRejection(rejected, kind, 'budget exhausted')
     return null
   }
@@ -555,7 +566,8 @@ function makeStrikePlan(
   const canAddSead =
     threateningSam != null &&
     hasAircraft(draft, coalition, 'SEAD') &&
-    activeTaskCount(draft, coalition, 'SEAD') < config.packages.SEAD.maxActive[coalition]
+    activeTaskCount(draft, coalition, 'SEAD') <
+      scaledMaxActive(draft, config.packages.SEAD.maxActive[coalition])
 
   if (threateningSam && canAddSead) {
     const seadAircraftType = pickAircraft(draft, coalition, 'SEAD')
@@ -606,7 +618,10 @@ function makeDeadPlan(
   context: SpawnContext,
   rejected: RejectedAtoPackage[]
 ): AtoPackagePlan | null {
-  if (activeTaskCount(draft, coalition, 'DEAD') >= config.packages.DEAD.maxActive[coalition]) {
+  if (
+    activeTaskCount(draft, coalition, 'DEAD') >=
+    scaledMaxActive(draft, config.packages.DEAD.maxActive[coalition])
+  ) {
     pushRejection(rejected, 'dead', 'budget exhausted')
     return null
   }
@@ -683,7 +698,10 @@ function makeCasPlans(
   context: SpawnContext,
   rejected: RejectedAtoPackage[]
 ): AtoPackagePlan[] {
-  if (activeTaskCount(draft, coalition, 'CAS') >= config.packages.CAS.maxActive[coalition]) {
+  if (
+    activeTaskCount(draft, coalition, 'CAS') >=
+    scaledMaxActive(draft, config.packages.CAS.maxActive[coalition])
+  ) {
     pushRejection(rejected, 'cas', 'budget exhausted')
     return []
   }

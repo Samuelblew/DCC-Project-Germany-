@@ -1,8 +1,15 @@
-import { aircrafts } from '@dcc/data'
+import { aircrafts, type AircraftRole } from '@dcc/data'
 import { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
 type FlightTask = z.infer<typeof schemas.flightGroup>['task']
+
+export const AIRCRAFT_ROLE_LABELS: Record<AircraftRole, string> = {
+  airSuperiority: 'Air superiority',
+  multirole: 'Multirole',
+  attack: 'Attack',
+  helicopter: 'Helicopter'
+}
 
 const aircraftDisplayNames = new Map<string, string>(
   Object.values(aircrafts).map((def) => [def.name, def.display_name])
@@ -22,7 +29,7 @@ export function getTaskAircraftTypeOptions(
     .filter(
       (aircraft) =>
         aircraft.controllable &&
-        aircraft.availableTasks.includes(task) &&
+        schemas.aircraftSupportsTask(aircraft.availableTasks, task) &&
         (!availableAircraft || availableAircraft.has(aircraft.name))
     )
     .sort((a, b) => a.display_name.localeCompare(b.display_name))

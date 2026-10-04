@@ -2,13 +2,20 @@ import { ArrowLeft } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { schemas } from '@dcc/contracts'
-import { factions as builtInFactions, scenarios } from '@dcc/data'
+import {
+  DEFAULT_ESCALATION_ERA_DAYS,
+  careerAircraft,
+  escalationFactionIds,
+  factions as builtInFactions,
+  getAcquirableCareerAircraft,
+  scenarios
+} from '@dcc/data'
 import { useNavigate } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 import { coreClient } from '@/lib/orpc'
 
-import { CampaignStep } from './start-campaign-step'
+import { CampaignStep, type CampaignMode, type CareerAcquisitionRule } from './start-campaign-step'
 import { FactionEditor } from './start-faction-editor'
 import {
   factionIdsByEra,
@@ -16,6 +23,7 @@ import {
   getScenarioCampaignDefaults,
   type CampaignEra,
   type Faction,
+  type PlayerSide,
   type ScenarioStep as ScenarioStepName
 } from './start-campaign-options'
 import { ScenarioStep } from './start-scenario-step'
@@ -59,8 +67,17 @@ export function ScenarioSelect() {
   const [step, setStep] = useState<ScenarioStepName>('scenario')
   const [isCreatingCampaign, setIsCreatingCampaign] = useState(false)
   const [forceGpsEnabledDate, setForceGpsEnabledDate] = useState(false)
+  const [playerSide, setPlayerSide] = useState<PlayerSide>('blue')
+  const [campaignMode, setCampaignMode] = useState<CampaignMode>('classic')
+  const [acquisitionRule, setAcquisitionRule] = useState<CareerAcquisitionRule>('fidelity')
+  const [careerAircraftName, setCareerAircraftName] = useState<string | undefined>(
+    careerAircraft[0]?.aircraftName
+  )
+  const [escalationEnabled, setEscalationEnabled] = useState(false)
+  const [eraDurationDays, setEraDurationDays] = useState(DEFAULT_ESCALATION_ERA_DAYS)
   const selectedScenario =
     scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? firstAvailableScenario
+  const sideSelectable = selectedScenario?.sideSelectable !== false
   const availableFactions = useMemo(() => [...builtInFactions, ...customFactions], [customFactions])
   const selectedPlayerFaction = availableFactions.find(
     (faction) => faction.id === selectedPlayerFactionId
@@ -68,10 +85,29 @@ export function ScenarioSelect() {
   const selectedOpponentFaction = availableFactions.find(
     (faction) => faction.id === selectedOpponentFactionId
   )
+  const acquirableCareerAircraft = getAcquirableCareerAircraft(
+    acquisitionRule,
+    selectedPlayerFaction?.aircraftTypes ?? {}
+  )
+  const selectedCareerAircraft =
+    acquirableCareerAircraft.find((aircraft) => aircraft.aircraftName === careerAircraftName) ??
+    acquirableCareerAircraft[0]
+
+  const selectPlayerSide = (side: PlayerSide) => {
+    if (side === playerSide) return
+    setPlayerSide(side)
+    setSelectedPlayerFactionId(selectedOpponentFactionId)
+    setSelectedOpponentFactionId(selectedPlayerFactionId)
+  }
 
   const selectEra = (era: CampaignEra) => {
+    setEscalationEnabled(false)
     setSelectedEra(era)
-    const defaults = factionIdsByEra[era]
+    const eraDefaults = factionIdsByEra[era]
+    const defaults =
+      playerSide === 'red'
+        ? { player: eraDefaults.opponent, opponent: eraDefaults.player }
+        : eraDefaults
     setSelectedPlayerFactionId(defaults.player)
     setSelectedOpponentFactionId(defaults.opponent)
     setCampaignYear(
@@ -84,8 +120,23 @@ export function ScenarioSelect() {
     )
   }
 
+  const selectEscalation = () => {
+    setEscalationEnabled(true)
+    setSelectedEra('Korea')
+    const ids = escalationFactionIds('Korea', playerSide)
+    setSelectedPlayerFactionId(ids.player)
+    setSelectedOpponentFactionId(ids.opponent)
+    setCampaignYear(selectedScenario?.date.getUTCFullYear() ?? initialCampaignYear)
+  }
+
+  const followPlayerFactionSide = (faction: Faction | undefined) => {
+    if (sideSelectable && faction) setPlayerSide(faction.color)
+  }
+
   const selectPlayerFaction = (factionId: string) => {
+    if (escalationEnabled) return
     setSelectedPlayerFactionId(factionId)
+    followPlayerFactionSide(availableFactions.find((faction) => faction.id === factionId))
     setCampaignYear(
       getCampaignYearForFactions(
         availableFactions,
@@ -97,6 +148,7 @@ export function ScenarioSelect() {
   }
 
   const selectOpponentFaction = (factionId: string) => {
+    if (escalationEnabled) return
     setSelectedOpponentFactionId(factionId)
     setCampaignYear(
       getCampaignYearForFactions(
@@ -114,6 +166,15 @@ export function ScenarioSelect() {
     if (!scenario) return
 
     const defaults = getScenarioCampaignDefaults(scenario)
+    setPlayerSide('blue')
+    if (escalationEnabled) {
+      setSelectedEra('Korea')
+      const ids = escalationFactionIds('Korea', 'blue')
+      setSelectedPlayerFactionId(ids.player)
+      setSelectedOpponentFactionId(ids.opponent)
+      setCampaignYear(scenario.date.getUTCFullYear())
+      return
+    }
     setSelectedEra(defaults.era)
     setSelectedPlayerFactionId(defaults.playerFactionId)
     setSelectedOpponentFactionId(defaults.opponentFactionId)
@@ -128,7 +189,8 @@ export function ScenarioSelect() {
       selectedOpponentFaction == null ||
       !selectedScenario.available ||
       isCreatingCampaign ||
-      !factionsDiffer
+      !factionsDiffer ||
+      (campaignMode === 'career' && selectedCareerAircraft == null)
     ) {
       return
     }
@@ -137,13 +199,22 @@ export function ScenarioSelect() {
     try {
       await coreClient.campaign.createCampaign({
         scenarioId: selectedScenario.id,
-        era: selectedEra,
+        era: escalationEnabled ? 'Korea' : selectedEra,
         playerFactionId: selectedPlayerFactionId,
         opponentFactionId: selectedOpponentFactionId,
         playerFaction: selectedPlayerFaction,
         opponentFaction: selectedOpponentFaction,
-        campaignYear,
-        forceGpsEnabledDate
+        campaignYear: escalationEnabled ? selectedScenario.date.getUTCFullYear() : campaignYear,
+        forceGpsEnabledDate,
+        playerSide: sideSelectable ? playerSide : 'blue',
+        mode: campaignMode,
+        careerAircraft:
+          campaignMode === 'career'
+            ? schemas.dcs.aircraftName.safeParse(selectedCareerAircraft?.aircraftName).data
+            : undefined,
+        careerAcquisitionRule: campaignMode === 'career' ? acquisitionRule : undefined,
+        escalation: escalationEnabled || undefined,
+        escalationEraDays: escalationEnabled ? eraDurationDays : undefined
       })
       navigate('/', { state: { showWelcomeDialog: true } })
     } finally {
@@ -177,6 +248,7 @@ export function ScenarioSelect() {
     const nextAvailableFactions = [...builtInFactions, ...nextCustomFactions]
     if (factionEditor.role === 'player') {
       setSelectedPlayerFactionId(faction.id)
+      followPlayerFactionSide(faction)
       setCampaignYear(
         getCampaignYearForFactions(
           nextAvailableFactions,
@@ -212,7 +284,7 @@ export function ScenarioSelect() {
         />
         <div className="absolute bottom-0 left-0 right-0 h-[42vh] bg-linear-to-t from-synthwave-purple via-synthwave-pink/35 to-transparent opacity-35" />
 
-        <div className="relative z-10 flex h-full w-full max-w-6xl flex-col px-8 py-8">
+        <div className="relative z-10 flex h-full min-h-0 w-full max-w-6xl flex-col px-8 py-8">
           <div className="mb-6 flex items-center justify-between">
             <Button
               type="button"
@@ -244,7 +316,7 @@ export function ScenarioSelect() {
               <span className="text-transparent bg-clip-text bg-linear-to-r from-synthwave-cyan to-synthwave-pink">
                 SELECT
               </span>
-              <span className="ml-3 text-white drop-shadow-[0_0_14px_rgba(255,0,170,0.45)]">
+              <span className="ml-3 text-white drop-shadow-[0_0_14px_rgba(217,68,58,0.45)]">
                 {stepTitle}
               </span>
             </h1>
@@ -268,13 +340,32 @@ export function ScenarioSelect() {
               campaignYear={campaignYear}
               isCreatingCampaign={isCreatingCampaign}
               forceGpsEnabledDate={forceGpsEnabledDate}
+              playerSide={sideSelectable ? playerSide : 'blue'}
+              sideSelectable={sideSelectable}
+              campaignMode={campaignMode}
+              acquisitionRule={acquisitionRule}
+              careerAircraft={acquirableCareerAircraft}
+              careerAircraftName={selectedCareerAircraft?.aircraftName}
+              escalationEnabled={escalationEnabled}
+              eraDurationDays={eraDurationDays}
+              onSelectCampaignMode={setCampaignMode}
+              onSelectAcquisitionRule={setAcquisitionRule}
+              onSelectCareerAircraft={setCareerAircraftName}
+              onToggleEscalation={(enabled) => {
+                if (enabled) selectEscalation()
+              }}
+              onEraDurationDaysChange={setEraDurationDays}
+              onSelectPlayerSide={selectPlayerSide}
               onSelectEra={selectEra}
               onSelectPlayerFaction={selectPlayerFaction}
               onSelectOpponentFaction={selectOpponentFaction}
               onForceGpsEnabledDateChange={setForceGpsEnabledDate}
               onCustomizeFaction={(role) => openFactionEditor(role, 'customize')}
               onCreateFaction={(role) => openFactionEditor(role, 'create')}
-              onCustomizeFactions={() => setStep('factions')}
+              onCustomizeFactions={() => {
+                if (escalationEnabled) return
+                setStep('factions')
+              }}
               onCreateCampaign={() => void createCampaign()}
             />
           ) : null}

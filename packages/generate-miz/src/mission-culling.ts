@@ -1,7 +1,12 @@
-import { schemas } from '@dcc/contracts'
+import {
+  longRangeSamMinRangeMeters,
+  resolveAircraftCullingRadiusMeters,
+  resolveCullingRadiusMeters,
+  resolveSamCullingRadiusMeters,
+  schemas,
+  shortRangeAirDefenseReachMeters
+} from '@dcc/contracts'
 import * as z from 'zod'
-
-export const MISSION_CULLING_RADIUS_METERS = 10_000
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Theatre = z.infer<typeof schemas.theatre>
@@ -24,6 +29,15 @@ export type MissionCullingPlan = {
   manifest: MissionCullingManifest
   getGroundGroupMode: (coalition: Coalition, group: GroundGroup) => GroundGroupCullingMode
   getStructureMode: (coalition: Coalition, structure: Structure) => 'full' | 'omit'
+  /**
+   * Long-range SAMs (range >= longRangeSamMinRangeMeters) use the SAM band, shorter-range air
+   * defence the ground band; the player's direct target always stays.
+   */
+  getSamMode: (
+    samId: string,
+    position: Position,
+    rangeMeters: number | undefined
+  ) => 'full' | 'omit'
   recordGroundGroup: (
     coalition: Coalition,
     groupId: string,
@@ -49,44 +63,160 @@ function distance(a: Position, b: Position) {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function isNearAnyAnchor(position: Position, anchors: Position[]) {
-  return anchors.some((anchor) => distance(position, anchor) <= MISSION_CULLING_RADIUS_METERS)
+function distanceToSegment(point: Position, start: Position, end: Position) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return distance(point, start)
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared)
+  )
+  return distance(point, { x: start.x + t * dx, y: start.y + t * dy })
 }
 
-function findObjectivePosition(theatre: Theatre, objectiveId?: string): Position | undefined {
-  if (!objectiveId) return undefined
-  return theatre.objectives.find((objective) => objective.name === objectiveId)?.position
+function cross(origin: Position, a: Position, b: Position) {
+  return (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x)
+}
+
+/**
+ * The area a route covers: its convex hull, counter-clockwise. Player routes usually leave and return
+ * to the same base, so a corridor along the line alone would leave the middle of the loop empty.
+ */
+function routeArea(route: Position[]): Position[] {
+  const points = [...route]
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+    .filter((point, index, sorted) => {
+      const previous = sorted[index - 1]
+      return !previous || previous.x !== point.x || previous.y !== point.y
+    })
+  if (points.length <= 2) return points
+  const lower: Position[] = []
+  for (const point of points) {
+    while (lower.length >= 2 && cross(lower.at(-2)!, lower.at(-1)!, point) <= 0) lower.pop()
+    lower.push(point)
+  }
+  const upper: Position[] = []
+  for (const point of [...points].reverse()) {
+    while (upper.length >= 2 && cross(upper.at(-2)!, upper.at(-1)!, point) <= 0) upper.pop()
+    upper.push(point)
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
+}
+
+function areaEdges(area: Position[]): Array<[Position, Position]> {
+  if (area.length < 2) return []
+  if (area.length === 2) return [[area[0]!, area[1]!]]
+  return area.map((point, index) => [point, area[(index + 1) % area.length]!])
+}
+
+function isInsideArea(point: Position, area: Position[]) {
+  return area.length >= 3 && areaEdges(area).every(([start, end]) => cross(start, end, point) >= 0)
+}
+
+function distanceToArea(point: Position, area: Position[]) {
+  if (area.length === 0) return Number.POSITIVE_INFINITY
+  if (area.length === 1) return distance(point, area[0]!)
+  if (isInsideArea(point, area)) return 0
+  return Math.min(...areaEdges(area).map(([start, end]) => distanceToSegment(point, start, end)))
+}
+
+function segmentsIntersect(a: Position, b: Position, c: Position, d: Position) {
+  const d1 = cross(c, d, a)
+  const d2 = cross(c, d, b)
+  const d3 = cross(a, b, c)
+  const d4 = cross(a, b, d)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+function segmentDistanceToArea(start: Position, end: Position, area: Position[]) {
+  const endpointDistance = Math.min(distanceToArea(start, area), distanceToArea(end, area))
+  if (endpointDistance === 0) return 0
+  // A leg can cross the area with both ends outside it.
+  if (areaEdges(area).some(([a, b]) => segmentsIntersect(start, end, a, b))) return 0
+  return Math.min(endpointDistance, ...area.map((point) => distanceToSegment(point, start, end)))
+}
+
+function routeDistanceToArea(route: Position[], area: Position[]) {
+  if (route.length === 0) return Number.POSITIVE_INFINITY
+  if (route.length === 1) return distanceToArea(route[0]!, area)
+  let best = Number.POSITIVE_INFINITY
+  for (let index = 0; index < route.length - 1; index += 1) {
+    best = Math.min(best, segmentDistanceToArea(route[index]!, route[index + 1]!, area))
+  }
+  return best
+}
+
+/** Whether a position lies within `radius` of the area any player route covers. */
+export function isNearAnyRoute(position: Position, routes: Position[][], radius: number) {
+  return routes.some((route) => distanceToArea(position, routeArea(route)) <= radius)
+}
+
+function isRouteNearAnyRoute(route: Position[], routes: Position[][], radius: number) {
+  return routes.some((playerRoute) => routeDistanceToArea(route, routeArea(playerRoute)) <= radius)
+}
+
+type CullableFlight = CampaignCoalition['flightGroups'][number]
+
+function flightRoute(flight: CullableFlight, coalition: CampaignCoalition, theatre: Theatre) {
+  const route: Position[] = [flight.position]
+  const homeStructure = coalition.structures.find((structure) => structure.id === flight.homeBase)
+  const home = homeStructure?.position ?? findAirdromePosition(theatre, flight.homeBase)
+  if (home) route.push(home)
+  for (const waypoint of flight.flightplan.waypoints) route.push(waypoint.position)
+  return route
+}
+
+export function selectFlightIdsForMission(
+  campaign: Campaign,
+  theatre: Theatre
+): Set<string> | null {
+  if (campaign.campaignParams?.culling !== true) return null
+  const routes = playerMissionRoutes(campaign, theatre)
+  if (routes.length === 0) return null
+
+  const radius = resolveAircraftCullingRadiusMeters(campaign.campaignParams?.cullingAircraftRadius)
+  const selected = new Set<string>()
+
+  for (const key of ['player', 'opponent'] as const) {
+    const coalition = campaign.coalitions[key]
+    for (const flight of coalition.flightGroups) {
+      if (
+        flight.aircrafts.some((aircraft) => aircraft.client) ||
+        isRouteNearAnyRoute(flightRoute(flight, coalition, theatre), routes, radius)
+      ) {
+        selected.add(flight.id)
+      }
+    }
+
+    for (const missionPackage of coalition.packages) {
+      if (!missionPackage.members.some((member) => selected.has(member.flightGroupId))) continue
+      for (const member of missionPackage.members) selected.add(member.flightGroupId)
+    }
+  }
+
+  return selected
+}
+
+export function playerMissionRoutes(campaign: Campaign, theatre: Theatre) {
+  const routes: Position[][] = []
+  const coalition = campaign.coalitions.player
+  for (const flight of coalition.flightGroups) {
+    if (!flight.aircrafts.some((aircraft) => aircraft.client)) continue
+    const route: Position[] = []
+    const homeStructure = coalition.structures.find((structure) => structure.id === flight.homeBase)
+    const home = homeStructure?.position ?? findAirdromePosition(theatre, flight.homeBase)
+    if (home) route.push(home)
+    for (const waypoint of flight.flightplan.waypoints) route.push(waypoint.position)
+    if (route.length > 0) routes.push(route)
+  }
+  return routes
 }
 
 function findAirdromePosition(theatre: Theatre, airdromeName?: string): Position | undefined {
   if (!airdromeName) return undefined
   const airdrome = theatre.airdromeDetails[airdromeName]
   return airdrome ? { x: airdrome.x, y: airdrome.y } : undefined
-}
-
-function resolveTargetPosition(
-  campaign: Campaign,
-  theatre: Theatre,
-  target: Campaign['coalitions']['player']['flightGroups'][number]['target']
-): Position | undefined {
-  if (!target) return undefined
-
-  for (const coalition of Object.values(campaign.coalitions)) {
-    const structure = coalition.structures.find((entry) => entry.id === target.id)
-    if (structure)
-      return structure.position ?? findObjectivePosition(theatre, structure.objectiveId)
-
-    const groundGroup = coalition.groundGroups.find((entry) => entry.id === target.id)
-    if (groundGroup) return groundGroup.position
-
-    const sam = coalition.samGroups.find((entry) => entry.id === target.id)
-    if (sam) return findObjectivePosition(theatre, sam.objectiveId)
-
-    const ewr = coalition.ewrGroups?.find((entry) => entry.id === target.id)
-    if (ewr) return ewr.position
-  }
-
-  return findObjectivePosition(theatre, target.objectiveId)
 }
 
 function hasAirDefenseUnits(group: GroundGroup, coalition: CampaignCoalition) {
@@ -101,54 +231,29 @@ function createEmptyManifest(): MissionCullingManifest {
 }
 
 export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): MissionCullingPlan {
-  const enabled = campaign.campaignParams?.culling !== false
-  const anchors: Position[] = []
+  const enabled = campaign.campaignParams?.culling === true
+  const radius = resolveCullingRadiusMeters(campaign.campaignParams?.cullingRadius)
+  const samRadius = resolveSamCullingRadiusMeters(campaign.campaignParams?.cullingSamRadius)
+  const routes = enabled ? playerMissionRoutes(campaign, theatre) : []
   const directTargetIds = new Set<string>()
 
-  for (const coalition of Object.values(campaign.coalitions)) {
-    for (const flightGroup of coalition.flightGroups) {
-      const homeStructure = coalition.structures.find(
-        (structure) => structure.id === flightGroup.homeBase
-      )
-      if (homeStructure) anchors.push(homeStructure.position)
-
-      if (flightGroup.target) {
-        directTargetIds.add(flightGroup.target.id)
-        const targetPosition = resolveTargetPosition(campaign, theatre, flightGroup.target)
-        if (targetPosition) anchors.push(targetPosition)
-      }
-
-      const destinationPosition =
-        findObjectivePosition(theatre, flightGroup.destinationNode) ??
-        findAirdromePosition(theatre, flightGroup.destinationNode)
-      if (destinationPosition) anchors.push(destinationPosition)
-
-      for (const waypoint of flightGroup.flightplan.waypoints) {
-        if (waypoint.name === 'Target' || waypoint.name === 'Direct' || waypoint.type === 'Task') {
-          anchors.push(waypoint.position)
+  if (enabled) {
+    // Every flight that makes it into the mission needs its target there too, or AI packages fly
+    // off to attack something that was culled.
+    const selectedFlightIds = selectFlightIdsForMission(campaign, theatre)
+    for (const key of ['player', 'opponent'] as const) {
+      for (const flight of campaign.coalitions[key].flightGroups) {
+        if (!flight.target) continue
+        const flown = flight.aircrafts.some((aircraft) => aircraft.client)
+        if (flight.careerMission && !flown) continue
+        if ((key === 'player' && flown) || selectedFlightIds?.has(flight.id)) {
+          directTargetIds.add(flight.target.id)
         }
       }
     }
   }
 
-  for (const lock of campaign.groundBattleLocks ?? []) {
-    if (lock.expiresAt <= campaign.time) continue
-    for (const groupId of [...lock.attackerGroupIds, ...lock.defenderGroupIds]) {
-      directTargetIds.add(groupId)
-      const group =
-        campaign.coalitions.player.groundGroups.find((entry) => entry.id === groupId) ??
-        campaign.coalitions.opponent.groundGroups.find((entry) => entry.id === groupId)
-      if (group) anchors.push(group.position)
-    }
-
-    const objectivePosition = findObjectivePosition(theatre, lock.targetObjectiveId)
-    if (objectivePosition) anchors.push(objectivePosition)
-
-    const airdromePosition = findAirdromePosition(theatre, lock.targetAirdromeName)
-    if (airdromePosition) anchors.push(airdromePosition)
-  }
-
-  const includeAll = !enabled || anchors.length === 0
+  const includeAll = !enabled || routes.length === 0
   const manifest = createEmptyManifest()
 
   return {
@@ -157,14 +262,26 @@ export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): M
     getGroundGroupMode: (coalition, group) => {
       if (includeAll) return 'full'
       if (directTargetIds.has(group.id)) return 'full'
-      if (isNearAnyAnchor(group.position, anchors)) return 'full'
-      if (hasAirDefenseUnits(group, campaign.coalitions[coalition])) return 'antiAirOnly'
+      if (isNearAnyRoute(group.position, routes, radius)) return 'full'
+      // Air defence just past the band can still reach the route; farther out it only costs frames.
+      if (
+        hasAirDefenseUnits(group, campaign.coalitions[coalition]) &&
+        isNearAnyRoute(group.position, routes, radius + shortRangeAirDefenseReachMeters)
+      ) {
+        return 'antiAirOnly'
+      }
       return 'omit'
+    },
+    getSamMode: (samId, position, rangeMeters) => {
+      if (includeAll) return 'full'
+      if (directTargetIds.has(samId)) return 'full'
+      const band = (rangeMeters ?? 0) >= longRangeSamMinRangeMeters ? samRadius : radius
+      return isNearAnyRoute(position, routes, band) ? 'full' : 'omit'
     },
     getStructureMode: (_coalition, structure) => {
       if (includeAll) return 'full'
       if (directTargetIds.has(structure.id)) return 'full'
-      return isNearAnyAnchor(structure.position, anchors) ? 'full' : 'omit'
+      return isNearAnyRoute(structure.position, routes, radius) ? 'full' : 'omit'
     },
     recordGroundGroup: (coalition, groupId, mode) => {
       manifest.groundGroups[coalition][groupId] = mode

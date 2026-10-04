@@ -4,17 +4,27 @@ import {
   requiresSupercarrier,
   SUPERCARRIER_UNIT_TYPES
 } from '@dcc/campaign'
-import { config, schemas } from '@dcc/contracts'
-import { aircrafts, callsigns } from '@dcc/data'
+import { config, resolveAirActivity, schemas } from '@dcc/contracts'
+import {
+  aircrafts,
+  callsigns,
+  findGermanyIadsSite,
+  getAircraftProfile,
+  getTheatreAirdromeRadio
+} from '@dcc/data'
 import { err, ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
 import { findCarrierMissionUnit } from './add-naval-groups'
+import { resolveAiSkill } from './ai-skill'
+import { selectFlightIdsForMission } from './mission-culling'
 import {
   AWACS_FREQUENCY,
   DEFAULT_ATC_FREQUENCY,
   JTAC_FREQUENCY,
-  RADIO_CHANNELS
+  RADIO_CHANNELS,
+  resolveRadioPlan,
+  toCockpitChannel
 } from './radio-plan'
 
 // Build lookup map once
@@ -38,6 +48,7 @@ const JTAC_LASER_CODE = 1688
 const TARGET_TACAN_OFFSET_METERS = 500
 const TARGET_TACAN_START_CHANNEL = 31
 const FARP_NATIVE_PARKING_SLOTS = 4
+const GCI_TASKS = new Set(['CAP', 'Escort', 'Fighter Sweep', 'Intercept'])
 const FARP_SPAWN_SPACING_METERS = 70
 
 type Mission = z.infer<typeof schemas.dcs.mission>
@@ -49,11 +60,15 @@ type FrequencyRange = [number, number]
 type FlightRadioPreset = {
   radio: number
   channel: number
+  /** Channel number as the cockpit shows it, when the panel does not count from 1. */
+  cockpitChannel?: number
 }
 export type FlightRadioChannel = {
   purpose: 'FLIGHT' | 'AWACS' | 'ATC' | 'JTAC'
   radio?: number
   channel: number
+  /** Channel number as the cockpit shows it, when the panel does not count from 1. */
+  cockpitChannel?: number
   frequency: number
 }
 type NavigationAid = NonNullable<NonNullable<Campaign['campaignParams']>['navigationAid']>
@@ -64,9 +79,9 @@ type NavigationFeatureFlags = {
 
 const DEFAULT_CALLSIGN = 'Enfield'
 
-// DCS radio preset tables are module-specific. These are the flyable modules whose
-// mission-editor preset layout uses the common Radio[radio].channels[channel] format.
-// The selected index is compatible with DCC's assigned frequency range (UHF by default).
+// DCS radio preset tables are module-specific. These are the flyable modules without an aircraft
+// profile whose mission-editor preset layout uses the common Radio[radio].channels[channel]
+// format. The selected index is compatible with DCC's assigned frequency range (UHF by default).
 const FLIGHT_RADIO_PRESET_INDEX: Readonly<Record<string, number>> = {
   'A-10C': 2,
   'A-10C_2': 2,
@@ -89,6 +104,20 @@ const FLIGHT_RADIO_PRESET_INDEX: Readonly<Record<string, number>> = {
   'Mirage-F1CE': 2,
   'Mirage-F1EE': 2,
   'UH-1H': 1
+}
+
+/** `Radio[n]` that carries the flight's own presets: the profile's first comms set, else the table. */
+function getFlightPresetRadio(aircraftName: string) {
+  return (
+    getAircraftProfile(aircraftName)?.radios?.comms[0]?.missionRadio ??
+    FLIGHT_RADIO_PRESET_INDEX[aircraftName]
+  )
+}
+
+/** How the flight radio's cockpit labels preset `channel`, when it does not count from 1. */
+function getFlightCockpitChannel(aircraftName: string, channel: number) {
+  const radio = getAircraftProfile(aircraftName)?.radios?.comms[0]
+  return radio ? toCockpitChannel(channel, radio.firstChannelLabel) : undefined
 }
 
 function getFarpOverflowSpawnOffset(slotIndex: number) {
@@ -205,8 +234,56 @@ function resolveTargetPosition(
   )
   if (theatreTarget) return theatreTarget.position
 
+  const iadsSite = findGermanyIadsSite(flightGroup.target.id)
+  if (iadsSite) return { x: iadsSite.x, y: iadsSite.y }
+
   return theatre.objectives.find((objective) => objective.name === flightGroup.target?.objectiveId)
     ?.position
+}
+
+function pushPointBomb(
+  tasks: z.infer<typeof schemas.dcs.task>[],
+  position: { x: number; y: number }
+) {
+  tasks.push({
+    enabled: true,
+    auto: false,
+    id: 'Bombing',
+    number: tasks.length + 1,
+    params: {
+      direction: 0,
+      attackQtyLimit: false,
+      attackQty: 1,
+      expend: 'Auto',
+      y: position.y,
+      directionEnabled: false,
+      groupAttack: false,
+      altitude: 6000,
+      altitudeEnabled: false,
+      weaponType: 4030478,
+      x: position.x
+    }
+  })
+}
+
+function findMissionNamedVehicleGroupId(
+  mission: z.infer<typeof schemas.dcs.mission>,
+  coalitionKey: 'blue' | 'red',
+  targetId: string
+): number | null {
+  const countries = mission.coalition[coalitionKey].country ?? []
+  const prefixes = [`${targetId}-`, `Ground-${targetId}-`, `SAM-${targetId}-`]
+  const exactNames = new Set([targetId, `SAM-${targetId}`, `PLAYER-${targetId}`])
+
+  for (const country of countries) {
+    for (const group of country.vehicle?.group ?? []) {
+      if (exactNames.has(group.name) || prefixes.some((prefix) => group.name.startsWith(prefix))) {
+        return group.groupId ?? null
+      }
+    }
+  }
+
+  return null
 }
 
 function resolveNavigationFeatureFlags(campaign: Campaign): NavigationFeatureFlags {
@@ -362,6 +439,13 @@ export type CasFlightConfig = {
   jtacName: string
   targetGroupName: string
   laserCode: number
+  /** Instrument units of the player's aircraft; F10 BRAA uses this. */
+  units?: 'imperial' | 'metric'
+  /** Auto-start F10 picture calls for this flight. */
+  gci?: boolean
+  /** Native KRU HUD GCI (MiG-29A); skip F10 picture calls. */
+  nativeGci?: boolean
+  client?: boolean
 }
 
 export type CsarMissionConfig = {
@@ -398,6 +482,10 @@ export type MissionFlightConfig =
       navigation?: MissionNavigationConfig
       csar?: CsarMissionConfig
       recovery?: RecoveryMissionConfig
+      units?: 'imperial' | 'metric'
+      gci?: boolean
+      nativeGci?: boolean
+      client?: boolean
     }
 
 export type MissionNavigationConfig = {
@@ -434,15 +522,19 @@ function hasPlayerClientCap(campaign: Campaign) {
 function shouldIncludeFlightGroupInMission(
   coalition: CoalitionKey,
   flightGroup: FlightGroup,
-  options: { throttleEnemyNonCapFlights: boolean }
+  options: { throttleEnemyNonCapFlights: boolean; enemyNonCapKeepChance: number }
 ) {
+  // The career player's own missions only exist while the player flies them.
+  if (flightGroup.careerMission && !flightGroup.aircrafts.some((aircraft) => aircraft.client)) {
+    return false
+  }
   if (!options.throttleEnemyNonCapFlights) return true
   if (coalition !== 'opponent') return true
   if (flightGroup.task === 'CAP') return true
   if (flightGroup.task === 'Strategic Strike') return true
   if (flightGroup.aircrafts.some((aircraft) => aircraft.client)) return true
 
-  return Math.random() < 1 / 3
+  return Math.random() < options.enemyNonCapKeepChance
 }
 
 function roundFrequency(frequency: number) {
@@ -481,8 +573,12 @@ function createFlightGroupFrequencyAllocator(reservedFrequencies: Iterable<numbe
   }
 }
 
-function getAtcFrequency(airdrome: z.infer<typeof schemas.airdromeDetails> | undefined): number {
-  const frequencies = [airdrome?.frequency, ...(airdrome?.frequencyList ?? [])]
+function getAtcFrequency(
+  airdrome: z.infer<typeof schemas.airdromeDetails> | undefined,
+  towerUhf?: number
+): number {
+  // The terrain's own tower frequency comes first; theatres without it fall back to the export.
+  const frequencies = [towerUhf, airdrome?.frequency, ...(airdrome?.frequencyList ?? [])]
   return (
     frequencies.find(
       (frequency): frequency is number =>
@@ -492,11 +588,12 @@ function getAtcFrequency(airdrome: z.infer<typeof schemas.airdromeDetails> | und
 }
 
 function createFlightRadioChannels(
-  radio: number | undefined,
+  aircraftName: string,
   flightFrequency: number,
   atcFrequency: number
 ): FlightRadioChannel[] {
-  return [
+  const radio = getFlightPresetRadio(aircraftName)
+  const channels: FlightRadioChannel[] = [
     {
       purpose: 'FLIGHT',
       radio,
@@ -522,6 +619,10 @@ function createFlightRadioChannels(
       frequency: JTAC_FREQUENCY
     }
   ]
+  return channels.map((preset) => {
+    const cockpitChannel = getFlightCockpitChannel(aircraftName, preset.channel)
+    return cockpitChannel != null ? { ...preset, cockpitChannel } : preset
+  })
 }
 
 function createFlightRadioConfig(
@@ -533,7 +634,7 @@ function createFlightRadioConfig(
       radios: NonNullable<z.infer<typeof schemas.dcs.aircraftUnit>['Radio']>
     }
   | undefined {
-  const radio = FLIGHT_RADIO_PRESET_INDEX[aircraftName]
+  const radio = getFlightPresetRadio(aircraftName)
   if (radio == null) return undefined
 
   const channel = RADIO_CHANNELS.flight
@@ -545,8 +646,13 @@ function createFlightRadioConfig(
     channels: Object.fromEntries(channels.map((preset) => [preset.channel, preset.frequency]))
   }
 
+  const cockpitChannel = getFlightCockpitChannel(aircraftName, channel)
   return {
-    preset: { radio, channel },
+    preset: {
+      radio,
+      channel,
+      ...(cockpitChannel != null ? { cockpitChannel } : {})
+    },
     radios
   }
 }
@@ -613,6 +719,27 @@ function createCapOrbitTask(
   }
 }
 
+function createSweepEngageTask(
+  sweepCenter: z.infer<typeof schemas.position>,
+  taskNumber: number
+): z.infer<typeof schemas.dcs.task> {
+  return {
+    enabled: true,
+    auto: false,
+    id: 'EngageTargetsInZone',
+    number: taskNumber,
+    params: {
+      x: sweepCenter.x,
+      y: sweepCenter.y,
+      zoneRadius: config.packages['Fighter Sweep'].engagementZoneRadius,
+      targetTypes: ['Air'],
+      value: 'Air;',
+      noTargetTypes: [],
+      priority: 0
+    }
+  }
+}
+
 function createWrappedActionTask(
   action: { id: string; params?: Record<string, unknown> },
   taskNumber: number
@@ -654,10 +781,13 @@ function findMissionEwrGroupId(
   ewrId: string
 ): number | null {
   const countries = mission.coalition[coalitionKey].country ?? []
-  const namePrefix = `IADS-EWR-${ewrId}-`
+  const exactName = `IADS-EWR-${ewrId}`
+  const namePrefix = `${exactName}-`
 
   for (const country of countries) {
-    const ewrGroup = country.vehicle?.group?.find((group) => group.name.startsWith(namePrefix))
+    const ewrGroup = country.vehicle?.group?.find(
+      (group) => group.name === exactName || group.name.startsWith(namePrefix)
+    )
     if (ewrGroup) return ewrGroup.groupId ?? null
   }
 
@@ -1143,9 +1273,33 @@ function getMissionAircrafts(
   const includeAiWingmen =
     aiWingmanSpawn === 'always' || (aiWingmanSpawn === 'landOnly' && !isAirborne && !isCarrierStart)
 
+  // Career wingmen are paid for, so they always fly.
   return includeAiWingmen
     ? flightGroup.aircrafts
-    : flightGroup.aircrafts.filter((aircraft) => aircraft.client)
+    : flightGroup.aircrafts.filter((aircraft) => aircraft.client || aircraft.careerAirframeId)
+}
+
+/**
+ * Arms the failures carried by player-flown aircraft. DCS applies mission failures to the aircraft
+ * a player occupies; each one fires `afterMinutes` into the mission.
+ */
+function armPlayerFailures(mission: z.infer<typeof schemas.dcs.mission>, campaign: Campaign) {
+  for (const flightGroup of campaign.coalitions.player.flightGroups) {
+    for (const aircraft of flightGroup.aircrafts) {
+      if (!aircraft.client || !aircraft.failures?.length) continue
+      mission.failures ??= {}
+      for (const failure of aircraft.failures) {
+        mission.failures[failure.id] = {
+          id: failure.id,
+          enable: true,
+          prob: 100,
+          hh: Math.floor(failure.afterMinutes / 60),
+          mm: failure.afterMinutes % 60,
+          mmint: 1
+        }
+      }
+    }
+  }
 }
 
 export function addFlightGroups(
@@ -1153,6 +1307,7 @@ export function addFlightGroups(
   campaign: z.infer<typeof schemas.campaign.campaign>,
   theatre: z.infer<typeof schemas.theatre>
 ): Result<MissionFlightConfig[], Error> {
+  const airdromeRadio = getTheatreAirdromeRadio(theatre.name)
   const nextId = () => {
     mission.currentKey += 1
     return mission.currentKey
@@ -1255,12 +1410,23 @@ export function addFlightGroups(
   const hotStart = campaign.campaignParams?.hotStart === true
   const casJtac = campaign.campaignParams?.casJtac ?? true
   const throttleEnemyNonCapFlights = !hasPlayerClientCap(campaign)
+  // One in three by default; the air activity slider raises it up to every flight at 3x.
+  const enemyNonCapKeepChance = Math.min(
+    1,
+    resolveAirActivity(campaign.campaignParams?.airActivity) / 3
+  )
+  const culledFlightIds = selectFlightIdsForMission(campaign, theatre)
 
   for (const [key, value] of Object.entries(campaign.coalitions)) {
     const missionCoalitionKey = key === 'player' ? 'blue' : key === 'opponent' ? 'red' : 'neutrals'
     const coalitionKey = key as CoalitionKey
-    const flightGroups = value.flightGroups?.filter((fg) =>
-      shouldIncludeFlightGroupInMission(coalitionKey, fg, { throttleEnemyNonCapFlights })
+    const flightGroups = value.flightGroups?.filter(
+      (fg) =>
+        (culledFlightIds == null || culledFlightIds.has(fg.id)) &&
+        shouldIncludeFlightGroupInMission(coalitionKey, fg, {
+          throttleEnemyNonCapFlights,
+          enemyNonCapKeepChance
+        })
     )
 
     if (!flightGroups || flightGroups.length === 0) continue
@@ -1332,15 +1498,22 @@ export function addFlightGroups(
       }
 
       const isHelicopter = aircraftDef.isHelicopter ?? false
+      const isPlayerClient = fg.aircrafts.some((aircraft) => aircraft.client)
       const taskName = fg.task
       const dcsTaskName = ['CSAR', 'CASEVAC', 'Troop Extraction'].includes(fg.task)
         ? 'Transport'
         : fg.task === 'DEAD'
           ? 'SEAD'
-          : fg.task
+          : fg.task === 'Training'
+            ? 'Nothing'
+            : fg.task
 
       // Find loadout
-      let selectedLoadout = aircraftDef.loadouts.find((l) => l.task === taskName)
+      let selectedLoadout =
+        aircraftDef.loadouts.find((l) => l.task === taskName) ??
+        (fg.task === 'Fighter Sweep'
+          ? aircraftDef.loadouts.find((l) => l.task === 'CAP')
+          : undefined)
 
       if (!selectedLoadout) {
         // Fallback to default or first one
@@ -1386,10 +1559,27 @@ export function addFlightGroups(
         )
         return
       }
-      const atcFrequency = getAtcFrequency(airdrome)
-      const flightRadioIndex = FLIGHT_RADIO_PRESET_INDEX[aircraftDef.name]
-      const radioChannels = createFlightRadioChannels(flightRadioIndex, frequency, atcFrequency)
+      const atcFrequency = getAtcFrequency(airdrome, airdromeRadio[airdromeName]?.radio?.uhf)
+      const flightRadioIndex = getFlightPresetRadio(aircraftDef.name)
+      const profile = getAircraftProfile(aircraftDef.name)
+      const hasTacan = profile ? profile.navigationAids.includes('tacan') : true
+      // A player's own radio setup, else the profile's default one, replaces the generic presets.
+      const radioPlan =
+        missionAircraft.find((ac) => ac.client && ac.radioPlan)?.radioPlan ??
+        (missionAircraft.some((ac) => ac.client) ? profile?.radios?.defaultPlan : undefined)
+      const plannedRadio =
+        radioPlan && profile?.radios
+          ? resolveRadioPlan(radioPlan, profile.radios, {
+              flightFrequency: frequency,
+              homeBase: fg.homeBase,
+              airdromeRadio
+            })
+          : undefined
+      const radioChannels: FlightRadioChannel[] =
+        plannedRadio?.channels ??
+        createFlightRadioChannels(aircraftDef.name, frequency, atcFrequency)
       const flightRadioConfig = createFlightRadioConfig(aircraftDef.name, radioChannels)
+      const plannedFlightChannel = plannedRadio?.channels.find((c) => c.purpose === 'FLIGHT')
 
       // Initialize used slots for this airdrome if not exists
       if (airdrome && !usedParkingSlots.has(airdromeName)) {
@@ -1514,7 +1704,11 @@ export function addFlightGroups(
           parking: parking,
           parking_id: parking_id,
           payload: {
-            pylons: pylons,
+            pylons: ac.pylons
+              ? Object.fromEntries(
+                  ac.pylons.map((pylon) => [pylon.num, { CLSID: pylon.CLSID, num: pylon.num }])
+                )
+              : pylons,
             fuel: aircraftDef.max_fuel,
             flare: aircraftDef.flare,
             ammo_type: aircraftDef.ammo_type ?? 1,
@@ -1528,9 +1722,13 @@ export function addFlightGroups(
             link16StationNumberByUnitId.get(unitId)
           ),
           datalinks: createDatalinks(aircraftDef, index, unitIds, link16NetworkUnitIds),
-          ...(ac.client && flightRadioConfig ? { Radio: flightRadioConfig.radios } : {}),
+          ...(ac.client && plannedRadio
+            ? { Radio: plannedRadio.radios }
+            : ac.client && flightRadioConfig
+              ? { Radio: flightRadioConfig.radios }
+              : {}),
           livery_id: 'default',
-          skill: ac.client ? 'Client' : 'High',
+          skill: ac.client ? 'Client' : resolveAiSkill(campaign, coalitionKey, ac.skill ?? 'High'),
           speed: speed,
           type: aircraftDef.name,
           unitId: unitId,
@@ -1767,23 +1965,32 @@ export function addFlightGroups(
           }
         }
 
-        if (wp.type === 'Task' && fg.target && (fg.task === 'SEAD' || fg.task === 'DEAD')) {
+        if (
+          wp.type === 'Task' &&
+          fg.target &&
+          (fg.task === 'SEAD' || fg.task === 'DEAD' || fg.task === 'CAS')
+        ) {
           const targetCoalitionKey = missionCoalitionKey === 'blue' ? 'red' : 'blue'
-          const targetEwrGroupId = findMissionEwrGroupId(mission, targetCoalitionKey, fg.target.id)
-          if (targetEwrGroupId != null) {
+          const targetGroupId =
+            findMissionEwrGroupId(mission, targetCoalitionKey, fg.target.id) ??
+            findMissionNamedVehicleGroupId(mission, targetCoalitionKey, fg.target.id)
+          if (targetGroupId != null) {
             tasks.push({
               enabled: true,
               auto: false,
               id: 'AttackGroup',
               number: tasks.length + 1,
               params: {
-                groupId: targetEwrGroupId,
+                groupId: targetGroupId,
                 attackQtyLimit: false,
                 expend: 'Auto',
                 groupAttack: false,
                 weaponType: 0
               }
             })
+          } else {
+            const aimpoint = resolveTargetPosition(campaign, theatre, fg)
+            if (aimpoint) pushPointBomb(tasks, aimpoint)
           }
         }
 
@@ -1803,6 +2010,10 @@ export function addFlightGroups(
               tasks.length + 1
             )
           )
+        }
+
+        if (fg.task === 'Fighter Sweep' && wp.type === 'Task') {
+          tasks.push(createSweepEngageTask(wp.position, tasks.length + 1))
         }
 
         if (isTransportHelicopter && wp.type === 'TakeOff') {
@@ -1866,6 +2077,12 @@ export function addFlightGroups(
                 }
               })
             })
+          } else {
+            const aimpoint = resolveTargetPosition(campaign, theatre, fg) ?? {
+              x: wp.position.x,
+              y: wp.position.y
+            }
+            pushPointBomb(tasks, aimpoint)
           }
         }
 
@@ -1985,8 +2202,10 @@ export function addFlightGroups(
           fg.flightplan.waypoints.find((waypoint) => waypoint.type === 'Landing')?.position ??
           fg.position
         const landingAirdrome = theatre.airdromeDetails[fg.homeBase]
-        const landingTacan =
-          landingAirdrome?.tacan ?? carrierPersistentUnit?.tacan ?? carrierHome?.tacan
+        const landingTacan = hasTacan
+          ? (landingAirdrome?.tacan ?? carrierPersistentUnit?.tacan ?? carrierHome?.tacan)
+          : undefined
+        const targetTacan = navigationFeatures.targetTacan && hasTacan
         let navigation: MissionNavigationConfig | undefined
 
         if (landingTacan) {
@@ -2006,10 +2225,10 @@ export function addFlightGroups(
           }
         }
 
-        if ((navigationFeatures.vectors || navigationFeatures.targetTacan) && targetPosition) {
+        if ((navigationFeatures.vectors || targetTacan) && targetPosition) {
           navigation = {
             ...navigation,
-            mode: navigationFeatures.targetTacan ? 'targetTacan' : 'targetVector',
+            mode: targetTacan ? 'targetTacan' : 'targetVector',
             ...(navigationFeatures.vectors ? { targetLabel: formatTargetLabel(fg) } : {}),
             ...(navigationFeatures.vectors
               ? {
@@ -2021,7 +2240,7 @@ export function addFlightGroups(
               : {})
           }
 
-          if (navigationFeatures.targetTacan) {
+          if (targetTacan) {
             const channel = nextTacanChannel++
             const callsign = `DCC${nextTacanCallsign++}`
             const beaconName = `DCC Target TACAN ${groupName}`
@@ -2056,9 +2275,27 @@ export function addFlightGroups(
           task: fg.task,
           unitNames: units.map((unit) => unit.name),
           frequency,
-          ...(flightRadioConfig ? { radioPreset: flightRadioConfig.preset } : {}),
-          ...(flightRadioIndex != null ? { radioChannels } : {}),
+          ...(plannedFlightChannel
+            ? {
+                radioPreset: {
+                  radio: plannedFlightChannel.radio,
+                  channel: plannedFlightChannel.channel,
+                  ...(plannedFlightChannel.cockpitChannel != null
+                    ? { cockpitChannel: plannedFlightChannel.cockpitChannel }
+                    : {})
+                }
+              }
+            : flightRadioConfig
+              ? { radioPreset: flightRadioConfig.preset }
+              : {}),
+          ...(plannedRadio || flightRadioIndex != null ? { radioChannels } : {}),
           ...(isHelicopter ? { isHelicopter } : {}),
+          ...(isPlayerClient ? { client: true } : {}),
+          ...(profile?.units ? { units: profile.units } : {}),
+          ...(isPlayerClient && aircraftDef.name === 'MiG-29 Fulcrum' ? { nativeGci: true } : {}),
+          ...(isPlayerClient && GCI_TASKS.has(fg.task) && aircraftDef.name !== 'MiG-29 Fulcrum'
+            ? { gci: true }
+            : {}),
           ...(fg.task === 'CSAR' && downedPilot && downedPilotObjectName
             ? {
                 csar: {
@@ -2143,5 +2380,6 @@ export function addFlightGroups(
     })
   }
 
+  armPlayerFailures(mission, campaign)
   return ok(flightConfigs)
 }

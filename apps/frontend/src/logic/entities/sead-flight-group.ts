@@ -1,9 +1,13 @@
 import { schemas, config } from '@dcc/contracts'
-import { isSamHardwareCapable, samTemplates } from '@dcc/data'
+import {
+  findGermanyIadsSite,
+  getSamSitePosition,
+  isSamHardwareCapable,
+  samTemplates
+} from '@dcc/data'
 import * as z from 'zod'
 import { FlightGroup } from './flight-group'
 import { calculateDistance } from '../utils/calculate-distance'
-import { getObjectivePosition } from '../utils/get-objective-position'
 import { buildSeadMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
 import { logCombatAction } from '../simulation-log'
 import { maybeCreateDownedPilotFromAircraftLoss } from '../systems/downed-pilots'
@@ -84,13 +88,19 @@ export class SeadFlightGroup extends FlightGroup {
     const samGroup = enemy.samGroups.find((s) => s.id === this._data.target?.id)
     const ewrGroup = enemy.ewrGroups?.find((ewr) => ewr.id === this._data.target?.id)
 
-    if (!samGroup && !ewrGroup) {
+    const site = this._data.target ? findGermanyIadsSite(this._data.target.id) : undefined
+
+    if (!samGroup && !ewrGroup && !site) {
       return
     }
 
     const emitterPosition = samGroup
-      ? getObjectivePosition(theatre, samGroup.objectiveId)
-      : ewrGroup?.position
+      ? getSamSitePosition(theatre, samGroup.objectiveId)
+      : ewrGroup
+        ? ewrGroup.position
+        : site
+          ? { x: site.x, y: site.y }
+          : undefined
     if (!emitterPosition) {
       return
     }
@@ -105,11 +115,12 @@ export class SeadFlightGroup extends FlightGroup {
       return
     }
 
-    const emitterType = samGroup?.type ?? ewrGroup!.type
-    const emitterObjectiveId = samGroup?.objectiveId ?? ewrGroup!.objectiveId
+    const emitterType = samGroup?.type ?? ewrGroup?.type ?? site?.campaignType ?? site?.id ?? 'SAM'
+    const emitterObjectiveId =
+      samGroup?.objectiveId ?? ewrGroup?.objectiveId ?? site?.objectiveId ?? ''
     const distanceToEmitter = calculateDistance(this._data.position, emitterPosition)
 
-    const suppressionRange = samTemplate?.range ?? EWR_ATTACK_RANGE_METERS
+    const suppressionRange = samTemplate?.range ?? site?.range ?? EWR_ATTACK_RANGE_METERS
     const isInRange = distanceToEmitter <= suppressionRange
 
     if (isInRange) {
@@ -131,7 +142,7 @@ export class SeadFlightGroup extends FlightGroup {
       }
 
       // SAM has small chance to shoot down SEAD while in range (5-10% per tick)
-      const shootDownChance = samGroup ? 0.05 : 0
+      const shootDownChance = samGroup || site?.kind === 'sam' ? 0.05 : 0
       if (Math.random() < shootDownChance) {
         // Remove one aircraft from the flight
         if (this._data.aircrafts.length > 0) {

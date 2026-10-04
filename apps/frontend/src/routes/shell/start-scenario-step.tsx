@@ -20,7 +20,7 @@ export function ScenarioStep({
   onContinue
 }: ScenarioStepProps) {
   return (
-    <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid min-h-0 flex-1 overflow-hidden gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="synthwave-scrollbar min-h-0 overflow-auto pr-2">
         <div className="grid gap-3">
           {scenarios.map((scenario) => {
@@ -39,7 +39,7 @@ export function ScenarioStep({
                   'group flex min-h-48 flex-col rounded-md border p-4 text-left transition-all',
                   'bg-synthwave-dark/78 shadow-[0_18px_45px_rgba(0,0,0,0.22)] backdrop-blur',
                   isSelected
-                    ? 'border-synthwave-pink text-white shadow-[0_0_32px_rgba(255,0,170,0.24)]'
+                    ? 'border-synthwave-pink text-white shadow-[0_0_32px_rgba(217,68,58,0.24)]'
                     : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan hover:bg-synthwave-purple/10',
                   !scenario.available && 'cursor-not-allowed opacity-45'
                 )}
@@ -77,7 +77,7 @@ export function ScenarioStep({
         </div>
       </div>
 
-      <aside className="flex min-h-0 flex-col rounded-md border border-synthwave-pink/35 bg-black/30 p-5 shadow-[0_0_44px_rgba(255,0,170,0.14)] backdrop-blur">
+      <aside className="flex min-h-0 flex-col rounded-md border border-synthwave-pink/35 bg-black/30 p-5 shadow-[0_0_44px_rgba(217,68,58,0.14)] backdrop-blur">
         {selectedScenario ? (
           <>
             <div className="retro-font text-2xl text-white">{selectedScenario.name}</div>
