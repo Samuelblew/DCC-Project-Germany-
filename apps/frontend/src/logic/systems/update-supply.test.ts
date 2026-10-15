@@ -172,4 +172,30 @@ describe('virtual logistics network', () => {
     expect(interdictedCurrent).toBeLessThan(clearCurrent)
     expect(routeDisruption).toBeGreaterThan(0.5)
   })
+
+  test('a destroyed depot raises interdiction and starves the objective', () => {
+    const clearRoute = createCampaign()
+    const smashedDepot = createCampaign()
+    smashedDepot.coalitions.player.structures.push({
+      id: 'depot-1',
+      type: 'Depot',
+      objectiveId: 'Enguri Dam',
+      position: { ...enguriDam.position },
+      name: 'Depot',
+      resources: 0,
+      buildings: [{ offset: { x: 0, y: 0 }, type: 'Garage B', alive: false }]
+    })
+
+    updateSupply(clearRoute, 'player')
+    updateSupply(smashedDepot, 'player')
+
+    const clearCurrent = clearRoute.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
+    const smashedCurrent =
+      smashedDepot.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
+
+    expect(
+      smashedDepot.coalitions.player.supplyNodes?.['Enguri Dam']?.logistics?.interdiction
+    ).toBeGreaterThanOrEqual(0.6)
+    expect(smashedCurrent).toBeLessThan(clearCurrent)
+  })
 })

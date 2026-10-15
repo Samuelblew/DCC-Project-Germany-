@@ -14,7 +14,7 @@ import { AircraftRoster } from './start-aircraft-roster'
 import {
   eraMenuOptions,
   eraOptions,
-  factionIdsByEra,
+  factionIdsForEra,
   getFactionAircraft,
   type CampaignEra,
   type Faction,
@@ -265,7 +265,7 @@ export function CampaignStep({
               : !escalationEnabled && era.id === selectedEra
             const eraDefaults = isEscalation
               ? ESCALATION_FACTION_IDS.Korea
-              : factionIdsByEra[era.id]
+              : factionIdsForEra(era.id, scenario.theatreName)
 
             return (
               <div

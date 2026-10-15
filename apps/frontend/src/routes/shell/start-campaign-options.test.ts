@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { factions, scenarios } from '@dcc/data'
 
-import { getCampaignYearForFactions, getScenarioCampaignDefaults } from './start-campaign-options'
+import { getCampaignYearForFactions, getScenarioCampaignDefaults, factionIdsForEra } from './start-campaign-options'
 
 describe('getScenarioCampaignDefaults', () => {
   test('selects the Falklands-era UK and Argentine factions for the Falklands campaign', () => {
@@ -21,6 +21,39 @@ describe('getScenarioCampaignDefaults', () => {
       era: 'Modern',
       playerFactionId: 'usa-2004',
       opponentFactionId: 'russia-1996'
+    })
+  })
+
+  test('Fulda Late CW keeps USAFE 1977 and GSFG 1984', () => {
+    const scenario = scenarios.find((candidate) => candidate.id === 'fulda-gap')
+    expect(getScenarioCampaignDefaults(scenario)).toEqual({
+      era: 'Late CW',
+      playerFactionId: 'usa-1977',
+      opponentFactionId: 'russia-1984'
+    })
+  })
+})
+
+describe('factionIdsForEra', () => {
+  test('Germany uses the Escalation USAFE/GSFG ladder, not Korean War leftovers', () => {
+    expect(factionIdsForEra('Korea', 'Cold War Germany')).toEqual({
+      player: 'usa-germany-1955',
+      opponent: 'russia-germany-1955'
+    })
+    expect(factionIdsForEra('Late CW', 'Cold War Germany')).toEqual({
+      player: 'usa-1977',
+      opponent: 'russia-1984'
+    })
+  })
+
+  test('other theatres keep their era pairings', () => {
+    expect(factionIdsForEra('Korea')).toEqual({
+      player: 'usa-1952',
+      opponent: 'russia-1955'
+    })
+    expect(factionIdsForEra('Late CW')).toEqual({
+      player: 'usa-1977',
+      opponent: 'russia-1971'
     })
   })
 })

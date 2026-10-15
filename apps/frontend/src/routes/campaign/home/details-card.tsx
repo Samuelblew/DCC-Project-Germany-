@@ -26,6 +26,7 @@ import {
   type DirectedAttackTarget
 } from '@/logic/systems/spawn/directed-attack'
 import { calculateResourceGainPerLogicTick } from '@/logic/systems/update-resources'
+import { logisticsInterdictionAt } from '@/logic/systems/logistics-interdiction'
 import type { SelectedItem } from './map'
 import { cn } from '@/lib/utils'
 
@@ -198,7 +199,12 @@ export function DetailsCard({
       ? calculateResourceGainPerLogicTick(
           selectedStructure,
           campaign.coalitions[selectedStructureCoalition].structures,
-          1
+          1,
+          logisticsInterdictionAt(
+            campaign,
+            selectedStructureCoalition,
+            selectedStructure.objectiveId
+          )
         )
       : 0
 

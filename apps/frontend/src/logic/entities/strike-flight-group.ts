@@ -3,6 +3,7 @@ import * as z from 'zod'
 import { FlightGroup } from './flight-group'
 import { buildStrikeMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
 import { logCombatAction } from '../simulation-log'
+import { cutRoad, ROAD_CUT_MS } from '../systems/road-cuts'
 import { debugLog } from '@/lib/debug'
 
 function resolveStrikeAircraftCount(task: 'Pinpoint Strike' | 'Strategic Strike') {
@@ -95,6 +96,27 @@ export class StrikeFlightGroup extends FlightGroup {
 
     if (draft.time < this._data.tot) {
       debugLog(draft.time, this._data.tot)
+      return
+    }
+
+    if (this._data.target.type === 'Road') {
+      const parts = this._data.target.id.split('|')
+      const from = parts[1]
+      const to = parts[2]
+      if (from && to) {
+        cutRoad(draft, from, to, draft.time.getTime() + ROAD_CUT_MS)
+        logCombatAction(
+          draft,
+          coalition,
+          `Strike cut the road from ${from} to ${to}`,
+          this._data.callsign,
+          {
+            entityType: 'flightGroup',
+            entityId: this._data.id
+          }
+        )
+      }
+      this._data.targetDestroyed = true
       return
     }
 

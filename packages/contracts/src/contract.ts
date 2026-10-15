@@ -158,6 +158,22 @@ const loadMissionStateFromFile = base
   })
   .output(schemas.missionState)
 
+const saveBubbleCatalogue = base
+  .route({
+    summary: 'Write the live bubble catalogue beside dcc_state.json',
+    tags: ['Campaign', 'State']
+  })
+  .input(campaignSchemas.campaign)
+  .errors({
+    FAILED_TO_WRITE_FILE: {
+      data: z.object({
+        path: z.string(),
+        message: z.string()
+      })
+    }
+  })
+  .output(z.object({ written: z.boolean() }))
+
 const listCampaigns = base
   .route({
     summary: 'List all saved campaigns',
@@ -244,6 +260,7 @@ export const campaign = {
   generateMiz,
   loadMissionState,
   loadMissionStateFromFile,
+  saveBubbleCatalogue,
   listCampaigns,
   openCampaign,
   deleteCampaign,

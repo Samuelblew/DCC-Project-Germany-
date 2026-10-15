@@ -253,6 +253,12 @@ function eventHandler:onEvent(event)
         return
     end
 
+    -- Parked helicopters spawned as statics have no group. Calling getGroup on them
+    -- raises a mission-script error on every birth.
+    if type(initiator.getGroup) ~= 'function' then
+        return
+    end
+
     local group = initiator:getGroup()
     if not group then
         return

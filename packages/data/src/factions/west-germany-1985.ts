@@ -29,7 +29,8 @@ export const WestGermany1985: z.infer<typeof schemas.faction> = {
     RescueHelo: ['UH-1H'],
     AFAC: [],
     Intercept: ['F-4E-45MC'],
-    Training: []
+    Training: [],
+    ECM: []
   },
   color: 'blue',
   templateName: 'West Germany - Cold War'

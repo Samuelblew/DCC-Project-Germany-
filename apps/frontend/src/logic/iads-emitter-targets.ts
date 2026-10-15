@@ -3,8 +3,8 @@ import {
   campaignIadsEra,
   germanyIadsOwnersFromObjectives,
   getSamSitePosition,
-  isGermanyIadsSamDestroyed,
   isGermanyIadsTheatre,
+  livingGermanyIadsSite,
   isSamFullyDestroyed,
   isSamOperational,
   selectGermanyIadsBattleSites
@@ -47,7 +47,7 @@ export function getIadsEmitterTargets(
         campaign.coalitions.opponent.objectiveIds
       )
     )
-      .filter((site) => !isGermanyIadsSamDestroyed(site, campaign.germanyIadsDeadUnits))
+      .filter((site) => livingGermanyIadsSite(site, campaign.germanyIadsDeadUnits))
       .map((site) => ({
         target: {
           id: site.id,
@@ -72,7 +72,7 @@ export function getIadsEmitterTargets(
     ]
   })
   const ewrTargets = (coalitionData.ewrGroups ?? []).flatMap((ewr) => {
-    const operational = !ewr.destroyed && !ewr.suppressed
+    const operational = !ewr.destroyed && !ewr.suppressed && !ewr.jammed
     const eligible = task === 'DEAD' ? !ewr.destroyed : operational
     if (!eligible) return []
     return [

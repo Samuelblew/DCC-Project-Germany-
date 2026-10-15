@@ -43,6 +43,7 @@ import { uiStore } from '@/stores/ui'
 import { coreClient, orpc } from '@/lib/orpc'
 import { Clock } from './clock'
 import { CheatMenu } from './cheat-menu'
+import { WorldModeMenu } from './world-mode-menu'
 import { ActiveFlightGroups } from './active-flight-groups'
 import { AtoPackageBoard } from './ato-package-board'
 import { LogisticsOverview } from './logistics-overview'
@@ -423,7 +424,10 @@ export function Home() {
                   Goal reached
                 </span>
               ) : null}
-              <CheatMenu />
+              <div className="flex items-center gap-1">
+                <WorldModeMenu />
+                <CheatMenu />
+              </div>
               <Clock />
               <ToggleGroup
                 type="single"

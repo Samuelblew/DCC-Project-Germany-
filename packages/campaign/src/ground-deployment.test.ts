@@ -7,6 +7,7 @@ import {
   beginGroundGroupRetreat,
   evaluateCombatViability,
   expandGroundGroupUnits,
+  findOwnedObjectiveRoute,
   getDeploymentSites,
   recordInfantryCasualties
 } from './ground-deployment'
@@ -245,6 +246,55 @@ describe('formation withdrawal', () => {
     expect(group.retreat).toMatchObject({
       destinationObjectiveId: 'Rear',
       route: [{ x: -20_000, y: 0 }]
+    })
+  })
+})
+
+describe('owned land routes', () => {
+  const graphTheatre: Theatre = {
+    ...theatre,
+    objectives: [
+      { name: 'A', type: 'Town', position: { x: 0, y: 0 } },
+      { name: 'B', type: 'Town', position: { x: 10_000, y: 0 } },
+      { name: 'C', type: 'Town', position: { x: 20_000, y: 0 } }
+    ],
+    connections: [
+      { from: 'A', to: 'B', mode: 'road', bidirectional: true, waypoints: [] },
+      { from: 'B', to: 'C', mode: 'road', bidirectional: true, waypoints: [] },
+      { from: 'A', to: 'C', mode: 'road', bidirectional: true, waypoints: [{ x: 10_000, y: 4_000 }] }
+    ]
+  }
+
+  test('skips a smashed owned town as transit and uses the go-around', () => {
+    expect(
+      findOwnedObjectiveRoute({
+        theatre: graphTheatre,
+        ownedObjectiveIds: new Set(['A', 'B', 'C']),
+        fromObjectiveId: 'A',
+        destinationObjectiveIds: new Set(['C']),
+        blockedTransitIds: new Set(['B'])
+      })
+    ).toEqual({
+      destinationObjectiveId: 'C',
+      waypoints: [
+        { x: 10_000, y: 4_000 },
+        { x: 20_000, y: 0 }
+      ]
+    })
+  })
+
+  test('still enters a smashed town when it is the destination', () => {
+    expect(
+      findOwnedObjectiveRoute({
+        theatre: graphTheatre,
+        ownedObjectiveIds: new Set(['A', 'B', 'C']),
+        fromObjectiveId: 'A',
+        destinationObjectiveIds: new Set(['B']),
+        blockedTransitIds: new Set(['B'])
+      })
+    ).toEqual({
+      destinationObjectiveId: 'B',
+      waypoints: [{ x: 10_000, y: 0 }]
     })
   })
 })

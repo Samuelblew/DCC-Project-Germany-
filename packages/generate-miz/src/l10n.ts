@@ -31,6 +31,8 @@ export function mapResource(): z.infer<typeof schemas.dcs.l10n>['mapResource'] {
     ResKey_Action_18: 'ewr.lua',
     ResKey_Action_19: 'skynet-iads.lua',
     ResKey_Action_20: 'dcc_iads.lua',
-    ResKey_Action_21: 'navigation.lua'
+    ResKey_Action_21: 'navigation.lua',
+    ResKey_Action_22: 'immersion.lua',
+    ResKey_Action_23: 'bubble.lua'
   }
 }

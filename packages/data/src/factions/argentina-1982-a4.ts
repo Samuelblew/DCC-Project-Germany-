@@ -20,6 +20,7 @@ export const Argentina1982A4: z.infer<typeof schemas.faction> = {
     'Ground Attack': ['A-4E-C', ...officialAircraft['Ground Attack']],
     'Runway Attack': ['A-4E-C', ...officialAircraft['Runway Attack']],
     Intercept: ['A-4E-C', ...officialAircraft.Intercept],
-    Training: []
+    Training: [],
+    ECM: []
   }
 }

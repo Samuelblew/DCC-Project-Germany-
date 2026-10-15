@@ -3,6 +3,7 @@ import { err, ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
 import { resolveAiSkill } from './ai-skill'
+import { omitNavalGroupFromMission } from './bubble-catalogue'
 import { DEFAULT_ATC_FREQUENCY } from './radio-plan'
 
 type Coalition = z.infer<typeof schemas.coalition>
@@ -158,6 +159,7 @@ export function addNavalGroups(
           unsortedMembers.find((group) => group.id === missionGroupId) ?? unsortedMembers[0]
         if (!leader) continue
         const members = [leader, ...unsortedMembers.filter((group) => group !== leader)]
+        if (omitNavalGroupFromMission(campaign, members)) continue
 
         const carriers = members.filter((group) => group.role === 'carrier')
         const carrier = carriers[0]

@@ -208,6 +208,7 @@ function carrierGroup(state: 'operational' | 'sunk' = 'operational') {
 }
 
 function createMissionState(overrides: Partial<MissionState>): MissionState {
+  const emptySide = { aircraft: [], ground: [], ships: [] }
   return {
     missionId: 'campaign-1',
     missionEnded: true,
@@ -216,11 +217,11 @@ function createMissionState(overrides: Partial<MissionState>): MissionState {
     lostUnits: [],
     landedUnits: [],
     cargoDeliveries: {},
+    ...overrides,
     groupPositions: {
-      blue: { aircraft: [], ground: [] },
-      red: { aircraft: [], ground: [] }
-    },
-    ...overrides
+      blue: { ...emptySide, ...overrides.groupPositions?.blue },
+      red: { ...emptySide, ...overrides.groupPositions?.red }
+    }
   }
 }
 
@@ -494,6 +495,33 @@ describe('applyMissionStateUpdate culling manifest', () => {
     ])
   })
 
+  test('applies a real kill of a bubble-spawned ground unit that was omitted from the mission', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.groundGroups = [groundGroup({ id: 'omitted-ground' })]
+
+    const updated = applyMissionStateUpdate(
+      campaign,
+      createMissionState({
+        groupPositions: {
+          blue: { aircraft: [], ground: [] },
+          red: { aircraft: [], ground: [] }
+        },
+        lostUnits: [trackedUnit('GroundUnit-omitted-ground-legacy-1', 'Ground-omitted-ground-1')],
+        cullingManifest: {
+          groundGroups: { player: {}, opponent: {} },
+          structures: { player: {}, opponent: {} }
+        }
+      })
+    )
+
+    expect(updated.coalitions.opponent.groundGroups).toEqual([
+      expect.objectContaining({
+        id: 'omitted-ground',
+        units: [{ name: 'M-1 Abrams', count: 1 }]
+      })
+    ])
+  })
+
   test('updates only anti-air units for antiAirOnly ground groups', () => {
     const campaign = createCampaign()
     campaign.coalitions.opponent.groundGroups = [
@@ -597,6 +625,35 @@ describe('applyMissionStateUpdate culling manifest', () => {
 
     expect(updated.coalitions.opponent.structures[0]?.buildings[0]?.alive).toBe(true)
     expect(updated.coalitions.opponent.structures[1]?.buildings[0]?.alive).toBe(false)
+  })
+
+  test('counts a static destroyed inside the live bubble', () => {
+    const campaign = createCampaign()
+    campaign.campaignParams = { ...campaign.campaignParams, worldMode: 'bubble' }
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'depot',
+        type: 'Depot',
+        objectiveId: 'objective-1',
+        position: { x: 0, y: 0 },
+        name: 'Depot',
+        resources: 0,
+        buildings: [{ type: 'Warehouse', offset: { x: 0, y: 0 }, alive: true }]
+      }
+    ]
+
+    const updated = applyMissionStateUpdate(
+      campaign,
+      createMissionState({
+        lostUnits: [trackedUnit('Static-depot-Depot-1', 'Static-depot')],
+        cullingManifest: {
+          groundGroups: { player: {}, opponent: {} },
+          structures: { player: {}, opponent: {} }
+        }
+      })
+    )
+
+    expect(updated.coalitions.opponent.structures[0]?.buildings[0]?.alive).toBe(false)
   })
 })
 
@@ -915,6 +972,33 @@ describe('applyMissionStateUpdate Germany SAM losses', () => {
 
     expect(updated.germanyIadsDeadUnits?.[site.id]).toEqual([killed.name])
     expect(updated.logs).toHaveLength(0)
+  })
+
+  test('records a destroyed search radar even after the bubble put it back', () => {
+    const updated = applyMissionStateUpdate(
+      fuldaCampaign(),
+      createMissionState({
+        lostUnits: [trackedUnit('EWR-1-1', 'EWR-1')],
+        groupPositions: {
+          blue: { aircraft: [], ground: [], ships: [] },
+          red: {
+            aircraft: [],
+            ground: [
+              {
+                name: 'EWR-1',
+                x: 23928,
+                y: -455269,
+                units: [{ name: 'EWR-1-1', type: '55G6 EWR', x: 23928, y: -455269 }]
+              }
+            ],
+            ships: []
+          }
+        }
+      })
+    )
+
+    expect(updated.germanyIadsDeadUnits?.['EWR-1']).toEqual(['EWR-1-1'])
+    expect(updated.logs.map((entry) => entry.message)).toContain('EWR EWR-1 destroyed')
   })
 
   test('does not delete a SAM that was never in the mission', () => {

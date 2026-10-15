@@ -524,6 +524,13 @@ export const activeStore = createStore({
         }
         draft.campaignParams.aiWingmanSpawn = aiWingmanSpawn
       }),
+    setWorldMode: (context, { worldMode }: { worldMode: 'corridor' | 'bubble' }) =>
+      produce(context, (draft) => {
+        if (!draft.campaignParams) {
+          draft.campaignParams = {}
+        }
+        draft.campaignParams.worldMode = worldMode
+      }),
     setCulling: (context, { culling }: { culling: boolean }) =>
       produce(context, (draft) => {
         if (!draft.campaignParams) {
@@ -610,6 +617,14 @@ export const activeStore = createStore({
           draft.campaignParams = {}
         }
         draft.campaignParams.enemySkill = enemySkill
+      }),
+    setImmersion: (
+      context,
+      { settings }: { settings: NonNullable<NonNullable<Campaign['campaignParams']>['immersion']> }
+    ) =>
+      produce(context, (draft) => {
+        draft.campaignParams ??= {}
+        draft.campaignParams.immersion = { ...draft.campaignParams.immersion, ...settings }
       }),
     setAirActivity: (context, { airActivity }: { airActivity: number }) =>
       produce(context, (draft) => {
@@ -814,6 +829,19 @@ export const activeStore = createStore({
         createDirectedAttack(draft, target)
       }),
 
+    setPlayerParkingStand: (
+      context,
+      { flightGroupId, parkingStandId }: { flightGroupId: string; parkingStandId?: string }
+    ) =>
+      produce(context, (draft) => {
+        const group = draft.coalitions.player.flightGroups.find(
+          (entry) => entry.id === flightGroupId
+        )
+        if (!group) return
+        if (parkingStandId) group.parkingStandId = parkingStandId
+        else delete group.parkingStandId
+      }),
+
     setFlightGroupClientCount: (
       context,
       { flightGroupId, count }: { flightGroupId: string; count: number }
@@ -910,11 +938,13 @@ type ActiveCampaignSaveRequestListener = (event: ActiveStoreEvent) => void
 
 const activeCampaignSaveRequestEventTypes = new Set<string>([
   'setHotStart',
+  'setWorldMode',
   'setCulling',
   'setEwr',
   'setIads',
   'setEnemySkill',
   'setAirActivity',
+  'setImmersion',
   'setExactTarget',
   'setCasJtac',
   'setNavigationVectors',
@@ -925,6 +955,7 @@ const activeCampaignSaveRequestEventTypes = new Set<string>([
   'clearFlightGroupClientSelections',
   'createManualPlayerFlightGroup',
   'setFlightGroupClientCount',
+  'setPlayerParkingStand',
   'setFlightGroupAircraftType',
   'careerBuyAirframe',
   'careerSellAirframe',

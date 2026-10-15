@@ -1,8 +1,8 @@
-import { schemas } from '@dcc/contracts'
+import { config, schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
 import { calculateDistance } from '@/logic/utils/calculate-distance'
-import { getSupplyStatus } from './update-supply'
+import { ensureVirtualSupply, getSupplyStatus } from './update-supply'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -127,5 +127,37 @@ function normalizeCapturedAirdromeSupply(
       repairRate: 0.02,
       recoveryUntil: new Date(capturedAt.getTime() + 60 * 60 * 1000)
     }
+  }
+}
+
+export function isAirdromeRecovering(
+  draft: Campaign,
+  coalition: Coalition,
+  airdromeName: string,
+  at = draft.time
+) {
+  const until = draft.coalitions[coalition].supplyNodes?.[airdromeName]?.logistics?.recoveryUntil
+  return until != null && at < until
+}
+
+/** Campaign-side crater. The .miz still flies the Runway Attack; this is what shuts the field. */
+export function craterAirdrome(
+  draft: Campaign,
+  ownerCoalition: Coalition,
+  airdromeName: string,
+  at = draft.time
+) {
+  const supplyNodes = (draft.coalitions[ownerCoalition].supplyNodes ??= {})
+  const supply = (supplyNodes[airdromeName] ??= {
+    current: 0,
+    max: 10_000,
+    consumptionRate: 0,
+    productionRate: 0,
+    status: 'depleted'
+  })
+  ensureVirtualSupply(supply, true)
+  const until = new Date(at.getTime() + config.packages['Runway Attack'].recoveryMs)
+  if (!supply.logistics!.recoveryUntil || supply.logistics!.recoveryUntil < until) {
+    supply.logistics!.recoveryUntil = until
   }
 }

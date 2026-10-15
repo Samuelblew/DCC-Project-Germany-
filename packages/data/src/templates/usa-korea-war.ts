@@ -7,7 +7,7 @@ export const UsaKoreaWar: z.infer<typeof schemas.template> = {
   era: 'Korea',
   groundUnitTypes: {
     SAM: [],
-    Vehicle: ['M-113', 'M4_Sherman'],
+    Vehicle: ['M4_Sherman', 'M-113'],
     Infantry: ['Soldier M4'],
     'Shorad Vehicle': ['M1_37mm'],
     'Shorad Infantry': ['M45_Quadmount'],

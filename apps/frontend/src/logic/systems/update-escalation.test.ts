@@ -100,12 +100,18 @@ describe('campaign escalation', () => {
 
     expect(next.era).toBe('Vietnam')
     expect(next.escalation?.stage).toBe('Vietnam')
+    expect(next.coalitions.player.id).toBe('usa-germany-1967')
+    expect(next.coalitions.opponent.id).toBe('russia-germany-1967')
     expect(next.coalitions.opponent.aircraftTypes.CAP).toEqual(vietnam.aircraftTypes.CAP)
     expect(next.coalitions.player.groundUnitTypes.SAM).toEqual(['Hawk'])
     expect(next.coalitions.opponent.groundUnitTypes.SAM).toEqual(['SA-2', 'SA-5'])
-    expect(next.coalitions.opponent.flightGroups).toHaveLength(0)
+    expect(next.coalitions.opponent.flightGroups).toHaveLength(1)
+    expect(next.coalitions.opponent.packages).toHaveLength(0)
+    expect(next.coalitions.opponent.flightGroups[0]?.flightplan.waypoints.at(-1)?.type).toBe(
+      'Landing'
+    )
     expect(next.coalitions.player.groundGroups[0]?.units[0]?.name).toBe('M-113')
-    expect(next.logs.some((entry) => entry.message.includes('Vietnam'))).toBe(true)
+    expect(next.logs.some((entry) => entry.message.includes('recovering to base'))).toBe(true)
   })
 
   test('Germany 1950s fleets use USAFE Sabres and GSFG MiGs, not Korean War leftovers', () => {
@@ -119,6 +125,10 @@ describe('campaign escalation', () => {
     expect(playerTypes).not.toContain('MosquitoFBMkVI')
     expect(opponentTypes).toContain('MiG-15bis')
     expect(opponentTypes).not.toContain('Ju-88A4')
+    expect(next.coalitions.player.id).toBe('usa-germany-1955')
+    expect(next.coalitions.opponent.id).toBe('russia-germany-1955')
+    expect(next.coalitions.player.groundUnitTypes.Vehicle?.[0]).toBe('M4_Sherman')
+    expect(next.coalitions.opponent.groundUnitTypes.Vehicle).toEqual(['T-55', 'PT_76'])
     expect(next.coalitions.player.groundUnitTypes.SAM).toEqual([])
     expect(next.coalitions.opponent.groundUnitTypes.SAM).toEqual([])
   })

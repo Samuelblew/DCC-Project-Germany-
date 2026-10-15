@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { activeStore } from '@/stores/active'
 import { coreClient } from '@/lib/orpc'
 import { cn } from '@/lib/utils'
+import { PlayerParkingSelect } from '../components/player-parking-select'
 import { SelectFlightDialog } from './select-flight-dialog'
 import { CareerOpsDialog } from './career-ops-dialog'
 import { CareerDialog } from './career-dialog'
@@ -76,9 +77,18 @@ export function TakeoffButton() {
     )
   }
 
+  const parking = clientFlightGroup ? (
+    <PlayerParkingSelect
+      flightGroupId={clientFlightGroup.id}
+      aircraftName={clientFlightGroup.aircrafts.find((aircraft) => aircraft.client)?.aircraftName}
+    />
+  ) : null
+
   if (isBeforeTakeoff && startTime) {
     return (
-      <div className="grid flex-1 min-w-0 grid-cols-2 gap-2">
+      <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
+        {parking}
+        <div className="grid min-w-0 grid-cols-2 gap-2">
         {selectFlightButton()}
         <Button
           size="sm"
@@ -104,13 +114,16 @@ export function TakeoffButton() {
             <span className="text-xs">Forward to Takeoff</span>
           </span>
         </Button>
+        </div>
         {dialogs}
       </div>
     )
   }
 
   return (
-    <div className="grid flex-1 min-w-0 grid-cols-2 gap-2">
+    <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
+      {parking}
+      <div className="grid min-w-0 grid-cols-2 gap-2">
       {selectFlightButton()}
       <Button
         size="sm"
@@ -131,6 +144,7 @@ export function TakeoffButton() {
         <PlaneTakeoff className="mr-2 h-4 w-4" />
         Takeoff
       </Button>
+      </div>
       {dialogs}
     </div>
   )

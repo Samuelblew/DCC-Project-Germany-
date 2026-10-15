@@ -1,4 +1,4 @@
-import { aircrafts as aircraftDefinitions, scenarios } from '@dcc/data'
+import { aircrafts as aircraftDefinitions, ESCALATION_FACTION_IDS, scenarios } from '@dcc/data'
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
@@ -8,11 +8,20 @@ export type Scenario = (typeof scenarios)[number]
 export type Faction = z.infer<typeof schemas.faction>
 export type PlayerSide = 'blue' | 'red'
 
+/** Default pairing for theatres that are not Cold War Germany. */
 export const factionIdsByEra: Record<CampaignEra, { player: string; opponent: string }> = {
   Korea: { player: 'usa-1952', opponent: 'russia-1955' },
   Vietnam: { player: 'usa-vietnam', opponent: 'russia-vietnam' },
   'Late CW': { player: 'usa-1977', opponent: 'russia-1971' },
   Modern: { player: 'usa-2004', opponent: 'russia-1996' }
+}
+
+export function factionIdsForEra(
+  era: CampaignEra,
+  theatreName?: string
+): { player: string; opponent: string } {
+  if (theatreName === 'Cold War Germany') return ESCALATION_FACTION_IDS[era]
+  return factionIdsByEra[era]
 }
 
 export function getScenarioCampaignDefaults(scenario: Scenario | undefined): {
@@ -21,7 +30,7 @@ export function getScenarioCampaignDefaults(scenario: Scenario | undefined): {
   opponentFactionId: string
 } {
   const era = scenario?.era != null && scenario.era !== 'WW2' ? scenario.era : 'Modern'
-  const eraDefaults = factionIdsByEra[era]
+  const eraDefaults = factionIdsForEra(era, scenario?.theatreName)
 
   return {
     era,

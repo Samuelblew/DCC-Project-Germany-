@@ -29,7 +29,8 @@ export const USA2004: z.infer<typeof schemas.faction> = {
     RescueHelo: [],
     AFAC: [],
     Intercept: [],
-    Training: []
+    Training: [],
+    ECM: []
   },
   color: 'blue',
   templateName: 'USA - Modern'

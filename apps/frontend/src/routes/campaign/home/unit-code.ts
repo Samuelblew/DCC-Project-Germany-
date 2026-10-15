@@ -9,11 +9,13 @@ const sidcUnitCode = {
   infantry: 'UCI---',
   armamentProduction: 'IMG---',
   fuelStorage: 'USS3--',
+  oilPlatform: 'IUG---',
   powerPlant: 'IUE---',
   depot: 'IMV---',
   ammoDepot: 'IME---',
   commandCenter: 'UH1---',
   attack: 'MFA---',
+  bomber: 'MFB---',
   aew: 'MFRW--',
   fighter: 'MFF---',
   waypoint: 'MGPI--',
@@ -28,7 +30,9 @@ const sidcUnitCode = {
   hospital: 'IXH---',
   prison: 'UULC--',
   attackHelicopter: 'MHA---',
-  csar: 'MHH---'
+  csar: 'MHH---',
+  supply: 'USS---',
+  utilityHelicopter: 'MHU---'
 }
 
 type SidcUnitCodeKey = keyof typeof sidcUnitCode
@@ -39,6 +43,8 @@ function getUnitCode(item: z.infer<typeof schemas.MapItem>): SidcUnitCodeKey {
       switch (item.structureType) {
         case 'Fuel Storage':
           return 'fuelStorage'
+        case 'Oil Platform':
+          return 'oilPlatform'
         case 'Power Plant':
           return 'powerPlant'
         case 'Factory':
@@ -71,7 +77,7 @@ function getUnitCode(item: z.infer<typeof schemas.MapItem>): SidcUnitCodeKey {
         case 'CAS':
         case 'Pinpoint Strike':
         case 'Strategic Strike':
-          return 'attack'
+          return 'bomber'
         case 'CSAR':
           return 'csar'
         default:
@@ -94,6 +100,8 @@ function getUnitCode(item: z.infer<typeof schemas.MapItem>): SidcUnitCodeKey {
     }
     case 'Downed Pilot':
       return 'downedPilot'
+    case 'Convoy':
+      return item.kind === 'air' ? 'utilityHelicopter' : 'supply'
     case 'SAM':
       return 'airDefenceMissle'
     case 'EWR':
@@ -128,6 +136,8 @@ function getDomain(item: z.infer<typeof schemas.MapItem>): 'air' | 'ground' | 's
       return 'ground'
     case 'Flight Group':
       return 'air'
+    case 'Convoy':
+      return item.kind === 'air' ? 'air' : 'ground'
     case 'Naval Group':
       return 'sea'
     default:

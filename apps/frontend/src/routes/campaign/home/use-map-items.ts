@@ -10,6 +10,7 @@ import {
   getSamSitePosition,
   isGermanyIadsSamDestroyed,
   isGermanyIadsTheatre,
+  livingGermanyIadsSite,
   isSamOperational,
   samTemplates
 } from '@dcc/data'
@@ -195,7 +196,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
           type: 'Structure',
           objectiveId: structure.objectiveId,
           structureType: structureTypeResult.data,
-          name: structure.type,
+          name: structure.objectiveId,
           coalition,
           position: latLng,
           resources: totalResources,
@@ -316,6 +317,35 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       }
     }
 
+    const addConvoyMarkers = (
+      convoys: NonNullable<typeof playerCoalition.supplyConvoys>,
+      coalition: z.infer<typeof schemas.coalition>
+    ) => {
+      for (const convoy of convoys) {
+        const position = tryDcsPositionToLngLat(theatre.name, convoy.position.x, convoy.position.y)
+        if (!position) continue
+        const path = [convoy.position, ...convoy.path.slice(convoy.nextPoint)].flatMap((point) => {
+          const lngLat = tryDcsPositionToLngLat(theatre.name, point.x, point.y)
+          return lngLat ? [lngLat] : []
+        })
+        mapItems.push({
+          id: convoy.id,
+          type: 'Convoy',
+          name: `${convoy.kind === 'air' ? 'Supply lift' : 'Supply convoy'} to ${convoy.to}`,
+          kind: convoy.kind,
+          from: convoy.from,
+          to: convoy.to,
+          vehicles: convoy.vehicles,
+          cargo: Math.round(
+            convoy.cargo.supply + convoy.cargo.fuel + convoy.cargo.munitions + convoy.cargo.repair
+          ),
+          path,
+          coalition,
+          position
+        })
+      }
+    }
+
     const addDownedPilotMarkers = (
       downedPilots: Array<{ id: string; name: string; position: { x: number; y: number } }>,
       coalition: z.infer<typeof schemas.coalition>
@@ -364,7 +394,6 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
           id: `town-${objectiveId}`,
           name: objective.name,
           coalition,
-          labeled: true,
           position
         })
       }
@@ -408,6 +437,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
           continue
         }
         if (site.kind === 'ewr') {
+          if (!livingGermanyIadsSite(site, germanyIadsDeadUnits)) continue
           mapItems.push({
             id: site.id,
             type: 'EWR',
@@ -438,6 +468,8 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     addFlightGroupMarkers(opponentCoalition.flightGroups ?? [], 'opponent')
     addDownedPilotMarkers(playerCoalition.downedPilots ?? [], 'player')
     addDownedPilotMarkers(opponentCoalition.downedPilots ?? [], 'opponent')
+    addConvoyMarkers(playerCoalition.supplyConvoys ?? [], 'player')
+    addConvoyMarkers(opponentCoalition.supplyConvoys ?? [], 'opponent')
 
     let frontline: GeoJSON.FeatureCollection<GeoJSON.LineString> | null = null
 

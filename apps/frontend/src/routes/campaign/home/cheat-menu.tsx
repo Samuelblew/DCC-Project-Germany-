@@ -1,6 +1,7 @@
 import { Skull } from 'lucide-react'
 import { useState } from 'react'
 import { useSelector } from '@xstate/store/react'
+import { Popover } from 'radix-ui'
 
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -19,13 +20,26 @@ type CheatKey =
 type LabelMode = 'none' | 'full' | 'abbreviated' | 'dot'
 
 const cheatToggles: Array<{ key: CheatKey; label: string; hint: string; defaultOn?: boolean }> = [
-  { key: 'unlimitedWeapons', label: 'Unlimited weapons', hint: 'Guns and stores refill as they fire' },
-  { key: 'unlimitedFuel', label: 'Unlimited fuel', hint: 'Tanks stay at the loadout you took off with' },
+  {
+    key: 'unlimitedWeapons',
+    label: 'Unlimited weapons',
+    hint: 'Guns and stores refill as they fire'
+  },
+  {
+    key: 'unlimitedFuel',
+    label: 'Unlimited fuel',
+    hint: 'Tanks stay at the loadout you took off with'
+  },
   { key: 'immortal', label: 'Immortal', hint: 'Your aircraft cannot be destroyed' },
   { key: 'easyFlight', label: 'Easy flight', hint: 'Relaxed handling and envelope' },
   { key: 'miniHud', label: 'Mini HUD', hint: 'External-view flight data overlay' },
   { key: 'radioAssist', label: 'Radio assist', hint: 'Launch and threat callouts' },
-  { key: 'crashRecover', label: 'Crash recover', hint: 'Respawn after a crash or eject', defaultOn: true },
+  {
+    key: 'crashRecover',
+    label: 'Crash recover',
+    hint: 'Respawn after a crash or eject',
+    defaultOn: true
+  },
   { key: 'unrestrictedSatnav', label: 'Unrestricted SATNAV', hint: 'GPS on every capable airframe' }
 ]
 
@@ -49,23 +63,30 @@ export function CheatMenu() {
     (cheats?.labels != null && cheats.labels !== 'none')
 
   return (
-    <div className="relative">
-      <Button
-        variant="ghost"
-        size="sm"
-        className={`tactical-button h-11 w-11 rounded-sm p-0 text-secondary ${
-          open || armed ? 'text-synthwave-pink ring-1 ring-synthwave-pink/50' : ''
-        }`}
-        title="DCS cheats"
-        aria-label="DCS cheats"
-        aria-pressed={open}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Skull className="h-5 w-5" />
-      </Button>
-      {open ? (
-        <div className="tactical-panel absolute top-full right-0 z-50 mt-2 w-72 rounded-md p-3 text-synthwave-light backdrop-blur-md">
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`tactical-button h-11 w-11 rounded-sm p-0 text-secondary ${
+            open || armed ? 'text-synthwave-pink ring-1 ring-synthwave-pink/50' : ''
+          }`}
+          title="DCS cheats"
+          aria-label="DCS cheats"
+          aria-pressed={open}
+        >
+          <Skull className="h-5 w-5" />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="bottom"
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          className="tactical-panel z-1200 w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-md p-3 text-synthwave-light backdrop-blur-md"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           <div className="mb-2 flex items-baseline justify-between gap-3">
             <span className="retro-font text-xs uppercase tracking-[0.28em] text-synthwave-pink">
               ACE
@@ -107,15 +128,17 @@ export function CheatMenu() {
             >
               <span>
                 <span className="block text-[11px] text-synthwave-light">Labels</span>
-                <span className="block text-[10px] text-secondary">None · Full · Abbrev. · Dot</span>
+                <span className="block text-[10px] text-secondary">
+                  None · Full · Abbrev. · Dot
+                </span>
               </span>
               <span className="retro-font text-[11px] uppercase tracking-wide text-synthwave-cyan">
                 {labelCaption[labels]}
               </span>
             </button>
           </div>
-        </div>
-      ) : null}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }

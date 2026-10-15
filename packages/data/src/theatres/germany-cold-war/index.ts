@@ -2,6 +2,7 @@ import { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
 import { airdromeDetails } from './airdrome-details'
+import { connections } from './connections'
 import { deploymentSites, groundStructureTargets } from './ground-sites'
 import { objectives } from './objectives'
 import { targets as airfieldTargets } from './targets'
@@ -19,6 +20,7 @@ export const germanyColdWar: z.infer<typeof schemas.theatre> = {
   objectives,
   targets,
   deploymentSites,
+  connections,
   airdromeDetails,
   info: {
     center: {

@@ -1,0 +1,61 @@
+---
+description: DCS World install vs Saved Games file map. Use when generating .miz, reading theatres/aircraft, persistence, MissionScripting, DCS paths, or importing terrain data.
+globs: packages/generate-miz/**/*.ts,packages/data/src/**/*.ts,apps/core/src/main/**/*.ts,apps/frontend/src/logic/**/*.ts
+alwaysApply: false
+---
+
+# DCS World file reference
+
+Samuel's **game root** (has `bin\DCS.exe`): `D:\DCS OF\DCS World`
+
+Samuel's **user data**: `C:\Users\flame\Saved Games\DCS`
+
+Never confuse the two. DCC settings must point at the game root. Campaign JSON lives in Electron userData; exported missions and `dcc_state.json` land under Saved Games.
+
+Cursor workspace glob will **not** search these drives. Use Shell with absolute paths. Do not commit DCS terrain, modules, or `.miz` binaries into git.
+
+## Game root — `D:\DCS OF\DCS World`
+
+| Path | Why |
+|---|---|
+| `bin\DCS.exe` / `bin-mt\DCS.exe` | Install fingerprint (`dcs-install.ts`) |
+| `Scripts\MissionScripting.lua` | SSE sandbox. DCC may unsanitize `io`/`lfs` while running (`dcs-persistence.ts`) |
+| `Scripts\Database\db_countries.lua` | Countries, coalitions, per-country unit lists |
+| `Scripts\Database\wsTypes.lua` | Unit type IDs |
+| `Scripts\World\PersistenceHandlers.lua` | Stock DCS persistence |
+| `Mods\terrains\<Name>\` | Theatre. Germany is `GermanyColdWar`, DCS id **`GermanyCW`** |
+| `Mods\terrains\*\entry.lua` | Theatre id, size, airfield count |
+| `Mods\terrains\*\beacons.lua` | VOR/NDB/ILS, `position` + `positionGeo` |
+| `Mods\terrains\*\radio.lua` | Tower/approach freqs (`airfieldNNN_0`) |
+| `Mods\aircraft\` | Full-fidelity / FC modules (cockpit, FM) |
+| `CoreMods\aircraft\` | Module definitions, `entry.lua`, `UnitPayloads` |
+| `CoreMods\tech\` | Ground/navy asset packs |
+| `MissionEditor\data\scripts\` | ME coalitions, payloads, weather |
+
+`.miz` is a zip. Typical DCC export: `mission`, `options`, `warehouses`, `theatre`, `l10n/DEFAULT/*`, kneeboard images. Open with Python `zipfile` or AdmZip; do not treat it as a folder.
+
+Installed terrains here: Caucasus, GermanyColdWar, MarianaIslands, PersianGulf.
+
+## Saved Games — `C:\Users\flame\Saved Games\DCS`
+
+| Path | Why |
+|---|---|
+| `Missions\` | Player/DCC `.miz`. DCC writes `dcc_mission.miz` + `dcc_state.json` here |
+| `Missions\Campaigns\` | Stock/player DCS campaign packs (scripted, not DCC) |
+| `Logs\dcs.log` | Script errors, DCC STATE logs, site-survey prints |
+| `Config\options.lua` | Graphics/gameplay |
+| `Scripts\Hooks\` | User hooks |
+| `MissionEditor\UnitPayloads\` | User loadouts |
+| `Liberation\` / `Retribution\` | Other DCS campaign tools; `liberation_nextturn.miz` / `retribution_nextturn.miz` in Missions. Reference only — do not merge their saves into DCC |
+
+Also check `Saved Games\DCS.openbeta` if a second install appears.
+
+## Map onto DCC
+
+- Theatre Lua (`beacons`/`radio`/airfields) → `packages/data/src/theatres/<id>/`
+- Module `entry.lua` + payloads → `packages/data/src/aircrafts/` + generate-miz loadouts
+- `.miz` tables → `packages/generate-miz` (`lua-table`)
+- In-mission results → `state.lua` → `dcc_state.json` → `mission-state-update.ts`
+- Player is always DCS **blue**
+
+When a DCS id, frequency, airfield, or payload is wrong, read the live file under the game root before changing DCC data.

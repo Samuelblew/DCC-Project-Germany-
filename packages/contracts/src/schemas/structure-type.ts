@@ -9,6 +9,7 @@ export const structureType = z.enum([
   'Logistics Hub',
   'Power Plant',
   'Fuel Storage',
+  'Oil Platform',
   'Hospital',
   'Prison',
   'Barrack',

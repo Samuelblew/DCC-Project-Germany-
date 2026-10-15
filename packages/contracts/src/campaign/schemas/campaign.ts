@@ -10,7 +10,7 @@ import { missionPackage } from '../../schemas/package'
 import { position } from '../../schemas/position'
 import { samType } from '../../schemas/sam'
 import { structureBuilding } from '../../schemas/structure-building'
-import { supply } from '../../schemas/supply'
+import { supply, supplyConvoy } from '../../schemas/supply'
 import { aircraftTypesByTask } from '../../schemas/task'
 import { campaignMode, career } from './career'
 
@@ -173,6 +173,8 @@ export const campaignEwrGroup = z.object({
   objectiveId: z.string(),
   position,
   suppressed: z.boolean().optional(),
+  /** Search radar blinded while an enemy ECM orbit is on station. */
+  jammed: z.boolean().optional(),
   destroyed: z.boolean().optional()
 })
 
@@ -191,13 +193,18 @@ const campaignCoalition = z.object({
   packages: z.array(missionPackage),
   downedPilots: z.array(campaignDownedPilot).optional(),
   strategicStrikeCooldownUntil: z.date().optional(),
+  /** Epoch ms when an aircraft type may launch again from a field. Key is `base:type`. */
+  aircraftTurnaroundUntil: z.record(z.string(), z.number()).optional(),
   supplyNodes: z.record(z.string(), supply).optional(),
+  supplyConvoys: z.array(supplyConvoy).optional(),
   replacementPools: z.record(z.string(), replacementPool).optional(),
   casualtyPoints: z.array(casualtyPoint).optional(),
   extractionRequests: z.array(extractionRequest).optional(),
   capturedPersonnel: z.number().int().nonnegative().optional(),
   capturedEquipment: z.array(storedEquipment).optional(),
-  navalGroups: z.array(navalGroup).optional()
+  navalGroups: z.array(navalGroup).optional(),
+  /** Epoch ms before this town may raise another company. Key is the objective id. */
+  groundReplacementUntil: z.record(z.string(), z.number()).optional()
 })
 
 function migrationHash(input: string) {
@@ -370,6 +377,20 @@ export const campaign = z.preprocess(
     goal: campaignGoal.optional(),
     operationProfile: operationProfile.optional(),
     groundBattleLocks: z.array(groundBattleLock).optional(),
+    /** A road between two towns stays closed until this epoch ms. */
+    roadCuts: z
+      .array(
+        z.object({
+          from: z.string(),
+          to: z.string(),
+          until: z.number()
+        })
+      )
+      .optional(),
+    /** Epoch ms when new ground axes may open. Absent means they already may. */
+    groundOffensiveAt: z.number().optional(),
+    /** Epoch ms when factories and power plants become the preferred strike. */
+    strategicStrikeAt: z.number().optional(),
     campaignPhase: z
       .enum(['sea-control', 'landing-preparation', 'san-carlos-landing', 'land-campaign'])
       .optional(),
@@ -385,10 +406,22 @@ export const campaign = z.preprocess(
       .object({
         hotStart: z.boolean().optional(),
         aiWingmanSpawn: z.enum(['never', 'landOnly', 'always']).optional(),
+        /** Corridor keeps ground and SAM along the route in the .miz. Bubble spawns them beside the player. */
+        worldMode: z.enum(['corridor', 'bubble']).optional(),
         culling: z.boolean().optional(),
         cullingRadius: z.number().optional(),
         cullingAircraftRadius: z.number().optional(),
         cullingSamRadius: z.number().optional(),
+        /** Ambient life written into the mission; see resolveImmersion. */
+        immersion: z
+          .object({
+            civTraffic: z.enum(['off', 'low', 'medium', 'high']).optional(),
+            groundCrew: z.boolean().optional(),
+            baseLife: z.boolean().optional(),
+            convoys: z.boolean().optional(),
+            ambientAir: z.boolean().optional()
+          })
+          .optional(),
         /** Multiplier on AI air traffic; see resolveAirActivity. */
         airActivity: z.number().optional(),
         /** DCS skill for every enemy AI unit; unset keeps the generator's per-unit defaults. */

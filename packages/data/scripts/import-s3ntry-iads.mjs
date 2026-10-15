@@ -77,6 +77,7 @@ function kindOf(id, category) {
 }
 
 const raw = []
+const aircraftOccupancy = new Set()
 const namePattern = /\["name"\] = "([^"]+)"/g
 let match
 while ((match = namePattern.exec(text))) {
@@ -104,6 +105,11 @@ while ((match = namePattern.exec(text))) {
   if (!numberedUnit && !aircraft && !commandUnit) continue
   const id = aircraft ? name : name.replace(/-\d+$/, '')
   if (!kindOf(id, aircraft ? category : undefined)) continue
+  if (aircraft) {
+    const occupancy = `${typeMatch[1]}:${Math.round(Number(xMatch[1]) * 1000)}:${Math.round(Number(yMatch[1]) * 1000)}`
+    if (aircraftOccupancy.has(occupancy)) continue
+    aircraftOccupancy.add(occupancy)
+  }
   raw.push({
     id,
     name,

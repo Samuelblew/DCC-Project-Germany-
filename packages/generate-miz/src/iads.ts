@@ -1,6 +1,7 @@
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
+import { gciPictureAnchors } from './add-gci'
 import { resolveAiSkill } from './ai-skill'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -38,7 +39,11 @@ function nextMissionKey(mission: Mission) {
   return mission.currentKey
 }
 
-function addOpponentEwrGroups(mission: Mission, campaign: Campaign) {
+function addOpponentEwrGroups(
+  mission: Mission,
+  campaign: Campaign,
+  residentEwrIds: ReadonlySet<string>
+) {
   const country = getOpponentCountry(mission)
   if (!country) return
 
@@ -46,8 +51,11 @@ function addOpponentEwrGroups(mission: Mission, campaign: Campaign) {
     country.vehicle = { group: [] }
   }
 
+  const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
+
   for (const ewr of campaign.coalitions.opponent.ewrGroups ?? []) {
     if (ewr.destroyed) continue
+    if (liveBubble && !residentEwrIds.has(ewr.id)) continue
 
     const groupId = nextMissionKey(mission)
     const unitId = nextMissionKey(mission)
@@ -121,13 +129,21 @@ function collectAliveStructureUnitNames(
   return names
 }
 
-export function buildIadsConfig(mission: Mission, campaign: Campaign): MissionIadsConfig | null {
+export function buildIadsConfig(
+  mission: Mission,
+  campaign: Campaign,
+  theatre?: Parameters<typeof gciPictureAnchors>[1]
+): MissionIadsConfig | null {
   if (campaign.campaignParams?.iads === false) return null
   const hasLivingEwr =
     campaign.coalitions.opponent.ewrGroups?.some((ewr) => !ewr.destroyed) ?? false
   if (campaign.coalitions.opponent.samGroups.length === 0 && !hasLivingEwr) return null
 
-  addOpponentEwrGroups(mission, campaign)
+  addOpponentEwrGroups(
+    mission,
+    campaign,
+    theatre ? gciPictureAnchors(campaign, theatre).ewrs : new Set()
+  )
 
   return {
     name: `DCC-${campaign.id}-red`,

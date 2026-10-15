@@ -23,6 +23,7 @@ import { Plane, RotateCcw, Star } from 'lucide-react'
 import MilSymbol from 'milsymbol'
 import * as turf from '@turf/turf'
 import { getMilSymbolCode } from './unit-code'
+import { structureMarkerSvg } from './structure-icon'
 import { type ObjectiveMarker as ObjectiveMarkerType, useMapItems } from './use-map-items'
 import { cn } from '@/lib/utils'
 import { DetailsCard } from './details-card'
@@ -53,16 +54,20 @@ const Marker = memo(function Marker({
   onClick: () => void
   isSelected: boolean
 }) {
+  const structureMark =
+    item.type === 'Structure' ? structureMarkerSvg(item.structureType, item.coalition, 16) : null
+  const structureCard =
+    item.type === 'Structure' ? structureMarkerSvg(item.structureType, item.coalition, 22) : null
   const symbol = useMemo(() => {
-    const symbol = new MilSymbol.Symbol(getMilSymbolCode(item), {
+    if (structureCard) return structureCard
+    const drawn = new MilSymbol.Symbol(getMilSymbolCode(item), {
       size: 20
     })
-    return symbol.asSVG()
-  }, [item])
+    return drawn.asSVG()
+  }, [item, structureCard])
 
-  const isPersistentCommandAsset =
-    item.type === 'Airdrome' || item.type === 'Naval Group' || item.type === 'GCI'
-  const showTitleCard = isPersistentCommandAsset || isSelected
+  // A structure stays a small unit shape until it is selected, the same as a town.
+  const showTitleCard = item.type === 'Naval Group' || isSelected
   const isInactive = 'active' in item && item.active === false
   const coalitionColor = item.coalition === 'player' ? 'var(--friendly-blue)' : 'var(--enemy-red)'
 
@@ -71,7 +76,7 @@ const Marker = memo(function Marker({
       longitude={item.position.lng}
       latitude={item.position.lat}
       anchor="center"
-      style={{ zIndex: showTitleCard ? 40 : 20 }}
+      style={{ zIndex: showTitleCard ? 48 : 22 }}
       onClick={(e) => {
         e.originalEvent.stopPropagation()
         onClick()
@@ -110,7 +115,8 @@ const Marker = memo(function Marker({
               'transition-all',
               isSelected && 'ring-2 ring-synthwave-pink rounded-full drop-shadow-md scale-110'
             )}
-            dangerouslySetInnerHTML={{ __html: symbol }}
+            title={item.name}
+            dangerouslySetInnerHTML={{ __html: structureMark ?? symbol }}
           />
         )}
       </div>
@@ -681,7 +687,7 @@ export function Map({
         if (routeCorridor && item.id !== selectedPlayerFlight?.id) {
           // Mirrors mission culling: aircraft, long-range SAMs and everything else each have a band.
           const inside =
-            item.type === 'Flight Group'
+            item.type === 'Flight Group' || (item.type === 'Convoy' && item.kind === 'air')
               ? insideAircraftCorridor(item.position.lng, item.position.lat)
               : item.type === 'SAM' && item.range >= longRangeSamMinRangeMeters
                 ? insideSamCorridor(item.position.lng, item.position.lat)
@@ -703,6 +709,12 @@ export function Map({
             return mapLayers.ewr
           case 'GCI':
             return mapLayers.gci !== false
+          case 'Naval Group':
+            return mapLayers.naval !== false
+          case 'Downed Pilot':
+            return mapLayers.pilots !== false
+          case 'Convoy':
+            return mapLayers.convoys !== false
           default:
             return true
         }
@@ -1014,6 +1026,15 @@ export function Map({
   }, [zoom])
 
   // Generate GeoJSON for SAM range circles
+  // The road (or air lift) still ahead of a selected supply convoy.
+  const selectedConvoyPath = useMemo(() => {
+    if (!liveSelectedItem || !('type' in liveSelectedItem) || liveSelectedItem.type !== 'Convoy') {
+      return null
+    }
+    if (liveSelectedItem.path.length < 2) return null
+    return turf.lineString(liveSelectedItem.path.map((point) => [point.lng, point.lat]))
+  }, [liveSelectedItem])
+
   const samRangeGeoJson = useMemo(() => {
     const features: GeoJSON.Feature<GeoJSON.Polygon>[] = []
 
@@ -1113,6 +1134,20 @@ export function Map({
                 )
               })}
           </>
+        )}
+        {selectedConvoyPath && (
+          <Source id="convoy-path-source" type="geojson" data={selectedConvoyPath}>
+            <Layer
+              id="convoy-path-line"
+              type="line"
+              paint={{
+                'line-color': '#f5d020',
+                'line-width': 2.5,
+                'line-opacity': 0.85,
+                'line-dasharray': [2, 1.5]
+              }}
+            />
+          </Source>
         )}
         {/* SAM Range Circles - rendered first so they appear below other markers */}
         {samRangeGeoJson.features.length > 0 && (

@@ -29,7 +29,8 @@ export const Israel1967: z.infer<typeof schemas.faction> = {
     RescueHelo: ['UH-1H'],
     AFAC: [],
     Intercept: ['Mirage-F1CE'],
-    Training: []
+    Training: [],
+    ECM: []
   },
   color: 'blue',
   templateName: 'USA - Cold War'

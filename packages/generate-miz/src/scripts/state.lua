@@ -290,6 +290,10 @@ local function recordLostUnit(unit, eventName, attribution)
 
     local cached = unitCache[name] or {}
     name = cached.name or name
+    -- A bubble release calls Group.destroy(). That is not a kill.
+    if DCC and DCC.bubble and DCC.bubble.releasing and DCC.bubble.releasing[name] then
+        return
+    end
     local position = safeCall(function() return unit:getPosition().p end, nil)
     if not position then
         local point = safeCall(function() return unit:getPoint() end, nil)
@@ -300,6 +304,9 @@ local function recordLostUnit(unit, eventName, attribution)
 
     local group = getInitiatorGroup(unit)
     local groupName = stringifyName(group and safeCall(function() return group:getName() end, nil) or cached.groupName)
+    if groupName and DCC and DCC.bubble and DCC.bubble.releasing and DCC.bubble.releasing[groupName] then
+        return
+    end
     local category = group and safeCall(function() return group:getCategory() end, nil) or cached.category
     local categoryName = cached.categoryName
     local isAircraft = categoryName == 'plane' or categoryName == 'helicopter' or category == 0 or category == 1

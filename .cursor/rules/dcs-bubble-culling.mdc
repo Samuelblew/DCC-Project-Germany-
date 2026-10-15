@@ -1,0 +1,19 @@
+---
+description: Deferred live DCS bubble (spawn/despawn around the player). Read before touching culling or mission sync.
+globs: packages/generate-miz/**/*.ts,packages/generate-miz/src/scripts/state.lua,apps/core/src/main/dcs-persistence.ts,apps/frontend/src/routes/campaign/mission/mission-state-update.ts,apps/frontend/src/logic/live-sortie.ts,packages/contracts/src/config.ts
+alwaysApply: false
+---
+
+# DCS bubble (deferred)
+
+Before changing culling, `state.lua`, or DCS persistence, read `docs/dcs-bubble-context.md`. Do not implement the bubble unless Samuel asks.
+
+- DCC owns the campaign map; DCS owns 3D inside a player-centered bubble.
+- Current culling is a **static `.miz` corridor** around the planned route (`mission-culling.ts`). That stays until a live bubble ships.
+- Spawn/despawn around the player is viable (ground+SAM, SP, same theatre x/z, stable `Ground-{id}` names).
+- Despawn must not become a kill. Manifest omit ≠ death (`mission-state-update.ts`).
+- Phase 0 is `applyLiveSortie`: during the sortie the campaign clock follows DCS time and in-mission positions are copied onto the map.
+- `campaignParams.worldMode` is `corridor` (default) or `bubble`. Corridor mode does not write `config.bubble`. Bubble mode omits ground and SAM from the `.miz` except a client flight's direct target, and omits AI flights. The player's own flight stays in the `.miz`. Airborne AI flights join `config.bubble` with a task radius (fighters 80 km, support 120 km, strike 40 km, others 25 km). A flight inside the ten minutes before takeoff joins at the home field on a 12 km ramp radius and starts from parking. Ships join at 40 km, transports at 25 km. A carrier a flight launches from stays in the `.miz`. IADS command posts stay in the `.miz`. Search radars join a 150 km bubble around the live player. Germany parked airfield aircraft and support trucks join the 12 km ground bubble. During the sortie `saveBubbleCatalogue` writes `dcc_bubble.lua`; `bubble.lua` loads it when `config.bubble` exists. Despawn sets `DCC.bubble.releasing` before `Group.destroy()`. An aircraft with a target is not released.
+- AWACS stays in the `.miz`. The GCI van and the search radar feeding it stay together; do not bubble away the only dish the KRU can link. Aggregated picture calls come from the campaign. See `documentação/bolha-estilo-bms.md`.
+- DCS → DCC already writes `dcc_state.json`. DCC → DCS command channel does not exist (`socket` still sanitized).
+- Do not invent tankers, full-map late-activation, or live Skynet registration as part of culling.

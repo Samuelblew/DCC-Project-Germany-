@@ -9,6 +9,8 @@ import {
   planAtoPackages,
   type AtoPlannerPolicy
 } from './ato-planner'
+import { craterAirdrome, isAirdromeRecovering } from '../../airport-capture'
+import { updateFlightGroups } from '../../update-flight-groups'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type CoalitionData = Campaign['coalitions']['player']
@@ -197,8 +199,449 @@ describe('ATO package planner', () => {
     const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
 
     const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const cap = result.admitted.find((plan) => plan.kind === 'cap')
 
-    expect(result.admitted.some((plan) => plan.kind === 'cap')).toBe(true)
+    expect(cap).toBeDefined()
+    expect(cap?.reason).toBe('Uncovered CAP lane')
+  })
+
+  test('emits OCA against a reachable enemy airfield', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Runway Attack': ['F-86F Sabre'] } })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const oca = result.admitted.find((plan) => plan.kind === 'oca')
+
+    expect(oca?.targetId).toBe('Enemy')
+    expect(oca?.targetType).toBe('Airbase')
+    expect(oca?.flights[0]?.task).toBe('Runway Attack')
+  })
+
+  test('does not OCA a cratered airfield, and that field cannot launch', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { 'Runway Attack': ['F-4E-45MC'] },
+      opponentAircraft: { CAP: ['MiG-21Bis'] }
+    })
+    craterAirdrome(campaign, 'opponent', 'Enemy', campaign.time)
+
+    const playerResult = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const opponentResult = planAtoPackages(
+      campaign,
+      'opponent',
+      createOpponentContext(),
+      plannerPolicy()
+    )
+
+    expect(playerResult.admitted.some((plan) => plan.kind === 'oca')).toBe(false)
+    expect(
+      opponentResult.rejected.some(
+        (entry) => entry.kind === 'cap' && entry.reason === 'supply blocked'
+      )
+    ).toBe(true)
+  })
+
+  test('OCA Time-on-Target craters the enemy airfield', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Runway Attack': ['F-4E-45MC'] } })
+    const context = createContext()
+    const planned = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const oca = planned.admitted.find((plan) => plan.kind === 'oca')
+    expect(oca).toBeDefined()
+    commitAtoPackages(campaign, 'player', [oca!])
+
+    campaign.time = oca!.tot
+    updateFlightGroups(campaign, 'player')
+
+    expect(isAirdromeRecovering(campaign, 'opponent', 'Enemy')).toBe(true)
+  })
+
+  test('places BARCAP on the land-graph FLOT instead of the home airfield', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'standard',
+      initiativeCoalition: 'player'
+    }
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const patrol = result.admitted.find((plan) => plan.kind === 'cap')?.flights[0]?.patrolCenter
+
+    expect(result.admitted.find((plan) => plan.kind === 'cap')?.reason).toBe('BARCAP on the FLOT')
+    expect(patrol?.x).toBeCloseTo(27_500)
+    expect(patrol?.y).toBeCloseTo(0)
+  })
+
+  test('Korea-era empty AWACS list does not plan an orbit', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-86F Sabre'] } })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'awacs')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'awacs' && entry.reason === 'no aircraft')
+    ).toBe(true)
+  })
+
+  test('Late CW E-3A orbits behind the FLOT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { AWACS: ['E-3A'] } })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'standard',
+      initiativeCoalition: 'player'
+    }
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const awacs = result.admitted.find((plan) => plan.kind === 'awacs')
+
+    expect(awacs?.reason).toBe('AWACS orbit behind the FLOT')
+    expect(awacs?.flights[0]?.task).toBe('AWACS')
+    expect(awacs?.flights[0]?.aircraftType).toBe('E-3A')
+    expect(awacs?.flights[0]?.patrolCenter?.x).toBeCloseTo(14_000)
+    expect(awacs?.flights[0]?.patrolCenter?.y).toBeCloseTo(0)
+  })
+
+  test('does not plan a second AWACS while one is on station', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { AWACS: ['E-3A'] } })
+    const context = createContext()
+    const planned = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const awacs = planned.admitted.find((plan) => plan.kind === 'awacs')
+    expect(awacs).toBeDefined()
+    commitAtoPackages(campaign, 'player', [awacs!])
+
+    const again = planAtoPackages(campaign, 'player', context, plannerPolicy())
+
+    expect(again.admitted.some((plan) => plan.kind === 'awacs')).toBe(false)
+    expect(
+      again.rejected.some((entry) => entry.kind === 'awacs' && entry.reason === 'budget exhausted')
+    ).toBe(true)
+  })
+
+  function addInboundRaid(campaign: Campaign, packageId = 'enemy-strike-1') {
+    const tot = new Date(campaignTime.getTime() + 40 * 60 * 1000)
+    campaign.coalitions.opponent.packages.push({
+      id: packageId,
+      type: 'Strike Package',
+      targetObjectiveId: 'Home Objective',
+      members: [{ flightGroupId: 'raid-1', role: 'primary', totOffset: 0 }],
+      tot,
+      originalTot: tot,
+      status: 'active'
+    })
+    campaign.coalitions.opponent.flightGroups.push({
+      id: 'raid-1',
+      aircrafts: [{ id: 'raid-ac-1', unitName: 'Uzi-1-1', aircraftName: 'MiG-21Bis' }],
+      task: 'Pinpoint Strike',
+      position: { x: 100_000, y: 0 },
+      homeBase: 'Enemy',
+      callsign: 'Uzi-1',
+      target: { id: 'home-obj', type: 'Structure', objectiveId: 'Home Objective' },
+      flightplan: { id: 'raid-plan', startTime: campaignTime, waypoints: [] },
+      packageId
+    })
+  }
+
+  test('does not scramble when no inbound raid exists', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { Intercept: ['F-86F Sabre'] } })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'intercept')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'intercept' && entry.reason === 'no target')
+    ).toBe(true)
+  })
+
+  test('Korea F-86 scrambles against an inbound strike and beats a CAP', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { CAP: ['F-86F Sabre'], Intercept: ['F-86F Sabre'] }
+    })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'cautious',
+      initiativeCoalition: 'opponent'
+    }
+    addInboundRaid(campaign)
+
+    const result = planAtoPackages(
+      campaign,
+      'player',
+      createContext(),
+      plannerPolicy({ maxNewPackagesPerLogicTick: 1 })
+    )
+    const intercept = result.admitted.find((plan) => plan.kind === 'intercept')
+
+    expect(result.admitted.map((plan) => plan.kind)).toEqual(['intercept'])
+    expect(intercept?.flights[0]?.task).toBe('Intercept')
+    expect(intercept?.flights[0]?.aircraftType).toBe('F-86F Sabre')
+    expect(intercept?.targetId).toBe('enemy-strike-1')
+    expect(intercept?.flights[0]?.targetPosition.x).toBeCloseTo(25_000)
+  })
+
+  test('Late CW F-14 scrambles against inbound OCA', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { Intercept: ['F-14A-135-GR'] } })
+    const tot = new Date(campaignTime.getTime() + 40 * 60 * 1000)
+    campaign.coalitions.opponent.packages.push({
+      id: 'enemy-oca-1',
+      type: 'OCA Package',
+      targetObjectiveId: 'Home',
+      members: [{ flightGroupId: 'oca-1', role: 'primary', totOffset: 0 }],
+      tot,
+      originalTot: tot,
+      status: 'active'
+    })
+    campaign.coalitions.opponent.flightGroups.push({
+      id: 'oca-1',
+      aircrafts: [{ id: 'oca-ac-1', unitName: 'Uzi-1-1', aircraftName: 'MiG-21Bis' }],
+      task: 'Runway Attack',
+      position: { x: 100_000, y: 0 },
+      homeBase: 'Enemy',
+      callsign: 'Uzi-1',
+      target: { id: 'Home', type: 'Airbase', objectiveId: 'Home' },
+      flightplan: { id: 'oca-plan', startTime: campaignTime, waypoints: [] },
+      packageId: 'enemy-oca-1'
+    })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const intercept = result.admitted.find((plan) => plan.kind === 'intercept')
+
+    expect(intercept?.flights[0]?.aircraftType).toBe('F-14A-135-GR')
+    expect(intercept?.targetObjectiveId).toBe('Home')
+    expect(intercept?.reason).toBe('Scramble against an inbound raid')
+  })
+
+  test('empty Intercept list still scrambles with CAP aircraft', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-4E-45MC'] } })
+    addInboundRaid(campaign)
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const intercept = result.admitted.find((plan) => plan.kind === 'intercept')
+
+    expect(intercept?.flights[0]?.aircraftType).toBe('F-4E-45MC')
+  })
+
+  test('does not scramble when BARCAP already covers the inbound', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { CAP: ['F-86F Sabre'], Intercept: ['F-86F Sabre'] }
+    })
+    addInboundRaid(campaign)
+    campaign.coalitions.player.flightGroups.push({
+      id: 'cap-1',
+      aircrafts: [{ id: 'cap-ac-1', unitName: 'Enfield-1-1', aircraftName: 'F-86F Sabre' }],
+      task: 'CAP',
+      position: { x: 25_000, y: 0 },
+      homeBase: 'Home',
+      callsign: 'Enfield-1',
+      flightplan: {
+        id: 'cap-plan',
+        startTime: campaignTime,
+        waypoints: [
+          {
+            name: 'Racetrack Start',
+            position: { x: 20_000, y: 0 },
+            altitude: 7000,
+            speed: 200,
+            type: 'Task'
+          },
+          {
+            name: 'Racetrack End',
+            position: { x: 30_000, y: 0 },
+            altitude: 7000,
+            speed: 200,
+            type: 'RaceTrack End'
+          }
+        ]
+      }
+    })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'intercept')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'intercept' && entry.reason === 'no target')
+    ).toBe(true)
+  })
+
+  test('a recovering field cannot scramble', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { Intercept: ['F-86F Sabre'] } })
+    addInboundRaid(campaign)
+    craterAirdrome(campaign, 'player', 'Home', campaign.time)
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'intercept')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'intercept' && entry.reason === 'supply blocked')
+    ).toBe(true)
+  })
+
+  test('Korea-era cautious ATO does not push a fighter sweep past the FLOT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { CAP: ['F-86F Sabre'], 'Fighter Sweep': ['F-86F Sabre'] }
+    })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'cautious',
+      initiativeCoalition: 'player'
+    }
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'sweep')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'sweep' && entry.reason === 'no target')
+    ).toBe(true)
+  })
+
+  test('Late CW fighter sweep pushes past BARCAP on the FLOT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Fighter Sweep': ['F-5E-3'] } })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'standard',
+      initiativeCoalition: 'player'
+    }
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const sweep = result.admitted.find((plan) => plan.kind === 'sweep')
+
+    expect(sweep?.reason).toBe('Fighter sweep past the FLOT')
+    expect(sweep?.flights[0]?.task).toBe('Fighter Sweep')
+    expect(sweep?.flights[0]?.aircraftType).toBe('F-5E-3')
+    expect(sweep?.flights[0]?.patrolCenter?.x).toBeCloseTo(39_000)
+    expect(sweep?.flights[0]?.patrolCenter?.y).toBeCloseTo(0)
+  })
+
+  test('empty Fighter Sweep list still sweeps with CAP aircraft', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-14A-135-GR'] } })
+    campaign.operationProfile = {
+      archetype: 'air-superiority',
+      frontlineShape: 'linear',
+      tempo: 'standard'
+    }
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const sweep = result.admitted.find((plan) => plan.kind === 'sweep')
+
+    expect(sweep?.flights[0]?.aircraftType).toBe('F-14A-135-GR')
+  })
+
+  test('a defending cautious Korea CAP sits short of the FLOT and beats a deep strike', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { CAP: ['F-86F Sabre'], 'Pinpoint Strike': ['F-86F Sabre'] }
+    })
+    campaign.operationProfile = {
+      archetype: 'balanced',
+      frontlineShape: 'linear',
+      tempo: 'cautious',
+      initiativeCoalition: 'opponent'
+    }
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(
+      campaign,
+      'player',
+      context,
+      plannerPolicy({ maxNewPackagesPerLogicTick: 1 })
+    )
+    const cap = result.admitted.find((plan) => plan.kind === 'cap')
+
+    expect(result.admitted.map((plan) => plan.kind)).toEqual(['cap'])
+    expect(cap?.flights[0]?.patrolCenter?.x).toBeCloseTo(11_000)
+    expect(cap?.flights[0]?.patrolCenter?.y).toBeCloseTo(0)
   })
 
   test('uses another reachable airbase when the nearest base cannot support combat flights', () => {
@@ -290,7 +733,117 @@ describe('ATO package planner', () => {
     const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
     const strike = result.admitted.find((plan) => plan.kind === 'strike')
 
-    expect(strike?.flights.map((flight) => flight.task)).toEqual(['Pinpoint Strike', 'SEAD'])
+    expect(strike?.flights.map((flight) => flight.task)).toEqual([
+      'Pinpoint Strike',
+      'SEAD',
+      'DEAD'
+    ])
+  })
+
+  test('attrition ATO prefers a depot over a barrack and labels it a logistics strike', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-16C_50'] } })
+    campaign.operationProfile = {
+      archetype: 'attrition',
+      frontlineShape: 'linear',
+      tempo: 'standard'
+    }
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'barrack-1',
+        type: 'Barrack',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Barrack',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      },
+      {
+        id: 'depot-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strike = result.admitted.find((plan) => plan.kind === 'strike')
+
+    expect(strike?.targetType).toBe('Ammo Depot')
+    expect(strike?.variantId).toBe('logistics-strike')
+  })
+
+  test('attaches escort CAP to a Korea-era strike that has no SEAD or DEAD aircraft', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { 'Pinpoint Strike': ['F-86F Sabre'], CAP: ['F-86F Sabre'] }
+    })
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strike = result.admitted.find((plan) => plan.kind === 'strike')
+    const tot = strike?.tot.getTime() ?? 0
+    const cap = strike?.flights.find((flight) => flight.task === 'CAP')
+
+    expect(strike?.flights.map((flight) => flight.task)).toEqual(['Pinpoint Strike', 'CAP'])
+    expect(cap?.tot?.getTime()).toBe(tot - config.packages.CAP.escortLeadTime)
+  })
+
+  test('times SEAD, DEAD, and escort CAP to the same Late CW strike ToT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: {
+        'Pinpoint Strike': ['F-4E-45MC'],
+        SEAD: ['F-4E-45MC'],
+        DEAD: ['F-4E-45MC'],
+        CAP: ['F-5E-3']
+      }
+    })
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+    campaign.coalitions.opponent.samGroups = [
+      { id: 'sam-1', type: 'SA-6', objectiveId: 'Target Objective' }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strike = result.admitted.find((plan) => plan.kind === 'strike')
+    const tot = strike?.tot.getTime() ?? 0
+    const byTask = Object.fromEntries(
+      (strike?.flights ?? []).map((flight) => [flight.task, flight.tot?.getTime()])
+    )
+
+    expect(strike?.flights.map((flight) => flight.task)).toEqual([
+      'Pinpoint Strike',
+      'SEAD',
+      'DEAD',
+      'CAP'
+    ])
+    expect(byTask.SEAD).toBe(tot - config.packages.SEAD.leadTime)
+    expect(byTask.DEAD).toBe(tot - config.packages.DEAD.leadTime)
+    expect(byTask.CAP).toBe(tot - config.packages.CAP.escortLeadTime)
+    expect(result.candidates.some((plan) => plan.kind === 'dead')).toBe(false)
   })
 
   test('emits standalone DEAD for an untargeted SAM', () => {
@@ -443,7 +996,10 @@ describe('ATO package planner', () => {
       plannerPolicy({ maxNewPackagesPerLogicTick: 2 })
     )
 
-    expect(result.admitted.map((plan) => plan.kind)).toContain('dead')
+    expect(result.admitted.find((plan) => plan.kind === 'strike')?.flights.some((flight) => flight.task === 'DEAD')).toBe(
+      true
+    )
+    expect(result.admitted.some((plan) => plan.kind === 'dead')).toBe(false)
   })
 
   test('emits CAS for a valid enemy ground group', () => {
@@ -462,6 +1018,58 @@ describe('ATO package planner', () => {
     const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
 
     expect(result.admitted.some((plan) => plan.kind === 'cas')).toBe(true)
+  })
+
+  test('BAI prefers an enemy formation on the FLOT over a rear garrison', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAS: ['A-10C_2'] } })
+    campaign.coalitions.opponent.objectiveIds = ['Target Objective', 'Rear Objective']
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'rear-1',
+        objectiveId: 'Rear Objective',
+        position: { x: 200_000, y: 0 },
+        state: 'idle',
+        units: [{ name: 'BMP-2', count: 4 }]
+      },
+      {
+        id: 'flot-1',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        state: 'idle',
+        units: [{ name: 'BMP-2', count: 4 }]
+      }
+    ]
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      objectives: [
+        ...context.theatre.objectives,
+        { name: 'Rear Objective', type: 'Frontline', position: { x: 200_000, y: 0 } }
+      ],
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        },
+        {
+          from: 'Target Objective',
+          to: 'Rear Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const cas = result.admitted.find((plan) => plan.kind === 'cas')
+
+    expect(cas?.variantId).toBe('bai')
+    expect(cas?.targetId).toBe('flot-1')
   })
 
   test('uses a FARP as the home base for helicopter CAS', () => {
@@ -692,5 +1300,468 @@ describe('ATO package planner', () => {
     const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
 
     expect(result.admitted.some((plan) => plan.targetId === 'sam-1')).toBe(false)
+  })
+
+  test('on-call CAS launches when the assault starts', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAS: ['A-10C_2'] } })
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'assault-1',
+        objectiveId: 'Target Objective',
+        targetObjectiveId: 'Home Objective',
+        position: { x: 2_000, y: 0 },
+        state: 'combat',
+        captureStartedAt: campaignTime.toISOString(),
+        units: [{ name: 'BMP-2', count: 4 }]
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const cas = result.admitted.find((plan) => plan.kind === 'cas')
+
+    expect(cas?.variantId).toBe('on-call-cas')
+    expect(cas?.priority).toBe(90)
+    expect(cas?.tot.getTime() - campaignTime.getTime()).toBe(10 * 60 * 1000)
+  })
+
+  test('a strike waits when a SAM covers the target and the SEAD pair is already out', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { 'Pinpoint Strike': ['F-16C_50'], SEAD: ['F-16C_50'] }
+    })
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+    campaign.coalitions.opponent.samGroups = [
+      { id: 'sam-1', type: 'SA-6', objectiveId: 'Target Objective' }
+    ]
+    campaign.coalitions.player.flightGroups = [
+      ...[1, 2].map((index) => ({
+        id: `sead-${index}`,
+        aircrafts: [{ id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' }],
+        task: 'SEAD' as const,
+        position: { x: 0, y: 0 },
+        homeBase: 'Home',
+        callsign: `Dodge-${index}`,
+        flightplan: { id: `sead-plan-${index}`, startTime: campaignTime, waypoints: [] }
+      })),
+      {
+        id: 'dead-1',
+        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' }],
+        task: 'DEAD' as const,
+        position: { x: 0, y: 0 },
+        homeBase: 'Home',
+        callsign: 'Dodge-3',
+        flightplan: { id: 'dead-plan-1', startTime: campaignTime, waypoints: [] }
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'strike')).toBe(false)
+    expect(
+      result.rejected.some((entry) => entry.kind === 'strike' && entry.reason === 'threat too high')
+    ).toBe(true)
+  })
+
+  test('Korea still strikes a covered target when the list has no SEAD', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-86F Sabre'] } })
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+    campaign.coalitions.opponent.samGroups = [
+      { id: 'sam-1', type: 'SA-6', objectiveId: 'Target Objective' }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'strike')).toBe(true)
+  })
+
+  test('a cratered field ferries four fighters to the nearest open field', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    campaign.coalitions.player.airdromeNames = ['Home', 'Reserve']
+    craterAirdrome(campaign, 'player', 'Home')
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      airdromeDetails: {
+        ...context.theatre.airdromeDetails,
+        Reserve: { name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90 }
+      }
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const relocate = result.admitted.find((plan) => plan.kind === 'relocate')
+
+    expect(relocate?.priority).toBe(100)
+    expect(relocate?.targetId).toBe('Home')
+    expect(relocate?.targetObjectiveId).toBe('Reserve')
+    expect(relocate?.flights[0]?.aircraftCount).toBe(4)
+  })
+
+  test('a scramble does not launch inside the ten minute alert', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { Intercept: ['F-16C_50'] } })
+    const tot = new Date(campaignTime.getTime() + 8 * 60 * 1000)
+    campaign.coalitions.opponent.packages.push({
+      id: 'enemy-strike-1',
+      type: 'Strike Package',
+      targetObjectiveId: 'Home Objective',
+      members: [{ flightGroupId: 'raid-1', role: 'primary', totOffset: 0 }],
+      tot,
+      originalTot: tot,
+      status: 'active'
+    })
+    campaign.coalitions.opponent.flightGroups.push({
+      id: 'raid-1',
+      aircrafts: [{ id: 'raid-ac-1', unitName: 'Uzi-1-1', aircraftName: 'MiG-21Bis' }],
+      task: 'Pinpoint Strike',
+      position: { x: 100_000, y: 0 },
+      homeBase: 'Enemy',
+      callsign: 'Uzi-1',
+      target: { id: 'home-obj', type: 'Structure', objectiveId: 'Home Objective' },
+      flightplan: { id: 'raid-plan', startTime: campaignTime, waypoints: [] },
+      packageId: 'enemy-strike-1'
+    })
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const intercept = result.admitted.find((plan) => plan.kind === 'intercept')
+
+    expect(intercept?.flights[0]?.tot?.getTime()).toBe(campaignTime.getTime() + 10 * 60 * 1000)
+  })
+
+  test('an empty ECM list does not invent a jammer', () => {
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'ecm')).toBe(false)
+    expect(result.rejected.some((entry) => entry.kind === 'ecm' && entry.reason === 'no aircraft')).toBe(
+      true
+    )
+  })
+
+  test('an ECM orbit is planned when the faction owns a jammer', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { ECM: ['E-3A'] } })
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const ecm = result.admitted.find((plan) => plan.kind === 'ecm')
+
+    expect(ecm?.type).toBe('ECM Package')
+    expect(ecm?.priority).toBe(80)
+    expect(ecm?.flights).toHaveLength(1)
+    expect(ecm?.flights[0]?.task).toBe('ECM')
+  })
+
+  test('an ECM orbit already on station lets the strike launch under the SAM', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({
+      playerAircraft: { 'Pinpoint Strike': ['F-16C_50'], SEAD: ['F-16C_50'] }
+    })
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'structure-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+    campaign.coalitions.opponent.samGroups = [
+      { id: 'sam-1', type: 'SA-6', objectiveId: 'Target Objective' }
+    ]
+    campaign.coalitions.player.flightGroups = [
+      ...[1, 2].map((index) => ({
+        id: `sead-${index}`,
+        aircrafts: [{ id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' }],
+        task: 'SEAD' as const,
+        position: { x: 0, y: 0 },
+        homeBase: 'Home',
+        callsign: `Dodge-${index}`,
+        flightplan: { id: `sead-plan-${index}`, startTime: campaignTime, waypoints: [] }
+      })),
+      {
+        id: 'dead-1',
+        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' }],
+        task: 'DEAD' as const,
+        position: { x: 0, y: 0 },
+        homeBase: 'Home',
+        callsign: 'Dodge-3',
+        flightplan: { id: 'dead-plan-1', startTime: campaignTime, waypoints: [] }
+      },
+      {
+        id: 'ecm-1',
+        aircrafts: [{ id: 'ecm-ac-1', unitName: 'Magic-1', aircraftName: 'E-3A' }],
+        task: 'ECM' as const,
+        position: { x: 0, y: 0 },
+        homeBase: 'Home',
+        callsign: 'Magic-1',
+        flightplan: { id: 'ecm-plan-1', startTime: campaignTime, waypoints: [] }
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+
+    expect(result.admitted.some((plan) => plan.kind === 'strike')).toBe(true)
+  })
+
+  test('a type that just landed waits an hour at that field', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    campaign.coalitions.player.airdromeNames = ['Home', 'Reserve']
+    campaign.coalitions.player.aircraftTurnaroundUntil = {
+      'Home:F-16C_50': campaignTime.getTime() + 60 * 60 * 1000
+    }
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      airdromeDetails: {
+        ...context.theatre.airdromeDetails,
+        Reserve: { name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90 }
+      }
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const cap = result.admitted.find((plan) => plan.kind === 'cap')
+
+    expect(cap?.flights[0]?.homeBase.name).toBe('Reserve')
+  })
+
+  test('HAVCAP launches within ten minutes over a downed pilot', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    campaign.coalitions.player.downedPilots = [
+      {
+        id: 'pilot-1',
+        name: 'Viper',
+        position: { x: 10_000, y: 0 },
+        ejectedAt: campaignTime
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const havcap = result.admitted.find((plan) => plan.variantId === 'havcap')
+
+    expect(havcap?.priority).toBe(86)
+    expect(havcap?.flights[0]?.tot?.getTime()).toBe(campaignTime.getTime() + 10 * 60 * 1000)
+    expect(havcap?.flights[0]?.target?.id).toBe('pilot-1')
+  })
+
+  test('an ambush orbit sits forward of BARCAP at low altitude', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-16C_50'] } })
+    const context = createContext()
+    context.theatre = {
+      ...context.theatre,
+      connections: [
+        {
+          from: 'Home Objective',
+          to: 'Target Objective',
+          mode: 'road',
+          bidirectional: true,
+          waypoints: []
+        }
+      ]
+    }
+
+    const result = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    const ambush = result.admitted.find((plan) => plan.variantId === 'ambush-cap')
+    const barcap = result.admitted.find((plan) => plan.reason === 'BARCAP on the FLOT')
+
+    expect(ambush?.flights[0]?.patrolAltitude).toBe(450)
+    expect(ambush?.flights[0]?.patrolDurationMs).toBe(15 * 60 * 1000)
+    expect((ambush?.flights[0]?.patrolCenter.x ?? 0) > (barcap?.flights[0]?.patrolCenter.x ?? 0)).toBe(
+      true
+    )
+  })
+
+  test('a strike cuts the road an enemy column is using', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-16C_50'] } })
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'column-1',
+        position: { x: 40_000, y: 0 },
+        objectiveId: 'Target Objective',
+        targetObjectiveId: 'Home Objective',
+        units: [{ name: 'T-55', count: 4 }],
+        state: 'moving'
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const cut = result.admitted.find((plan) => plan.variantId === 'road-cut')
+
+    expect(cut?.targetType).toBe('Road')
+    expect(cut?.reason).toContain('Target Objective')
+    expect(cut?.flights[0]?.targetPosition.x).toBeCloseTo(25_000)
+  })
+
+  test('the opening hours strike the command post and leave the factory', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-16C_50'] } })
+    campaign.groundOffensiveAt = campaign.time.getTime() + 60 * 60 * 1000
+    campaign.strategicStrikeAt = campaign.time.getTime() + 8 * 60 * 60 * 1000
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'factory-1',
+        type: 'Factory',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Factory',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      },
+      {
+        id: 'command-1',
+        type: 'Command Center',
+        objectiveId: 'Target Objective',
+        position: { x: 52_000, y: 0 },
+        name: 'Command Center',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Military staff', alive: true }]
+      }
+    ]
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'column-1',
+        position: { x: 40_000, y: 0 },
+        objectiveId: 'Target Objective',
+        targetObjectiveId: 'Home Objective',
+        units: [{ name: 'T-55', count: 4 }],
+        state: 'moving'
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strikes = result.admitted.filter((plan) => plan.kind === 'strike')
+
+    expect(strikes.map((plan) => plan.targetType)).toEqual(['Command Center'])
+    expect(result.admitted.some((plan) => plan.variantId === 'road-cut')).toBe(false)
+  })
+
+  test('after eight hours the strike prefers the factory', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-16C_50'] } })
+    campaign.groundOffensiveAt = campaign.time.getTime() - 60_000
+    campaign.strategicStrikeAt = campaign.time.getTime() - 60_000
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'depot-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      },
+      {
+        id: 'factory-1',
+        type: 'Factory',
+        objectiveId: 'Target Objective',
+        position: { x: 52_000, y: 0 },
+        name: 'Factory',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strike = result.admitted.find(
+      (plan) => plan.kind === 'strike' && plan.variantId !== 'road-cut'
+    )
+
+    expect(strike?.targetType).toBe('Factory')
+  })
+
+  test('between the air war and the eighth hour the strike hits the depot', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign({ playerAircraft: { 'Pinpoint Strike': ['F-16C_50'] } })
+    campaign.groundOffensiveAt = campaign.time.getTime() - 60_000
+    campaign.strategicStrikeAt = campaign.time.getTime() + 60 * 60 * 1000
+    campaign.coalitions.opponent.structures = [
+      {
+        id: 'depot-1',
+        type: 'Ammo Depot',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Ammo Depot',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      },
+      {
+        id: 'factory-1',
+        type: 'Factory',
+        objectiveId: 'Target Objective',
+        position: { x: 52_000, y: 0 },
+        name: 'Factory',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+
+    const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
+    const strike = result.admitted.find(
+      (plan) => plan.kind === 'strike' && plan.variantId !== 'road-cut'
+    )
+
+    expect(strike?.targetType).toBe('Ammo Depot')
+  })
+
+  test('bombers wait until factories and oil are the target', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const early = createCampaign({
+      playerAircraft: { 'Strategic Strike': ['B-52H'], 'Pinpoint Strike': ['F-16C_50'] }
+    })
+    early.groundOffensiveAt = early.time.getTime() - 60_000
+    early.strategicStrikeAt = early.time.getTime() + 60 * 60 * 1000
+    early.coalitions.opponent.structures = [
+      {
+        id: 'factory-1',
+        type: 'Factory',
+        objectiveId: 'Target Objective',
+        position: { x: 50_000, y: 0 },
+        name: 'Factory',
+        resources: 0,
+        buildings: [{ offset: { x: 0, y: 0 }, type: 'Workshop A', alive: true }]
+      }
+    ]
+
+    const before = planAtoPackages(early, 'player', createContext(), plannerPolicy())
+    expect(before.admitted.some((plan) => plan.kind === 'strategicStrike')).toBe(false)
+
+    const late = createCampaign({
+      playerAircraft: { 'Strategic Strike': ['B-52H'] }
+    })
+    late.groundOffensiveAt = late.time.getTime() - 60_000
+    late.strategicStrikeAt = late.time.getTime() - 60_000
+    late.coalitions.opponent.structures = early.coalitions.opponent.structures
+
+    const after = planAtoPackages(late, 'player', createContext(), plannerPolicy())
+    const bomber = after.admitted.find((plan) => plan.kind === 'strategicStrike')
+
+    expect(bomber?.flights[0]?.aircraftType).toBe('B-52H')
+    expect(bomber?.targetType).toBe('Factory')
   })
 })

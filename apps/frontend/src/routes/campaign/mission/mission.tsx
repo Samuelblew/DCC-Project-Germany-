@@ -28,7 +28,9 @@ import { getTaskAircraftTypeOptions } from '@/lib/aircraft-display'
 
 import { FlightGroupCard } from '../components/flight-group-card'
 import { MissionDebriefScreen, type MissionDebrief, type TargetOutcome } from './mission-debrief'
+import { applyLiveSortie } from '@/logic/live-sortie'
 import { applyMissionStateUpdate } from './mission-state-update'
+import { ImmersionOptions } from '../components/immersion-options'
 import { applyCareerMission } from '@/logic/career/apply-career-mission'
 
 const KNOTS_PER_MS = 1.94384
@@ -406,7 +408,7 @@ export function Mission() {
   }
 
   useEffect(() => {
-    if (!isGenerated || isMissionStateReady) {
+    if (!isGenerated || debrief) {
       return
     }
 
@@ -414,9 +416,18 @@ export function Mission() {
 
     const checkMissionState = async () => {
       try {
-        await coreClient.campaign.loadMissionState()
-        if (!cancelled) {
-          setIsMissionStateReady(true)
+        const missionState = await coreClient.campaign.loadMissionState()
+        if (cancelled) return
+        setIsMissionStateReady(true)
+        const current = activeStore.getSnapshot().context
+        const next = applyLiveSortie(current, missionState)
+        if (next !== current) {
+          activeStore.send({ type: 'loadCampaign', campaign: next })
+        }
+        if (next.campaignParams?.worldMode === 'bubble') {
+          void coreClient.campaign.saveBubbleCatalogue(next).catch(() => {
+            // The mission script keeps the last catalogue it could read.
+          })
         }
       } catch {
         // The state file is expected to be missing or stale until DCS writes this mission's result.
@@ -426,13 +437,13 @@ export function Mission() {
     void checkMissionState()
     const interval = window.setInterval(() => {
       void checkMissionState()
-    }, 1000)
+    }, 2000)
 
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [isGenerated, isMissionStateReady])
+  }, [isGenerated, debrief])
 
   useEffect(() => {
     if (!toast) {
@@ -695,6 +706,15 @@ export function Mission() {
                               Random
                             </ToggleGroupItem>
                           </ToggleGroup>
+                        </div>
+                        <div className="space-y-2 rounded-lg border border-[#d9443a]/20 bg-[#d9443a]/5 p-3">
+                          <div>
+                            <div className="text-sm font-medium text-white">Immersion</div>
+                            <div className="text-sm text-white/40">
+                              Ambient life around you; it follows the culling bands
+                            </div>
+                          </div>
+                          <ImmersionOptions />
                         </div>
                         <div className="overflow-hidden rounded-lg border border-[#d9443a]/20 bg-[#d9443a]/5">
                           <button

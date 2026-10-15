@@ -18,7 +18,7 @@ import { coreClient } from '@/lib/orpc'
 import { CampaignStep, type CampaignMode, type CareerAcquisitionRule } from './start-campaign-step'
 import { FactionEditor } from './start-faction-editor'
 import {
-  factionIdsByEra,
+  factionIdsForEra,
   getCampaignYearForFactions,
   getScenarioCampaignDefaults,
   type CampaignEra,
@@ -103,7 +103,7 @@ export function ScenarioSelect() {
   const selectEra = (era: CampaignEra) => {
     setEscalationEnabled(false)
     setSelectedEra(era)
-    const eraDefaults = factionIdsByEra[era]
+    const eraDefaults = factionIdsForEra(era, selectedScenario?.theatreName)
     const defaults =
       playerSide === 'red'
         ? { player: eraDefaults.opponent, opponent: eraDefaults.player }

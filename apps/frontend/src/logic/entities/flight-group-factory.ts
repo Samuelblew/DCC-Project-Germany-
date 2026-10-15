@@ -7,6 +7,7 @@ import { DeadFlightGroup } from './dead-flight-group'
 import { CapFlightGroup } from './cap-flight-group'
 import { TransportFlightGroup } from './transport-flight-group'
 import { CsarFlightGroup } from './csar-flight-group'
+import { CasFlightGroup } from './cas-flight-group'
 
 export const FlightGroupFactory = {
   getCoalitionFlightGroups(
@@ -23,7 +24,7 @@ export const FlightGroupFactory = {
       if (data.task === 'DEAD') {
         return new DeadFlightGroup(data)
       }
-      if (data.task === 'CAP') {
+      if (data.task === 'CAP' || data.task === 'AWACS' || data.task === 'Intercept' || data.task === 'Fighter Sweep') {
         return new CapFlightGroup(data)
       }
       if (data.task === 'Transport') {
@@ -31,6 +32,9 @@ export const FlightGroupFactory = {
       }
       if (data.task === 'CSAR') {
         return new CsarFlightGroup(data)
+      }
+      if (data.task === 'CAS') {
+        return new CasFlightGroup(data)
       }
       return new FlightGroup(data)
     })

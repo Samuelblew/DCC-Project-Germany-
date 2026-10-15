@@ -1,4 +1,4 @@
-import { schemas } from '@dcc/contracts'
+import { resolveImmersion, schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -9,6 +9,42 @@ const LABEL_VALUES: Record<NonNullable<DcsCheats['labels']>, number> = {
   full: 1,
   abbreviated: 2,
   dot: 3
+}
+
+const FORCED_DIFFICULTY_KEYS: Record<Exclude<keyof DcsCheats, 'labels'>, string> = {
+  unlimitedWeapons: 'weapons',
+  unlimitedFuel: 'fuel',
+  immortal: 'immortal',
+  easyFlight: 'easyFlight',
+  miniHud: 'miniHUD',
+  radioAssist: 'radio',
+  crashRecover: 'permitCrash',
+  unrestrictedSatnav: 'unrestrictedSATNAV'
+}
+
+/**
+ * The mission's `forcedOptions` table. DCS ignores the difficulty values in the .miz options file
+ * and keeps the player's own settings unless an option is forced, so every cheat the campaign set
+ * explicitly is forced here; untouched ones stay with the player's settings.
+ */
+/** DCS road traffic level; '' is off. */
+function civTrafficValue(campaign?: Pick<Campaign, 'campaignParams'>) {
+  const level = resolveImmersion(campaign?.campaignParams?.immersion).civTraffic
+  return level === 'off' ? '' : level
+}
+
+export function forcedOptions(campaign?: Pick<Campaign, 'campaignParams'>) {
+  const cheats = campaign?.campaignParams?.dcsCheats
+  const forced: Record<string, boolean | number | string> = {}
+  // Road traffic is part of DCC's immersion settings, so it is always forced.
+  if (campaign) forced.civTraffic = civTrafficValue(campaign)
+  if (!cheats) return forced
+  for (const [key, dcsKey] of Object.entries(FORCED_DIFFICULTY_KEYS)) {
+    const value = cheats[key as keyof typeof FORCED_DIFFICULTY_KEYS]
+    if (typeof value === 'boolean') forced[dcsKey] = value
+  }
+  if (cheats.labels) forced.labels = LABEL_VALUES[cheats.labels]
+  return forced
 }
 
 export function options(campaign?: Campaign): z.infer<typeof schemas.dcs.options> {
@@ -155,7 +191,7 @@ export function options(campaign?: Campaign): z.infer<typeof schemas.dcs.options
       height: 1440,
       motionBlur: 0,
       ScreenshotExt: 'jpg',
-      civTraffic: 'low'
+      civTraffic: civTrafficValue(campaign)
     },
     plugins: {
       'Su-25T': {

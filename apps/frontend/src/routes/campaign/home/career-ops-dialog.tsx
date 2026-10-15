@@ -25,6 +25,8 @@ import {
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { activeStore } from '@/stores/active'
 import { canCreateManualFlightGroup } from '@/logic/systems/spawn/manual-flight-group'
+import { ImmersionOptions } from '../components/immersion-options'
+import { PlayerParkingSelect } from '../components/player-parking-select'
 import { CareerPresetEditor } from './career-preset-editor'
 import { CareerRadioDialog } from './career-radio-dialog'
 
@@ -271,6 +273,10 @@ export function CareerOpsDialog({
             How many AI packages (CAP, strike, SEAD, CAS) both sides keep in the air. Builds up over
             the next campaign hours
           </span>
+        </div>
+
+        <div className="rounded border border-white/10 bg-black/20 px-3 py-2 text-sm">
+          <ImmersionOptions compact />
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden text-sm lg:grid-cols-[1fr_1.3fr_1.3fr]">
@@ -614,6 +620,12 @@ export function CareerOpsDialog({
             )}
 
             <div className="mt-auto space-y-2 border-t border-white/10 pt-2">
+              {mission && aircraft ? (
+                <PlayerParkingSelect
+                  flightGroupId={mission.id}
+                  aircraftName={aircraft.aircraftName}
+                />
+              ) : null}
               {airframe && airframe.integrity < 1 ? (
                 <p className="text-xs text-synthwave-pink/80">
                   #{airframe.tailNumber} has unrepaired damage: expect minor system failures.

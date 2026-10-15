@@ -1,6 +1,7 @@
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 import { calculateDistance } from '../utils/calculate-distance'
+import { logisticsInterdictionAt } from './logistics-interdiction'
 
 const RESOURCE_GAIN_RATE = 10
 const BONUS_RADIUS = 5000 // 5km
@@ -11,6 +12,7 @@ const MAX_RESOURCE_STOCKPILE = 2000
 type ResourceGeneratingStructure = {
   id: string
   type: string
+  objectiveId: string
   position: z.infer<typeof schemas.position>
   buildings: Array<{ alive: boolean }>
 }
@@ -18,7 +20,8 @@ type ResourceGeneratingStructure = {
 export function calculateResourceGainPerLogicTick(
   structure: ResourceGeneratingStructure,
   structures: ResourceGeneratingStructure[],
-  timeMultiplier: number
+  timeMultiplier: number,
+  interdiction = 0
 ) {
   // Only Barrack and Depot structures generate resources.
   if (structure.type !== 'Barrack' && structure.type !== 'Depot') {
@@ -38,9 +41,15 @@ export function calculateResourceGainPerLogicTick(
 
     const dist = calculateDistance(structure.position, otherStructure.position)
     if (dist <= BONUS_RADIUS) {
-      const isBonusType = ['Power Plant', 'Command Center', 'Fuel Storage', 'Ammo Depot'].includes(
-        otherStructure.type
-      )
+      const isBonusType = [
+        'Power Plant',
+        'Command Center',
+        'Fuel Storage',
+        'Ammo Depot',
+        'Factory',
+        'Factory 2',
+        'Oil Platform'
+      ].includes(otherStructure.type)
       const hasAliveBuildings = otherStructure.buildings.some((b) => b.alive)
 
       if (isBonusType && hasAliveBuildings) {
@@ -50,7 +59,7 @@ export function calculateResourceGainPerLogicTick(
   }
 
   const timeFactor = (1000 * timeMultiplier) / 10000
-  return gain * timeFactor * RESOURCE_GENERATION_FACTOR
+  return gain * timeFactor * RESOURCE_GENERATION_FACTOR * (1 - interdiction)
 }
 
 export function updateResources(
@@ -63,7 +72,8 @@ export function updateResources(
     const gainPerLogicTick = calculateResourceGainPerLogicTick(
       structure,
       structures,
-      draft.timeMultiplier
+      draft.timeMultiplier,
+      logisticsInterdictionAt(draft, coalition, structure.objectiveId)
     )
     if (gainPerLogicTick <= 0) continue
 

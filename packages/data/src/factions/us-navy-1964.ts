@@ -29,7 +29,8 @@ export const UsNavy1964: z.infer<typeof schemas.faction> = {
     RescueHelo: ['UH-1H'],
     AFAC: [],
     Intercept: ['VSN_F4B'],
-    Training: []
+    Training: [],
+    ECM: []
   },
   color: 'blue',
   templateName: 'USA - Cold War'

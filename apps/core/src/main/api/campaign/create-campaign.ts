@@ -29,6 +29,7 @@ import {
   isFactionCareerAircraft,
   applyEscalationAircraftTypes,
   escalationFactionIds,
+  initialOperationProfile,
   isGermanyIadsTheatre,
   resolveCreateCampaignEra
 } from '@dcc/data'
@@ -53,35 +54,6 @@ function createInitialStrategicStrikeCooldown(
   const max = config.packages['Strategic Strike'].cooldownMaxMs
   const cooldownMs = Math.floor(Math.random() * (max - min + 1)) + min
   return new Date(campaignTime.getTime() + cooldownMs)
-}
-
-function pickRandom<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)] ?? items[0]!
-}
-
-function rollOperationProfile(): OperationProfile {
-  const archetypes: OperationProfile['archetype'][] = [
-    'balanced',
-    'breakthrough',
-    'attrition',
-    'air-superiority',
-    'defense-crisis'
-  ]
-  const frontlineShapes: OperationProfile['frontlineShape'][] = [
-    'linear',
-    'salient',
-    'split-front',
-    'overextended'
-  ]
-  const tempos: OperationProfile['tempo'][] = ['cautious', 'standard', 'surge']
-  const initiativeCoalition: Coalition = Math.random() < 0.55 ? 'opponent' : 'player'
-
-  return {
-    archetype: pickRandom(archetypes),
-    frontlineShape: pickRandom(frontlineShapes),
-    tempo: pickRandom(tempos),
-    initiativeCoalition
-  }
 }
 
 function findNearestBorderObjective(params: {
@@ -253,7 +225,11 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
       })
     }
   })
-  const operationProfile = rollOperationProfile()
+  const operationProfile = initialOperationProfile({
+    theatreName: theatre.name,
+    era: input.era,
+    escalation: input.escalation
+  })
   const protectedObjectiveIds = new Set([
     ...strategicStart.player.objectiveIds,
     ...strategicStart.opponent.objectiveIds,
@@ -571,6 +547,13 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     campaignTime,
     opponentFaction
   )
+  const fuldaDoctrine =
+    scenario.id === 'fulda-gap'
+      ? {
+          groundOffensiveAt: campaignTime.getTime() + 2 * 60 * 60 * 1000,
+          strategicStrikeAt: campaignTime.getTime() + 8 * 60 * 60 * 1000
+        }
+      : {}
 
   const defaultState: z.infer<typeof schemas.campaign.campaign> = {
     version: '0.2.0',
@@ -583,6 +566,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     playerSide,
     time: campaignTime,
     timeMultiplier: 0,
+    ...fuldaDoctrine,
     campaignParams: {
       hotStart: false,
       aiWingmanSpawn: 'landOnly',

@@ -1,6 +1,13 @@
 import { config, resolveAirActivity, schemas } from '@dcc/contracts'
-import { evaluateCombatViability, getGroundGroupUnitCount } from '@dcc/campaign'
-import { aircrafts } from '@dcc/data'
+import {
+  evaluateCombatViability,
+  findFlotStations,
+  flotPatrolPosition,
+  flotTouchesObjective,
+  getGroundGroupUnitCount,
+  theatreHasLandGraph
+} from '@dcc/campaign'
+import { aircrafts, coalitionOperationProfile, flotAmbushDepth, flotAwacsDepth, flotCapDepth, flotEcmDepth, flotSweepDepth } from '@dcc/data'
 import * as z from 'zod'
 
 import { CapFlightGroup } from '../../../entities/cap-flight-group'
@@ -9,7 +16,11 @@ import { SeadFlightGroup } from '../../../entities/sead-flight-group'
 import { StrikeFlightGroup } from '../../../entities/strike-flight-group'
 import { TransportFlightGroup } from '../../../entities/transport-flight-group'
 import {
+  buildAttackMissionWaypoints,
+  buildAwacsMissionWaypoints,
   buildCasMissionWaypoints,
+  buildFighterSweepMissionWaypoints,
+  buildInterceptMissionWaypoints,
   spawnPlannedFlightGroup
 } from '../../../entities/flight-group-spawn'
 import { getObjectivePosition } from '@/logic/utils/get-objective-position'
@@ -32,6 +43,15 @@ import {
   getNodeSupply,
   spendFlightLogistics
 } from '../../update-supply'
+import { isLogisticsStructure } from '../../logistics-interdiction'
+import {
+  doctrineStrikePriorityBoost,
+  groundOffensiveOpen,
+  strategicTargetsOpen,
+  strikeStructuresForDoctrine
+} from '../../campaign-doctrine'
+import { activeRoadCutKeys, roadTargetId } from '../../road-cuts'
+import { isAirdromeRecovering } from '../../airport-capture'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -42,13 +62,30 @@ type MissionPackage = z.infer<typeof schemas.missionPackage>
 type PackageMemberRole = z.infer<typeof schemas.packageMemberRole>
 type OperationProfile = NonNullable<Campaign['operationProfile']>
 type GroundBattleLock = NonNullable<Campaign['groundBattleLocks']>[number]
-type CasVariantId = 'defensive-cas' | 'troops-in-contact' | 'armed-recon'
-type CapVariantId = 'point-defense-cap' | 'barrier-cap' | 'forward-sweep'
-type StrikeVariantId = 'frontline-raid' | 'logistics-strike' | 'deep-interdiction'
+type CasVariantId =
+  | 'defensive-cas'
+  | 'troops-in-contact'
+  | 'on-call-cas'
+  | 'armed-recon'
+  | 'bai'
+type CapVariantId = 'point-defense-cap' | 'barrier-cap' | 'forward-sweep' | 'havcap' | 'ambush-cap'
+type StrikeVariantId = 'frontline-raid' | 'logistics-strike' | 'deep-interdiction' | 'road-cut'
 type DeadVariantId = 'escort-dead' | 'standalone-dead'
 type AtoVariantId = CasVariantId | CapVariantId | StrikeVariantId | DeadVariantId
 
-export type AtoPackageKind = 'cap' | 'strike' | 'strategicStrike' | 'dead' | 'cas' | 'transport'
+export type AtoPackageKind =
+  | 'cap'
+  | 'strike'
+  | 'strategicStrike'
+  | 'dead'
+  | 'cas'
+  | 'transport'
+  | 'oca'
+  | 'awacs'
+  | 'intercept'
+  | 'sweep'
+  | 'relocate'
+  | 'ecm'
 
 export type AtoRejectionReason =
   | 'budget exhausted'
@@ -59,6 +96,7 @@ export type AtoRejectionReason =
   | 'no target'
   | 'out of range'
   | 'supply blocked'
+  | 'threat too high'
 
 type FlightPlanDescriptor = {
   role: PackageMemberRole
@@ -71,7 +109,11 @@ type FlightPlanDescriptor = {
     buildings?: z.infer<typeof schemas.structureBuilding>[]
   }
   patrolCenter?: Position
+  patrolAltitude?: number
+  patrolDurationMs?: number
   tot?: Date
+  /** Ferry size. The task default is used when this is absent. */
+  aircraftCount?: number
   transport?: {
     sourceNode: string
     destinationNode: string
@@ -132,15 +174,50 @@ function scaledMaxActive(draft: Campaign, base: number) {
   return Math.max(1, Math.round(base * resolveAirActivity(draft.campaignParams?.airActivity)))
 }
 
+function turnaroundKey(homeBase: string, aircraftType: string) {
+  return `${homeBase}:${aircraftType}`
+}
+
+function aircraftIsTurning(
+  draft: Campaign,
+  coalition: Coalition,
+  homeBase: string,
+  aircraftType: string
+) {
+  const until =
+    draft.coalitions[coalition].aircraftTurnaroundUntil?.[turnaroundKey(homeBase, aircraftType)]
+  return until != null && until > draft.time.getTime()
+}
+
+function readyAircraftTypes(
+  draft: Campaign,
+  coalition: Coalition,
+  task: FlightTask,
+  homeBase?: string
+) {
+  const types = getAvailableAircraftTypes(draft, coalition, task)
+  if (!homeBase) return types
+  return types.filter((type) => !aircraftIsTurning(draft, coalition, homeBase, type))
+}
+
 function hasAircraft(draft: Campaign, coalition: Coalition, task: FlightTask) {
   return getAvailableAircraftTypes(draft, coalition, task).length > 0
 }
 
-function pickAircraft(draft: Campaign, coalition: Coalition, task: FlightTask) {
-  return pickRandomAircraftType(getAvailableAircraftTypes(draft, coalition, task))
+function pickAircraft(
+  draft: Campaign,
+  coalition: Coalition,
+  task: FlightTask,
+  homeBase?: string
+) {
+  return pickRandomAircraftType(readyAircraftTypes(draft, coalition, task, homeBase))
 }
 
 function getAvailableAircraftTypes(draft: Campaign, coalition: Coalition, task: FlightTask) {
+  if (task === 'Intercept' || task === 'Fighter Sweep') {
+    return schemas.resolveTaskAircraftTypes(draft.coalitions[coalition].aircraftTypes, task)
+  }
+
   const configuredAircraftTypes = draft.coalitions[coalition].aircraftTypes[task] ?? []
   if (configuredAircraftTypes.length > 0 || task !== 'DEAD') {
     return configuredAircraftTypes
@@ -169,7 +246,7 @@ function activeAircraftCount(draft: Campaign, coalition: Coalition) {
 }
 
 function getFlightAircraftCount(flight: FlightPlanDescriptor) {
-  return getTaskAircraftCount(flight.task)
+  return flight.aircraftCount ?? getTaskAircraftCount(flight.task)
 }
 
 function getTaskAircraftCount(task: FlightTask) {
@@ -204,6 +281,93 @@ function activeAutomaticCapHomeBases(draft: Campaign, coalition: Coalition) {
   )
 }
 
+const FLOT_CAP_COVER_METERS = 40_000
+
+function capPatrolPosition(group: Campaign['coalitions']['player']['flightGroups'][number]): Position {
+  const start = group.flightplan.waypoints.find((waypoint) => waypoint.name === 'Racetrack Start')
+  const end = group.flightplan.waypoints.find((waypoint) => waypoint.name === 'Racetrack End')
+  if (start && end) {
+    return {
+      x: (start.position.x + end.position.x) / 2,
+      y: (start.position.y + end.position.y) / 2
+    }
+  }
+  return group.position
+}
+
+function selectFlotOrbitAssignment(params: {
+  draft: Campaign
+  coalition: Coalition
+  context: SpawnContext
+  homeBases: AirdromeSelection[]
+  maxDistance: number
+  depth: number
+  occupiedTask: FlightTask
+  coverMeters?: number
+}): { homeBase: AirdromeSelection; patrolCenter: Position; stationId: string } | null {
+  if (!theatreHasLandGraph(params.context.theatre)) return null
+
+  const enemy = params.draft.coalitions[params.context.enemyCoalition]
+  const friendly = params.draft.coalitions[params.coalition]
+  const stations = findFlotStations({
+    theatre: params.context.theatre,
+    friendlyObjectiveIds: friendly.objectiveIds,
+    friendlyAirdromeNames: friendly.airdromeNames,
+    enemyObjectiveIds: enemy.objectiveIds,
+    enemyAirdromeNames: enemy.airdromeNames
+  })
+  if (stations.length === 0) return null
+
+  const occupied = friendly.flightGroups
+    .filter((group) => group.task === params.occupiedTask)
+    .map((group) => capPatrolPosition(group))
+
+  const ranked: Array<{
+    homeBase: AirdromeSelection
+    patrolCenter: Position
+    stationId: string
+    range: number
+  }> = []
+
+  for (const station of stations) {
+    const patrolCenter = flotPatrolPosition(station, params.depth)
+    if (
+      occupied.some(
+        (position) =>
+          calculateDistance(position, patrolCenter) < (params.coverMeters ?? FLOT_CAP_COVER_METERS)
+      )
+    ) {
+      continue
+    }
+
+    let nearest: AirdromeSelection | null = null
+    let nearestRange = Number.POSITIVE_INFINITY
+    for (const homeBase of params.homeBases) {
+      const range = calculateDistance(homeBase.position, patrolCenter)
+      if (range > params.maxDistance || range >= nearestRange) continue
+      nearest = homeBase
+      nearestRange = range
+    }
+    if (!nearest) continue
+    ranked.push({
+      homeBase: nearest,
+      patrolCenter,
+      stationId: station.id,
+      range: nearestRange
+    })
+  }
+
+  ranked.sort((left, right) => left.range - right.range)
+  const selected = ranked[0]
+  return selected
+    ? {
+        homeBase: selected.homeBase,
+        patrolCenter: selected.patrolCenter,
+        stationId: selected.stationId
+      }
+    : null
+}
+
 function createPlanId(kind: AtoPackageKind, targetId: string) {
   return `planned-${kind}-${targetId}`
 }
@@ -216,15 +380,8 @@ function getGroundUnitCount(group: Campaign['coalitions']['player']['groundGroup
   return getGroundGroupUnitCount(group)
 }
 
-function getDefaultOperationProfile(draft: Campaign): OperationProfile {
-  return (
-    draft.operationProfile ?? {
-      archetype: 'balanced',
-      frontlineShape: 'linear',
-      tempo: 'standard',
-      initiativeCoalition: undefined
-    }
-  )
+function getDefaultOperationProfile(draft: Campaign, coalition: Coalition): OperationProfile {
+  return coalitionOperationProfile(draft, coalition)
 }
 
 function findNearbyDefenderGroupIds(
@@ -281,7 +438,10 @@ function getSupplySpawnModifier(draft: Campaign, coalition: Coalition, airbaseNa
 }
 
 function isAirbaseSupplyBlocked(draft: Campaign, coalition: Coalition, airbaseName: string) {
-  return getSupplySpawnModifier(draft, coalition, airbaseName) <= 0
+  return (
+    getSupplySpawnModifier(draft, coalition, airbaseName) <= 0 ||
+    isAirdromeRecovering(draft, coalition, airbaseName)
+  )
 }
 
 function canHomeBaseSupportTask(
@@ -292,6 +452,7 @@ function canHomeBaseSupportTask(
 ) {
   return (
     !isAirbaseSupplyBlocked(draft, coalition, homeBase.name) &&
+    readyAircraftTypes(draft, coalition, task, homeBase.name).length > 0 &&
     canSupportFlightLogistics(
       getNodeSupply(draft, coalition, homeBase.name),
       task,
@@ -419,12 +580,23 @@ function makeCapPlan(
   }
 
   const enemyAirdromes = getCoalitionAirdromes(draft, context.theatre, context.enemyCoalition)
-  const assignment = selectCapPatrolAssignment({
+  const flotAssignment = selectFlotOrbitAssignment({
+    draft,
+    coalition,
+    context,
     homeBases,
-    enemyAirdromes,
-    coveredHomeBases: activeAutomaticCapHomeBases(draft, coalition),
-    maxHomeToEnemyDistance: config.packages.CAP.maxDistance * 2
+    maxDistance: config.packages.CAP.maxDistance,
+    depth: flotCapDepth(coalitionOperationProfile(draft, coalition)),
+    occupiedTask: 'CAP'
   })
+  const assignment =
+    flotAssignment ??
+    selectCapPatrolAssignment({
+      homeBases,
+      enemyAirdromes,
+      coveredHomeBases: activeAutomaticCapHomeBases(draft, coalition),
+      maxHomeToEnemyDistance: config.packages.CAP.maxDistance * 2
+    })
   if (!assignment) {
     pushRejection(rejected, 'cap', 'no target')
     return null
@@ -434,13 +606,13 @@ function makeCapPlan(
     return null
   }
 
-  const aircraftType = pickAircraft(draft, coalition, 'CAP')
+  const aircraftType = pickAircraft(draft, coalition, 'CAP', assignment.homeBase.name)
   if (!aircraftType) {
     pushRejection(rejected, 'cap', 'no aircraft')
     return null
   }
 
-  const targetId = assignment.homeBase.name
+  const targetId = flotAssignment?.stationId ?? assignment.homeBase.name
   const tot = addMinutes(draft.time, 20)
   return {
     id: createPlanId('cap', targetId),
@@ -448,7 +620,7 @@ function makeCapPlan(
     type: 'CAP Package',
     coalition,
     priority: 70,
-    reason: 'Uncovered CAP lane',
+    reason: flotAssignment ? 'BARCAP on the FLOT' : 'Uncovered CAP lane',
     targetId,
     targetObjectiveId: targetId,
     targetType: 'airspace',
@@ -466,6 +638,358 @@ function makeCapPlan(
   }
 }
 
+const HAVCAP_RANGE_METERS = 45 * 1852
+const AMBUSH_PATROL_MS = 15 * 60 * 1000
+const AMBUSH_ALTITUDE_METERS = 450
+
+function makeHavcapPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  const pilots = draft.coalitions[coalition].downedPilots ?? []
+  if (pilots.length === 0) return null
+  if (
+    activeTaskCount(draft, coalition, 'CAP') >=
+    scaledMaxActive(draft, config.packages.CAP.maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'cap', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'CAP')) {
+    pushRejection(rejected, 'cap', 'no aircraft')
+    return null
+  }
+
+  const covered = new Set(
+    draft.coalitions[coalition].flightGroups.map((group) => group.target?.id).filter(Boolean)
+  )
+  const homeBases = getSupportedHomeBases(
+    draft,
+    coalition,
+    getCoalitionAirdromes(draft, context.theatre, coalition),
+    'CAP'
+  )
+  let chosen: { pilot: (typeof pilots)[number]; homeBase: (typeof homeBases)[number]; range: number } | null =
+    null
+  for (const pilot of pilots) {
+    if (covered.has(pilot.id)) continue
+    for (const homeBase of homeBases) {
+      const range = calculateDistance(homeBase.position, pilot.position)
+      if (range > HAVCAP_RANGE_METERS) continue
+      if (!chosen || range < chosen.range) chosen = { pilot, homeBase, range }
+    }
+  }
+  if (!chosen) {
+    pushRejection(rejected, 'cap', 'no target')
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'CAP', chosen.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'cap', 'no aircraft')
+    return null
+  }
+
+  const tot = addMinutes(draft.time, 10)
+  return {
+    id: createPlanId('cap', chosen.pilot.id),
+    kind: 'cap',
+    type: 'CAP Package',
+    coalition,
+    variantId: 'havcap',
+    variantLabel: 'HAVCAP',
+    priority: 86,
+    reason: `HAVCAP over ${chosen.pilot.name}`,
+    targetId: chosen.pilot.id,
+    targetObjectiveId: chosen.pilot.id,
+    targetType: 'Downed Pilot',
+    tot,
+    flights: [
+      {
+        role: 'cap',
+        task: 'CAP',
+        aircraftType,
+        homeBase: chosen.homeBase,
+        targetPosition: chosen.pilot.position,
+        patrolCenter: chosen.pilot.position,
+        tot,
+        target: {
+          id: chosen.pilot.id,
+          type: 'Downed Pilot',
+          objectiveId: chosen.pilot.id
+        }
+      }
+    ]
+  }
+}
+
+function makeAmbushPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (!theatreHasLandGraph(context.theatre)) return null
+  if (
+    activeTaskCount(draft, coalition, 'CAP') >=
+    scaledMaxActive(draft, config.packages.CAP.maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'cap', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'CAP')) {
+    pushRejection(rejected, 'cap', 'no aircraft')
+    return null
+  }
+  if (
+    draft.coalitions[coalition].packages.some(
+      (pkg) => pkg.status === 'active' && pkg.variantId === 'ambush-cap'
+    )
+  ) {
+    pushRejection(rejected, 'cap', 'duplicate target')
+    return null
+  }
+
+  const homeBases = getSupportedHomeBases(
+    draft,
+    coalition,
+    getCoalitionAirdromes(draft, context.theatre, coalition),
+    'CAP'
+  )
+  const assignment = selectFlotOrbitAssignment({
+    draft,
+    coalition,
+    context,
+    homeBases,
+    maxDistance: config.packages.CAP.maxDistance,
+    depth: flotAmbushDepth(coalitionOperationProfile(draft, coalition)),
+    occupiedTask: 'CAP',
+    coverMeters: 4_000
+  })
+  if (!assignment) {
+    pushRejection(rejected, 'cap', 'no target')
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'CAP', assignment.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'cap', 'no aircraft')
+    return null
+  }
+
+  const tot = addMinutes(draft.time, 30)
+  return {
+    id: createPlanId('cap', `ambush-${assignment.stationId}`),
+    kind: 'cap',
+    type: 'CAP Package',
+    coalition,
+    variantId: 'ambush-cap',
+    variantLabel: 'Ambush CAP',
+    priority: 64,
+    reason: 'Ambush CAP forward of the FLOT',
+    targetId: `ambush-${assignment.stationId}`,
+    targetObjectiveId: assignment.stationId,
+    targetType: 'airspace',
+    tot,
+    flights: [
+      {
+        role: 'cap',
+        task: 'CAP',
+        aircraftType,
+        homeBase: assignment.homeBase,
+        targetPosition: assignment.patrolCenter,
+        patrolCenter: assignment.patrolCenter,
+        patrolAltitude: AMBUSH_ALTITUDE_METERS,
+        patrolDurationMs: AMBUSH_PATROL_MS,
+        tot
+      }
+    ]
+  }
+}
+
+function escortPatrolCenter(home: Position, target: Position): Position {
+  return {
+    x: home.x + (target.x - home.x) * 0.65,
+    y: home.y + (target.y - home.y) * 0.65
+  }
+}
+
+function strikeWaitsForSuppression(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  targetPosition: Position,
+  flights: FlightPlanDescriptor[]
+) {
+  if (ecmOrbitIsUp(draft, coalition)) return false
+  const covered = getClosestThreateningSam(
+    targetPosition,
+    draft.coalitions[context.enemyCoalition].samGroups,
+    context.theatre,
+    draft,
+    context.enemyCoalition
+  )
+  if (!covered) return false
+  const canSuppress =
+    hasAircraft(draft, coalition, 'SEAD') || hasAircraft(draft, coalition, 'DEAD')
+  if (!canSuppress) return false
+  return !flights.some((flight) => flight.task === 'SEAD' || flight.task === 'DEAD')
+}
+
+const RELOCATE_AIRCRAFT = 4
+const RELOCATE_PLAN_MINUTES = 20
+
+function makeRelocatePlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  const owned = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const recovering = owned.filter((field) => isAirdromeRecovering(draft, coalition, field.name))
+  const open = owned.filter((field) => !isAirdromeRecovering(draft, coalition, field.name))
+  if (recovering.length === 0 || open.length === 0) return null
+
+  const busy = collectExistingPackageTargetIds(draft, coalition)
+  const source = recovering.find((field) => !busy.has(field.name))
+  if (!source) return null
+
+  let destination = open[0]!
+  let nearest = Number.POSITIVE_INFINITY
+  for (const field of open) {
+    const range = calculateDistance(source.position, field.position)
+    if (range >= nearest) continue
+    destination = field
+    nearest = range
+  }
+
+  const aircraftType =
+    pickAircraft(draft, coalition, 'CAP', source.name) ??
+    pickAircraft(draft, coalition, 'Transport', source.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'relocate', 'no aircraft', source.name)
+    return null
+  }
+
+  const tot = addMinutes(draft.time, RELOCATE_PLAN_MINUTES)
+  return {
+    id: createPlanId('relocate', source.name),
+    kind: 'relocate',
+    type: 'Relocate Package',
+    coalition,
+    priority: 100,
+    reason: `Squadron leaves ${source.name} for ${destination.name}`,
+    targetId: source.name,
+    targetObjectiveId: destination.name,
+    targetType: 'Airbase',
+    tot,
+    flights: [
+      {
+        role: 'relocate',
+        task: 'CAP',
+        aircraftType,
+        aircraftCount: RELOCATE_AIRCRAFT,
+        homeBase: source,
+        target: {
+          id: source.name,
+          type: 'Airbase',
+          objectiveId: destination.name
+        },
+        targetPosition: destination.position,
+        tot
+      }
+    ]
+  }
+}
+
+function attachStrikePackageEscorts(params: {
+  draft: Campaign
+  coalition: Coalition
+  context: SpawnContext
+  homeBase: AirdromeSelection
+  targetPosition: Position
+  tot: Date
+  flights: FlightPlanDescriptor[]
+}) {
+  const threateningSam = getClosestThreateningSam(
+    params.targetPosition,
+    params.draft.coalitions[params.context.enemyCoalition].samGroups,
+    params.context.theatre,
+    params.draft,
+    params.context.enemyCoalition
+  )
+
+  const canAddSead =
+    threateningSam != null &&
+    hasAircraft(params.draft, params.coalition, 'SEAD') &&
+    activeTaskCount(params.draft, params.coalition, 'SEAD') <
+      scaledMaxActive(params.draft, config.packages.SEAD.maxActive[params.coalition])
+  if (threateningSam && canAddSead) {
+    const seadAircraftType = pickAircraft(params.draft, params.coalition, 'SEAD', params.homeBase.name)
+    if (seadAircraftType) {
+      params.flights.push({
+        role: 'sead',
+        task: 'SEAD',
+        aircraftType: seadAircraftType,
+        homeBase: params.homeBase,
+        target: {
+          id: threateningSam.samGroup.id,
+          type: threateningSam.samGroup.type,
+          objectiveId: threateningSam.samGroup.objectiveId
+        },
+        targetPosition: threateningSam.position,
+        tot: new Date(params.tot.getTime() - config.packages.SEAD.leadTime)
+      })
+    }
+  }
+
+  const canAddDead =
+    threateningSam != null &&
+    hasAircraft(params.draft, params.coalition, 'DEAD') &&
+    activeTaskCount(params.draft, params.coalition, 'DEAD') <
+      scaledMaxActive(params.draft, config.packages.DEAD.maxActive[params.coalition])
+  if (threateningSam && canAddDead) {
+    const deadAircraftType = pickAircraft(params.draft, params.coalition, 'DEAD', params.homeBase.name)
+    if (deadAircraftType) {
+      params.flights.push({
+        role: 'dead',
+        task: 'DEAD',
+        aircraftType: deadAircraftType,
+        homeBase: params.homeBase,
+        target: {
+          id: threateningSam.samGroup.id,
+          type: threateningSam.samGroup.type,
+          objectiveId: threateningSam.samGroup.objectiveId
+        },
+        targetPosition: threateningSam.position,
+        tot: new Date(params.tot.getTime() - config.packages.DEAD.leadTime)
+      })
+    }
+  }
+
+  const canAddEscortCap =
+    hasAircraft(params.draft, params.coalition, 'CAP') &&
+    activeTaskCount(params.draft, params.coalition, 'CAP') <
+      scaledMaxActive(params.draft, config.packages.CAP.maxActive[params.coalition])
+  if (canAddEscortCap) {
+    const capAircraftType = pickAircraft(params.draft, params.coalition, 'CAP', params.homeBase.name)
+    if (capAircraftType) {
+      const patrolCenter = escortPatrolCenter(params.homeBase.position, params.targetPosition)
+      params.flights.push({
+        role: 'cap',
+        task: 'CAP',
+        aircraftType: capAircraftType,
+        homeBase: params.homeBase,
+        targetPosition: patrolCenter,
+        patrolCenter,
+        tot: new Date(params.tot.getTime() - config.packages.CAP.escortLeadTime)
+      })
+    }
+  }
+}
+
 function makeStrikePlan(
   draft: Campaign,
   coalition: Coalition,
@@ -474,7 +998,13 @@ function makeStrikePlan(
   rejected: RejectedAtoPackage[]
 ): AtoPackagePlan | null {
   const kind: AtoPackageKind = task === 'Strategic Strike' ? 'strategicStrike' : 'strike'
-  if (task === 'Strategic Strike' && coalition !== 'opponent') return null
+  if (task === 'Strategic Strike' && !strategicTargetsOpen(draft)) {
+    if (draft.strategicStrikeAt != null) {
+      pushRejection(rejected, kind, 'strategic shift')
+      return null
+    }
+    if (coalition !== 'opponent') return null
+  }
   if (
     activeTaskCount(draft, coalition, task) >=
     scaledMaxActive(draft, config.packages[task].maxActive[coalition])
@@ -500,8 +1030,24 @@ function makeStrikePlan(
     return null
   }
 
-  const targets = draft.coalitions[context.enemyCoalition].structures
-    .filter((structure) => !isTargetAlreadyAssigned(draft, coalition, structure.id))
+  const profile = coalitionOperationProfile(draft, coalition)
+  const liveStructures = strikeStructuresForDoctrine(
+    draft,
+    draft.coalitions[context.enemyCoalition].structures.filter(
+      (structure) =>
+        !isTargetAlreadyAssigned(draft, coalition, structure.id) &&
+        structure.buildings.some((building) => building.alive)
+    )
+  )
+  const logisticsStructures = liveStructures.filter((structure) =>
+    isLogisticsStructure(structure.type)
+  )
+  const selectedStructures =
+    profile.archetype === 'attrition' && logisticsStructures.length > 0
+      ? logisticsStructures
+      : liveStructures
+
+  const targets = selectedStructures
     .map((structure) => {
       const position = getObjectivePosition(context.theatre, structure.objectiveId)
       return position
@@ -539,12 +1085,13 @@ function makeStrikePlan(
     return null
   }
 
-  const aircraftType = pickAircraft(draft, coalition, task)
+  const aircraftType = pickAircraft(draft, coalition, task, assignment.homeBase.name)
   if (!aircraftType) {
     pushRejection(rejected, kind, 'no aircraft')
     return null
   }
 
+  const tot = addMinutes(draft.time, task === 'Strategic Strike' ? 50 : 40)
   const flights: FlightPlanDescriptor[] = [
     {
       role: 'primary',
@@ -552,58 +1099,49 @@ function makeStrikePlan(
       aircraftType,
       homeBase: assignment.homeBase,
       target: assignment.target,
-      targetPosition: assignment.targetPosition
+      targetPosition: assignment.targetPosition,
+      tot
     }
   ]
 
-  const threateningSam = getClosestThreateningSam(
-    assignment.targetPosition,
-    draft.coalitions[context.enemyCoalition].samGroups,
-    context.theatre,
+  attachStrikePackageEscorts({
     draft,
-    context.enemyCoalition
-  )
-  const canAddSead =
-    threateningSam != null &&
-    hasAircraft(draft, coalition, 'SEAD') &&
-    activeTaskCount(draft, coalition, 'SEAD') <
-      scaledMaxActive(draft, config.packages.SEAD.maxActive[coalition])
+    coalition,
+    context,
+    homeBase: assignment.homeBase,
+    targetPosition: assignment.targetPosition,
+    tot,
+    flights
+  })
 
-  if (threateningSam && canAddSead) {
-    const seadAircraftType = pickAircraft(draft, coalition, 'SEAD')
-    if (seadAircraftType) {
-      flights.push({
-        role: 'sead',
-        task: 'SEAD',
-        aircraftType: seadAircraftType,
-        homeBase: assignment.homeBase,
-        target: {
-          id: threateningSam.samGroup.id,
-          type: threateningSam.samGroup.type,
-          objectiveId: threateningSam.samGroup.objectiveId
-        },
-        targetPosition: threateningSam.position
-      })
-    }
+  if (strikeWaitsForSuppression(draft, coalition, context, assignment.targetPosition, flights)) {
+    pushRejection(rejected, kind, 'threat too high', assignment.target.id)
+    return null
   }
 
-  const tot = addMinutes(draft.time, task === 'Strategic Strike' ? 50 : 40)
+  const hasSead = flights.some((flight) => flight.task === 'SEAD')
+  const hasDead = flights.some((flight) => flight.task === 'DEAD')
+  const hasEscortCap = flights.some((flight) => flight.task === 'CAP')
+  const suppressionLabel = hasSead && hasDead ? 'SEAD/DEAD' : hasSead ? 'SEAD' : hasDead ? 'DEAD' : null
   return {
     id: createPlanId(kind, assignment.target.id),
     kind,
     type:
-      task === 'Strategic Strike' && flights.some((flight) => flight.task === 'SEAD')
+      hasSead && task === 'Strategic Strike'
         ? 'SEAD Strategic Strike Package'
-        : flights.some((flight) => flight.task === 'SEAD')
+        : hasSead
           ? 'SEAD Strike Package'
           : 'Strike Package',
     coalition,
     priority:
       (task === 'Strategic Strike' ? 55 : 65) +
-      (flights.some((flight) => flight.task === 'SEAD') ? 10 : 0),
-    reason: flights.some((flight) => flight.task === 'SEAD')
-      ? 'Strike target covered by SAM'
-      : 'Reachable strike target',
+      (flights.length - 1) * 6 +
+      doctrineStrikePriorityBoost(draft, assignment.target.type),
+    reason: suppressionLabel
+      ? `Strike package with ${suppressionLabel} timed to ToT`
+      : hasEscortCap
+        ? 'Strike package with escort CAP timed to ToT'
+        : 'Reachable strike target',
     targetId: assignment.target.id,
     targetObjectiveId: assignment.target.objectiveId,
     targetType: assignment.target.type,
@@ -662,7 +1200,7 @@ function makeDeadPlan(
     return null
   }
 
-  const aircraftType = pickAircraft(draft, coalition, 'DEAD')
+  const aircraftType = pickAircraft(draft, coalition, 'DEAD', assignment.homeBase.name)
   if (!aircraftType) {
     pushRejection(rejected, 'dead', 'no aircraft')
     return null
@@ -692,12 +1230,647 @@ function makeDeadPlan(
   }
 }
 
+function makeOcaPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (
+    activeTaskCount(draft, coalition, 'Runway Attack') >=
+    scaledMaxActive(draft, config.packages['Runway Attack'].maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'oca', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'Runway Attack')) {
+    pushRejection(rejected, 'oca', 'no aircraft')
+    return null
+  }
+
+  const allHomeBases = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const homeBases = getSupportedHomeBases(draft, coalition, allHomeBases, 'Runway Attack')
+  if (allHomeBases.length > 0 && homeBases.length === 0) {
+    pushRejection(rejected, 'oca', 'supply blocked')
+    return null
+  }
+
+  const existingTargets = collectExistingPackageTargetIds(draft, coalition)
+  const enemyAirdromes = getCoalitionAirdromes(draft, context.theatre, context.enemyCoalition)
+    .filter(
+      (airdrome) =>
+        !existingTargets.has(airdrome.name) &&
+        !isTargetAlreadyAssigned(draft, coalition, airdrome.name) &&
+        !isAirdromeRecovering(draft, context.enemyCoalition, airdrome.name)
+    )
+    .map((airdrome) => ({
+      target: {
+        id: airdrome.name,
+        type: 'Airbase',
+        objectiveId: airdrome.name
+      },
+      position: airdrome.position
+    }))
+
+  if (enemyAirdromes.length === 0) {
+    pushRejection(rejected, 'oca', 'no target')
+    return null
+  }
+
+  const assignment = selectHomeBaseAndTarget({
+    homeBases,
+    targets: enemyAirdromes,
+    maxDistance: config.packages['Runway Attack'].maxDistance,
+    preference: 'nearest'
+  })
+  if (!assignment) {
+    pushRejection(rejected, 'oca', 'out of range')
+    return null
+  }
+  if (isAirbaseSupplyBlocked(draft, coalition, assignment.homeBase.name)) {
+    pushRejection(rejected, 'oca', 'supply blocked', assignment.homeBase.name)
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'Runway Attack', assignment.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'oca', 'no aircraft')
+    return null
+  }
+
+  const tot = addMinutes(draft.time, 40)
+  const flights: FlightPlanDescriptor[] = [
+    {
+      role: 'primary',
+      task: 'Runway Attack',
+      aircraftType,
+      homeBase: assignment.homeBase,
+      target: assignment.target,
+      targetPosition: assignment.targetPosition,
+      tot
+    }
+  ]
+
+  attachStrikePackageEscorts({
+    draft,
+    coalition,
+    context,
+    homeBase: assignment.homeBase,
+    targetPosition: assignment.targetPosition,
+    tot,
+    flights
+  })
+
+  if (strikeWaitsForSuppression(draft, coalition, context, assignment.targetPosition, flights)) {
+    pushRejection(rejected, 'oca', 'threat too high', assignment.target.id)
+    return null
+  }
+
+  const hasSead = flights.some((flight) => flight.task === 'SEAD')
+  const profile = coalitionOperationProfile(draft, coalition)
+  const priority =
+    profile.archetype === 'breakthrough' || profile.archetype === 'air-superiority'
+      ? 80
+      : profile.archetype === 'defense-crisis'
+        ? 58
+        : 70
+
+  return {
+    id: createPlanId('oca', assignment.target.id),
+    kind: 'oca',
+    type: hasSead ? 'SEAD OCA Package' : 'OCA Package',
+    coalition,
+    priority: priority + (flights.length - 1) * 6,
+    reason: hasSead
+      ? 'OCA against an enemy airfield with SEAD timed to ToT'
+      : 'OCA against an enemy airfield',
+    targetId: assignment.target.id,
+    targetObjectiveId: assignment.target.objectiveId,
+    targetType: assignment.target.type,
+    tot,
+    flights
+  }
+}
+
+function pullOrbitTowardHome(home: Position, patrolCenter: Position, factor: number): Position {
+  return {
+    x: home.x + (patrolCenter.x - home.x) * factor,
+    y: home.y + (patrolCenter.y - home.y) * factor
+  }
+}
+
+function ecmOrbitIsUp(draft: Campaign, coalition: Coalition) {
+  return draft.coalitions[coalition].flightGroups.some((group) => {
+    if (group.task !== 'ECM') return false
+    const start = group.flightplan.startTime
+    return new Date(start).getTime() <= draft.time.getTime()
+  })
+}
+
+function makeAwacsPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (
+    activeTaskCount(draft, coalition, 'AWACS') >=
+    scaledMaxActive(draft, config.packages.AWACS.maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'awacs', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'AWACS')) {
+    pushRejection(rejected, 'awacs', 'no aircraft')
+    return null
+  }
+
+  const allHomeBases = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const homeBases = getSupportedHomeBases(draft, coalition, allHomeBases, 'AWACS')
+  if (allHomeBases.length > 0 && homeBases.length === 0) {
+    pushRejection(rejected, 'awacs', 'supply blocked')
+    return null
+  }
+
+  const profile = coalitionOperationProfile(draft, coalition)
+  const enemyAirdromes = getCoalitionAirdromes(draft, context.theatre, context.enemyCoalition)
+  const flotAssignment = selectFlotOrbitAssignment({
+    draft,
+    coalition,
+    context,
+    homeBases,
+    maxDistance: config.packages.AWACS.maxDistance,
+    depth: flotAwacsDepth(profile),
+    occupiedTask: 'AWACS'
+  })
+  const laneAssignment = flotAssignment
+    ? null
+    : selectCapPatrolAssignment({
+        homeBases,
+        enemyAirdromes,
+        coveredHomeBases: new Set(),
+        maxHomeToEnemyDistance: config.packages.AWACS.maxDistance
+      })
+  const assignment = flotAssignment
+    ? flotAssignment
+    : laneAssignment
+      ? {
+          homeBase: laneAssignment.homeBase,
+          patrolCenter: pullOrbitTowardHome(
+            laneAssignment.homeBase.position,
+            laneAssignment.patrolCenter,
+            0.5
+          )
+        }
+      : null
+  if (!assignment) {
+    pushRejection(rejected, 'awacs', 'no target')
+    return null
+  }
+  if (isAirbaseSupplyBlocked(draft, coalition, assignment.homeBase.name)) {
+    pushRejection(rejected, 'awacs', 'supply blocked', assignment.homeBase.name)
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'AWACS', assignment.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'awacs', 'no aircraft')
+    return null
+  }
+
+  const targetId = flotAssignment ? `awacs-${flotAssignment.stationId}` : `awacs-${assignment.homeBase.name}`
+  const tot = addMinutes(draft.time, 15)
+  return {
+    id: createPlanId('awacs', targetId),
+    kind: 'awacs',
+    type: 'AWACS Package',
+    coalition,
+    priority:
+      profile.archetype === 'air-superiority'
+        ? 84
+        : profile.archetype === 'defense-crisis'
+          ? 76
+          : 78,
+    reason: flotAssignment ? 'AWACS orbit behind the FLOT' : 'AWACS orbit behind own lines',
+    targetId,
+    targetObjectiveId: targetId,
+    targetType: 'airspace',
+    tot,
+    flights: [
+      {
+        role: 'awacs',
+        task: 'AWACS',
+        aircraftType,
+        homeBase: assignment.homeBase,
+        targetPosition: assignment.patrolCenter,
+        patrolCenter: assignment.patrolCenter,
+        tot
+      }
+    ]
+  }
+}
+
+function makeEcmPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (
+    activeTaskCount(draft, coalition, 'ECM') >=
+    scaledMaxActive(draft, config.packages.ECM.maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'ecm', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'ECM')) {
+    pushRejection(rejected, 'ecm', 'no aircraft')
+    return null
+  }
+
+  const allHomeBases = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const homeBases = getSupportedHomeBases(draft, coalition, allHomeBases, 'ECM')
+  if (allHomeBases.length > 0 && homeBases.length === 0) {
+    pushRejection(rejected, 'ecm', 'supply blocked')
+    return null
+  }
+
+  const profile = coalitionOperationProfile(draft, coalition)
+  const enemyAirdromes = getCoalitionAirdromes(draft, context.theatre, context.enemyCoalition)
+  const flotAssignment = selectFlotOrbitAssignment({
+    draft,
+    coalition,
+    context,
+    homeBases,
+    maxDistance: config.packages.ECM.maxDistance,
+    depth: flotEcmDepth(profile),
+    occupiedTask: 'ECM'
+  })
+  const laneAssignment = flotAssignment
+    ? null
+    : selectCapPatrolAssignment({
+        homeBases,
+        enemyAirdromes,
+        coveredHomeBases: new Set(),
+        maxHomeToEnemyDistance: config.packages.ECM.maxDistance
+      })
+  const assignment = flotAssignment
+    ? flotAssignment
+    : laneAssignment
+      ? {
+          homeBase: laneAssignment.homeBase,
+          patrolCenter: pullOrbitTowardHome(
+            laneAssignment.homeBase.position,
+            laneAssignment.patrolCenter,
+            0.35
+          )
+        }
+      : null
+  if (!assignment) {
+    pushRejection(rejected, 'ecm', 'no target')
+    return null
+  }
+  if (isAirbaseSupplyBlocked(draft, coalition, assignment.homeBase.name)) {
+    pushRejection(rejected, 'ecm', 'supply blocked', assignment.homeBase.name)
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'ECM', assignment.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'ecm', 'no aircraft')
+    return null
+  }
+
+  const targetId = flotAssignment
+    ? `ecm-${flotAssignment.stationId}`
+    : `ecm-${assignment.homeBase.name}`
+  const tot = addMinutes(draft.time, 20)
+  return {
+    id: createPlanId('ecm', targetId),
+    kind: 'ecm',
+    type: 'ECM Package',
+    coalition,
+    priority: profile.archetype === 'defense-crisis' ? 70 : 80,
+    reason: flotAssignment
+      ? 'ECM orbit between the FLOT and the AWACS'
+      : 'ECM orbit behind own lines',
+    targetId,
+    targetObjectiveId: targetId,
+    targetType: 'airspace',
+    tot,
+    flights: [
+      {
+        role: 'ecm',
+        task: 'ECM',
+        aircraftType,
+        homeBase: assignment.homeBase,
+        targetPosition: assignment.patrolCenter,
+        patrolCenter: assignment.patrolCenter,
+        tot
+      }
+    ]
+  }
+}
+
+const INBOUND_ATTACK_PACKAGE_TYPES = new Set<MissionPackage['type']>([
+  'Strike Package',
+  'SEAD Strike Package',
+  'SEAD Strategic Strike Package',
+  'OCA Package',
+  'SEAD OCA Package',
+  'CAS Package',
+  'DEAD Package',
+  'Antiship Package'
+])
+
+function resolveThreatenedPosition(
+  theatre: SpawnContext['theatre'],
+  objectiveId: string
+): Position | null {
+  const airdrome = theatre.airdromeDetails[objectiveId]
+  if (airdrome) return { x: airdrome.x, y: airdrome.y }
+  return getObjectivePosition(theatre, objectiveId)
+}
+
+function inboundInterceptPoint(raider: Position, target: Position): Position {
+  const dx = target.x - raider.x
+  const dy = target.y - raider.y
+  const distance = Math.hypot(dx, dy)
+  if (distance === 0) return target
+  const standoff = Math.min(25_000, Math.max(8_000, distance * 0.25))
+  return {
+    x: target.x - (dx / distance) * standoff,
+    y: target.y - (dy / distance) * standoff
+  }
+}
+
+function isAirspaceCoveredByCap(draft: Campaign, coalition: Coalition, position: Position) {
+  return draft.coalitions[coalition].flightGroups
+    .filter((group) => group.task === 'CAP')
+    .some(
+      (group) => calculateDistance(capPatrolPosition(group), position) < FLOT_CAP_COVER_METERS
+    )
+}
+
+function findInboundRaid(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext
+): {
+  packageId: string
+  targetObjectiveId: string
+  tot: Date
+  interceptPoint: Position
+} | null {
+  const friendly = draft.coalitions[coalition]
+  const enemy = draft.coalitions[context.enemyCoalition]
+  const friendlyIds = new Set([...friendly.objectiveIds, ...friendly.airdromeNames])
+  const assigned = collectExistingPackageTargetIds(draft, coalition)
+  const ranked: Array<{
+    packageId: string
+    targetObjectiveId: string
+    tot: Date
+    interceptPoint: Position
+  }> = []
+
+  for (const inbound of enemy.packages) {
+    if (inbound.status !== 'active') continue
+    if (!INBOUND_ATTACK_PACKAGE_TYPES.has(inbound.type)) continue
+    if (!friendlyIds.has(inbound.targetObjectiveId)) continue
+    if (assigned.has(inbound.id)) continue
+
+    const threatened = resolveThreatenedPosition(context.theatre, inbound.targetObjectiveId)
+    if (!threatened) continue
+
+    const raider = inbound.members
+      .map((member) => enemy.flightGroups.find((group) => group.id === member.flightGroupId))
+      .find((group) => group != null)
+    const interceptPoint = raider
+      ? inboundInterceptPoint(raider.position, threatened)
+      : threatened
+    if (isAirspaceCoveredByCap(draft, coalition, interceptPoint)) continue
+
+    ranked.push({
+      packageId: inbound.id,
+      targetObjectiveId: inbound.targetObjectiveId,
+      tot: inbound.tot,
+      interceptPoint
+    })
+  }
+
+  ranked.sort((left, right) => left.tot.getTime() - right.tot.getTime())
+  return ranked[0] ?? null
+}
+
+function makeInterceptPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (
+    activeTaskCount(draft, coalition, 'Intercept') >=
+    scaledMaxActive(draft, config.packages.Intercept.maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'intercept', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'Intercept')) {
+    pushRejection(rejected, 'intercept', 'no aircraft')
+    return null
+  }
+
+  const inbound = findInboundRaid(draft, coalition, context)
+  if (!inbound) {
+    pushRejection(rejected, 'intercept', 'no target')
+    return null
+  }
+
+  const allHomeBases = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const homeBases = getSupportedHomeBases(draft, coalition, allHomeBases, 'Intercept')
+  if (allHomeBases.length > 0 && homeBases.length === 0) {
+    pushRejection(rejected, 'intercept', 'supply blocked')
+    return null
+  }
+
+  let nearest: AirdromeSelection | null = null
+  let nearestRange = Number.POSITIVE_INFINITY
+  for (const homeBase of homeBases) {
+    const range = calculateDistance(homeBase.position, inbound.interceptPoint)
+    if (range > config.packages.Intercept.maxDistance || range >= nearestRange) continue
+    nearest = homeBase
+    nearestRange = range
+  }
+  if (!nearest) {
+    pushRejection(rejected, 'intercept', 'out of range', inbound.packageId)
+    return null
+  }
+  if (isAirbaseSupplyBlocked(draft, coalition, nearest.name)) {
+    pushRejection(rejected, 'intercept', 'supply blocked', nearest.name)
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'Intercept', nearest.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'intercept', 'no aircraft')
+    return null
+  }
+
+  const cruiseSpeed = 220
+  const travelMs = nearestRange > 0 ? (nearestRange / cruiseSpeed) * 1000 : 0
+  const startupMs = 10 * 60 * 1000
+  const arriveEarlyMs = 5 * 60 * 1000
+  const startTime = new Date(
+    Math.max(
+      draft.time.getTime() + startupMs,
+      inbound.tot.getTime() - arriveEarlyMs - travelMs - startupMs
+    )
+  )
+
+  const profile = coalitionOperationProfile(draft, coalition)
+  return {
+    id: createPlanId('intercept', inbound.packageId),
+    kind: 'intercept',
+    type: 'Intercept Package',
+    coalition,
+    priority: profile.archetype === 'defense-crisis' ? 94 : 88,
+    reason: 'Scramble against an inbound raid',
+    targetId: inbound.packageId,
+    targetObjectiveId: inbound.targetObjectiveId,
+    targetType: 'raid',
+    tot: inbound.tot,
+    flights: [
+      {
+        role: 'intercept',
+        task: 'Intercept',
+        aircraftType,
+        homeBase: nearest,
+        target: {
+          id: inbound.packageId,
+          type: 'Package',
+          objectiveId: inbound.targetObjectiveId
+        },
+        targetPosition: inbound.interceptPoint,
+        tot: startTime
+      }
+    ]
+  }
+}
+
+function makeSweepPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  const profile = coalitionOperationProfile(draft, coalition)
+  if (profile.tempo === 'cautious' || profile.archetype === 'defense-crisis') {
+    pushRejection(rejected, 'sweep', 'no target')
+    return null
+  }
+  if (
+    activeTaskCount(draft, coalition, 'Fighter Sweep') >=
+    scaledMaxActive(draft, config.packages['Fighter Sweep'].maxActive[coalition])
+  ) {
+    pushRejection(rejected, 'sweep', 'budget exhausted')
+    return null
+  }
+  if (!hasAircraft(draft, coalition, 'Fighter Sweep')) {
+    pushRejection(rejected, 'sweep', 'no aircraft')
+    return null
+  }
+
+  const allHomeBases = getCoalitionAirdromes(draft, context.theatre, coalition)
+  const homeBases = getSupportedHomeBases(draft, coalition, allHomeBases, 'Fighter Sweep')
+  if (allHomeBases.length > 0 && homeBases.length === 0) {
+    pushRejection(rejected, 'sweep', 'supply blocked')
+    return null
+  }
+
+  const enemyAirdromes = getCoalitionAirdromes(draft, context.theatre, context.enemyCoalition)
+  const flotAssignment = selectFlotOrbitAssignment({
+    draft,
+    coalition,
+    context,
+    homeBases,
+    maxDistance: config.packages['Fighter Sweep'].maxDistance,
+    depth: flotSweepDepth(profile),
+    occupiedTask: 'Fighter Sweep'
+  })
+  const laneAssignment = flotAssignment
+    ? null
+    : selectCapPatrolAssignment({
+        homeBases,
+        enemyAirdromes,
+        coveredHomeBases: new Set(),
+        maxHomeToEnemyDistance: config.packages['Fighter Sweep'].maxDistance
+      })
+  const assignment = flotAssignment
+    ? flotAssignment
+    : laneAssignment
+      ? {
+          homeBase: laneAssignment.homeBase,
+          patrolCenter: {
+            x:
+              laneAssignment.homeBase.position.x +
+              (laneAssignment.patrolCenter.x - laneAssignment.homeBase.position.x) * 2,
+            y:
+              laneAssignment.homeBase.position.y +
+              (laneAssignment.patrolCenter.y - laneAssignment.homeBase.position.y) * 2
+          }
+        }
+      : null
+  if (!assignment) {
+    pushRejection(rejected, 'sweep', 'no target')
+    return null
+  }
+  if (isAirbaseSupplyBlocked(draft, coalition, assignment.homeBase.name)) {
+    pushRejection(rejected, 'sweep', 'supply blocked', assignment.homeBase.name)
+    return null
+  }
+
+  const aircraftType = pickAircraft(draft, coalition, 'Fighter Sweep', assignment.homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'sweep', 'no aircraft')
+    return null
+  }
+
+  const targetId = flotAssignment ? `sweep-${flotAssignment.stationId}` : `sweep-${assignment.homeBase.name}`
+  const tot = addMinutes(draft.time, 25)
+  return {
+    id: createPlanId('sweep', targetId),
+    kind: 'sweep',
+    type: 'Sweep Package',
+    coalition,
+    priority: profile.archetype === 'air-superiority' ? 82 : 74,
+    reason: flotAssignment ? 'Fighter sweep past the FLOT' : 'Fighter sweep toward enemy airspace',
+    targetId,
+    targetObjectiveId: targetId,
+    targetType: 'airspace',
+    tot,
+    flights: [
+      {
+        role: 'sweep',
+        task: 'Fighter Sweep',
+        aircraftType,
+        homeBase: assignment.homeBase,
+        targetPosition: assignment.patrolCenter,
+        patrolCenter: assignment.patrolCenter,
+        tot
+      }
+    ]
+  }
+}
+
 function makeCasPlans(
   draft: Campaign,
   coalition: Coalition,
   context: SpawnContext,
   rejected: RejectedAtoPackage[]
 ): AtoPackagePlan[] {
+  if (!groundOffensiveOpen(draft)) {
+    return []
+  }
   if (
     activeTaskCount(draft, coalition, 'CAS') >=
     scaledMaxActive(draft, config.packages.CAS.maxActive[coalition])
@@ -769,7 +1942,9 @@ function makeCasPlans(
         ? findNearbyDefenderGroupIds(draft, coalition, params.threatenedPosition)
         : []
     const battleLock =
-      params.variantId === 'defensive-cas' || params.variantId === 'troops-in-contact'
+      params.variantId === 'defensive-cas' ||
+      params.variantId === 'troops-in-contact' ||
+      params.variantId === 'on-call-cas'
         ? createBattleLockPlan({
             draft,
             coalition,
@@ -799,7 +1974,10 @@ function makeCasPlans(
       variantId: params.variantId,
       variantLabel: params.variantLabel,
       battleLock,
-      tot: addMinutes(draft.time, params.variantId === 'armed-recon' ? 38 : 25),
+      tot: addMinutes(
+        draft.time,
+        params.variantId === 'on-call-cas' ? 10 : params.variantId === 'armed-recon' ? 38 : 25
+      ),
       flights: [
         {
           role: 'cas',
@@ -820,14 +1998,24 @@ function makeCasPlans(
     const distanceToThreatenedObjective = calculateDistance(group.position, threatenedPosition)
     if (distanceToThreatenedObjective > 18_000) continue
 
+    const assault = group.captureStartedAt != null
     const plan = createCasPlan({
-      variantId: group.state === 'combat' ? 'troops-in-contact' : 'defensive-cas',
-      variantLabel: group.state === 'combat' ? 'Troops In Contact' : 'Defensive CAS',
-      reason:
-        group.state === 'combat'
+      variantId: assault
+        ? 'on-call-cas'
+        : group.state === 'combat'
+          ? 'troops-in-contact'
+          : 'defensive-cas',
+      variantLabel: assault
+        ? 'On-call CAS'
+        : group.state === 'combat'
+          ? 'Troops In Contact'
+          : 'Defensive CAS',
+      reason: assault
+        ? `On-call CAS for the assault on ${group.targetObjectiveId}`
+        : group.state === 'combat'
           ? `Friendly troops in contact at ${group.targetObjectiveId}`
           : `Enemy ground attack threatening ${group.targetObjectiveId}`,
-      priority: group.state === 'combat' ? 76 : 72,
+      priority: assault ? 90 : group.state === 'combat' ? 76 : 72,
       group,
       targetObjectiveId: group.targetObjectiveId,
       targetPosition: group.position,
@@ -843,14 +2031,24 @@ function makeCasPlans(
     const threatenedPosition = { x: airdrome.x, y: airdrome.y }
     if (calculateDistance(group.position, threatenedPosition) > 22_000) continue
 
+    const assault = group.captureStartedAt != null
     const plan = createCasPlan({
-      variantId: group.state === 'combat' ? 'troops-in-contact' : 'defensive-cas',
-      variantLabel: group.state === 'combat' ? 'Troops In Contact' : 'Defensive CAS',
-      reason:
-        group.state === 'combat'
+      variantId: assault
+        ? 'on-call-cas'
+        : group.state === 'combat'
+          ? 'troops-in-contact'
+          : 'defensive-cas',
+      variantLabel: assault
+        ? 'On-call CAS'
+        : group.state === 'combat'
+          ? 'Troops In Contact'
+          : 'Defensive CAS',
+      reason: assault
+        ? `On-call CAS for the assault on ${group.targetAirdromeName}`
+        : group.state === 'combat'
           ? `Friendly troops in contact at ${group.targetAirdromeName}`
           : `Enemy ground attack threatening ${group.targetAirdromeName}`,
-      priority: group.state === 'combat' ? 76 : 72,
+      priority: assault ? 90 : group.state === 'combat' ? 76 : 72,
       group,
       targetObjectiveId: group.targetAirdromeName,
       targetPosition: group.position,
@@ -859,8 +2057,50 @@ function makeCasPlans(
     if (plan) plans.push(plan)
   }
 
+  const flotStations = theatreHasLandGraph(context.theatre)
+    ? findFlotStations({
+        theatre: context.theatre,
+        friendlyObjectiveIds: draft.coalitions[coalition].objectiveIds,
+        friendlyAirdromeNames: draft.coalitions[coalition].airdromeNames,
+        enemyObjectiveIds: draft.coalitions[context.enemyCoalition].objectiveIds,
+        enemyAirdromeNames: draft.coalitions[context.enemyCoalition].airdromeNames
+      })
+    : []
+  const taskedCasTargets = new Set(plans.map((plan) => plan.targetId))
+
+  for (const group of enemyGroundGroups) {
+    if (taskedCasTargets.has(group.id)) continue
+    const onFlot =
+      flotTouchesObjective(flotStations, group.objectiveId) ||
+      flotTouchesObjective(flotStations, group.targetObjectiveId) ||
+      flotTouchesObjective(flotStations, group.targetAirdromeName)
+    if (!onFlot) continue
+
+    const plan = createCasPlan({
+      variantId: 'bai',
+      variantLabel: 'BAI',
+      reason: `BAI against enemy forces on the FLOT near ${group.objectiveId ?? group.targetObjectiveId}`,
+      priority: 68,
+      group,
+      targetObjectiveId: group.objectiveId ?? group.targetObjectiveId ?? group.id,
+      targetPosition: group.position
+    })
+    if (plan) {
+      plans.push(plan)
+      taskedCasTargets.add(group.id)
+    }
+  }
+
   const armedReconTargets = enemyGroundGroups
     .filter((group) => group.state !== 'combat' && group.objectiveId != null)
+    .filter((group) => !taskedCasTargets.has(group.id))
+    .filter((group) => {
+      if (flotStations.length === 0) return true
+      return (
+        flotTouchesObjective(flotStations, group.objectiveId) ||
+        flotTouchesObjective(flotStations, group.targetObjectiveId)
+      )
+    })
     .map((group) => ({
       target: {
         group,
@@ -1102,7 +2342,7 @@ function applyVariantDefaults(plan: AtoPackagePlan, profile: OperationProfile): 
   }
 
   if (plan.kind === 'strike' || plan.kind === 'strategicStrike') {
-    if (profile.archetype === 'attrition') {
+    if (isLogisticsStructure(plan.targetType) || profile.archetype === 'attrition') {
       return {
         ...plan,
         variantId: 'logistics-strike',
@@ -1142,21 +2382,33 @@ function scoreCandidate(plan: AtoPackagePlan, profile: OperationProfile) {
   let score = plan.priority
 
   if (profile.archetype === 'defense-crisis') {
-    if (plan.variantId === 'defensive-cas' || plan.variantId === 'troops-in-contact') score += 18
+    if (plan.variantId === 'defensive-cas' || plan.variantId === 'troops-in-contact' || plan.variantId === 'on-call-cas') score += 18
+    if (plan.kind === 'intercept') score += 22
     if (plan.variantId === 'point-defense-cap') score += 8
+    if (plan.variantId === 'havcap') score += 8
+    if (plan.variantId === 'ambush-cap') score += 12
+    if (plan.variantId === 'deep-interdiction' || plan.kind === 'strategicStrike') score -= 20
   }
   if (profile.archetype === 'breakthrough') {
     if (plan.kind === 'cas' || plan.variantId === 'frontline-raid') score += 10
+    if (plan.variantId === 'bai') score += 6
+    if (plan.kind === 'oca') score += 12
+    if (plan.kind === 'sweep') score += 10
     if (plan.kind === 'dead') score += 5
   }
   if (profile.archetype === 'attrition') {
     if (plan.variantId === 'logistics-strike' || plan.kind === 'dead') score += 12
-    if (plan.variantId === 'armed-recon') score += 5
+    if (plan.variantId === 'road-cut') score += 10
+    if (plan.variantId === 'bai' || plan.variantId === 'armed-recon') score += 5
   }
   if (profile.archetype === 'air-superiority') {
-    if (plan.kind === 'cap' || plan.kind === 'dead') score += 14
+    if (plan.kind === 'cap' || plan.kind === 'dead' || plan.kind === 'oca') score += 14
+    if (plan.kind === 'awacs') score += 16
+    if (plan.kind === 'intercept') score += 8
+    if (plan.kind === 'sweep') score += 14
     if (plan.kind === 'cas') score -= 6
   }
+  if (profile.archetype === 'defense-crisis' && plan.kind === 'awacs') score += 6
   if (profile.tempo === 'cautious') score -= plan.flights.length * 3
   if (profile.tempo === 'surge') score += 4
 
@@ -1178,6 +2430,11 @@ function admitCandidates(
   let aircraftBudget = Math.max(0, policy.maxActiveAircraft - activeAircraftCount(draft, coalition))
   const admittedTargets = new Set<string>()
   const remainingLogisticsByAirbase = new Map<string, LogisticsBudget>()
+  let capPairsLeft = Math.max(
+    0,
+    scaledMaxActive(draft, config.packages.CAP.maxActive[coalition]) -
+      activeTaskCount(draft, coalition, 'CAP')
+  )
 
   for (const candidate of candidates) {
     if (admitted.length >= policy.maxNewPackagesPerLogicTick || packageBudget <= 0) {
@@ -1189,12 +2446,19 @@ function admitCandidates(
       continue
     }
 
+    const capPairs =
+      candidate.kind === 'cap' ? candidate.flights.filter((flight) => flight.task === 'CAP').length : 0
+    if (capPairs > capPairsLeft) {
+      pushRejection(rejected, candidate.kind, 'budget exhausted', candidate.targetId)
+      continue
+    }
+
     const aircraftCount = getPlanAircraftCount(candidate)
     if (aircraftCount > aircraftBudget) {
       pushRejection(rejected, candidate.kind, 'budget exhausted', candidate.targetId)
       continue
     }
-    if (!reservePlanLogistics(draft, coalition, candidate, remainingLogisticsByAirbase)) {
+    if (candidate.kind !== 'relocate' && !reservePlanLogistics(draft, coalition, candidate, remainingLogisticsByAirbase)) {
       pushRejection(rejected, candidate.kind, 'supply blocked', candidate.targetId)
       continue
     }
@@ -1203,9 +2467,130 @@ function admitCandidates(
     admittedTargets.add(candidate.targetId)
     aircraftBudget -= aircraftCount
     packageBudget -= 1
+    capPairsLeft -= capPairs
   }
 
   return admitted
+}
+
+function dropDeadCoveredByStrike(plans: AtoPackagePlan[]) {
+  const covered = new Set<string>()
+  for (const plan of plans) {
+    if (plan.kind !== 'strike' && plan.kind !== 'strategicStrike' && plan.kind !== 'oca') continue
+    for (const flight of plan.flights) {
+      if ((flight.task === 'SEAD' || flight.task === 'DEAD') && flight.target?.id) {
+        covered.add(flight.target.id)
+      }
+    }
+  }
+
+  return plans.filter((plan) => plan.kind !== 'dead' || !covered.has(plan.targetId))
+}
+
+function namedTheatrePosition(context: SpawnContext, name: string): Position | undefined {
+  return (
+    getObjectivePosition(context.theatre, name) ??
+    (context.theatre.airdromeDetails[name]
+      ? { x: context.theatre.airdromeDetails[name].x, y: context.theatre.airdromeDetails[name].y }
+      : undefined)
+  )
+}
+
+function makeRoadCutPlan(
+  draft: Campaign,
+  coalition: Coalition,
+  context: SpawnContext,
+  rejected: RejectedAtoPackage[]
+): AtoPackagePlan | null {
+  if (!groundOffensiveOpen(draft)) return null
+  if (!hasAircraft(draft, coalition, 'Pinpoint Strike')) {
+    return null
+  }
+  const closed = activeRoadCutKeys(draft)
+  const enemy = draft.coalitions[context.enemyCoalition]
+  const seen = new Set<string>()
+  let hop: { from: string; to: string; position: Position } | null = null
+  for (const group of enemy.groundGroups) {
+    if (group.state !== 'moving' && group.state !== 'combat') continue
+    const from = group.objectiveId
+    const to = group.targetObjectiveId ?? group.targetAirdromeName
+    if (!from || !to || from === to) continue
+    const id = roadTargetId(from, to)
+    if (seen.has(id) || closed.has(id.slice('road|'.length))) continue
+    if (isTargetAlreadyAssigned(draft, coalition, id)) continue
+    const fromPosition = namedTheatrePosition(context, from)
+    const toPosition = namedTheatrePosition(context, to)
+    if (!fromPosition || !toPosition) continue
+    seen.add(id)
+    hop = {
+      from,
+      to,
+      position: {
+        x: (fromPosition.x + toPosition.x) / 2,
+        y: (fromPosition.y + toPosition.y) / 2
+      }
+    }
+    break
+  }
+  if (!hop) return null
+
+  const homeBases = getSupportedHomeBases(
+    draft,
+    coalition,
+    getCoalitionAirdromes(draft, context.theatre, coalition),
+    'Pinpoint Strike'
+  )
+  const homeBase = [...homeBases].sort(
+    (left, right) =>
+      calculateDistance(left.position, hop.position) - calculateDistance(right.position, hop.position)
+  )[0]
+  if (!homeBase) {
+    pushRejection(rejected, 'strike', 'supply blocked')
+    return null
+  }
+  const aircraftType = pickAircraft(draft, coalition, 'Pinpoint Strike', homeBase.name)
+  if (!aircraftType) {
+    pushRejection(rejected, 'strike', 'no aircraft')
+    return null
+  }
+
+  const targetId = roadTargetId(hop.from, hop.to)
+  const tot = addMinutes(draft.time, 25)
+  const flights: FlightPlanDescriptor[] = [
+    {
+      role: 'primary',
+      task: 'Pinpoint Strike',
+      aircraftType,
+      homeBase,
+      targetPosition: hop.position,
+      tot,
+      target: {
+        id: targetId,
+        type: 'Road',
+        objectiveId: hop.to
+      }
+    }
+  ]
+  if (strikeWaitsForSuppression(draft, coalition, context, hop.position, flights)) {
+    pushRejection(rejected, 'strike', 'threat too high', targetId)
+    return null
+  }
+
+  return {
+    id: createPlanId('strike', targetId),
+    kind: 'strike',
+    type: 'Strike Package',
+    coalition,
+    variantId: 'road-cut',
+    variantLabel: 'Road Cut',
+    priority: 78,
+    reason: `Cut the road from ${hop.from} to ${hop.to}`,
+    targetId,
+    targetObjectiveId: hop.to,
+    targetType: 'Road',
+    tot,
+    flights
+  }
 }
 
 export function planAtoPackages(
@@ -1215,16 +2600,25 @@ export function planAtoPackages(
   policy: AtoPlannerPolicy = defaultAtoPlannerPolicy
 ): AtoPlannerResult {
   const rejected: RejectedAtoPackage[] = []
-  const profile = getDefaultOperationProfile(draft)
-  const candidates = [
+  const profile = getDefaultOperationProfile(draft, coalition)
+  const candidates = dropDeadCoveredByStrike([
     makeCapPlan(draft, coalition, context, rejected),
+    makeHavcapPlan(draft, coalition, context, rejected),
+    makeAmbushPlan(draft, coalition, context, rejected),
+    makeInterceptPlan(draft, coalition, context, rejected),
+    makeRelocatePlan(draft, coalition, context, rejected),
+    makeSweepPlan(draft, coalition, context, rejected),
+    makeAwacsPlan(draft, coalition, context, rejected),
+    makeEcmPlan(draft, coalition, context, rejected),
     makeStrikePlan(draft, coalition, context, 'Pinpoint Strike', rejected),
+    makeRoadCutPlan(draft, coalition, context, rejected),
     makeStrikePlan(draft, coalition, context, 'Strategic Strike', rejected),
     makeDeadPlan(draft, coalition, context, rejected),
+    makeOcaPlan(draft, coalition, context, rejected),
     ...makeCasPlans(draft, coalition, context, rejected),
     makeTransportPlan(draft, coalition, context, rejected, policy)
   ]
-    .filter((plan): plan is AtoPackagePlan => plan != null)
+    .filter((plan): plan is AtoPackagePlan => plan != null))
     .map((plan) => applyVariantDefaults(plan, profile))
     .sort((a, b) => scoreCandidate(b, profile) - scoreCandidate(a, profile))
 
@@ -1268,6 +2662,42 @@ function commitFlight(
     spendFlightLogistics(supply, flight.task, getFlightAircraftCount(flight))
   }
 
+  if (plan.kind === 'relocate' && flight.target) {
+    const destination = flight.target.objectiveId
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'CAP',
+      aircraftType: flight.aircraftType,
+      aircraftCount: getFlightAircraftCount(flight),
+      homeBase: destination,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.targetPosition,
+      missionWaypoints: [
+        {
+          name: 'Departure',
+          position: flight.homeBase.position,
+          altitude: 3000,
+          speed: 200,
+          type: 'Nav'
+        },
+        {
+          name: destination,
+          position: flight.targetPosition,
+          altitude: 0,
+          speed: 150,
+          type: 'Landing'
+        }
+      ],
+      startTime: flight.tot ?? plan.tot,
+      runwayAngle: flight.homeBase.runwayAngle,
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot,
+      target: flight.target
+    }).flightGroupId
+    return flightGroupId
+  }
+
   if (flight.task === 'CAP' && flight.patrolCenter) {
     const flightGroupId = CapFlightGroup.spawn(draft, coalition, {
       homeBase: flight.homeBase.name,
@@ -1275,7 +2705,105 @@ function commitFlight(
       patrolCenter: flight.patrolCenter,
       runwayAngle: flight.homeBase.runwayAngle,
       aircraftType: flight.aircraftType,
-      packageId: plan.id
+      packageId: plan.id,
+      startTime: flight.tot,
+      patrolAltitude: flight.patrolAltitude,
+      patrolDurationMs: flight.patrolDurationMs,
+      target: flight.target
+    }).flightGroupId
+    spendHomeBaseLogistics()
+    return flightGroupId
+  }
+
+  if (flight.task === 'ECM' && flight.patrolCenter) {
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'ECM',
+      aircraftType: flight.aircraftType,
+      aircraftCount: config.packages.ECM.aircraftsPerGroup,
+      homeBase: flight.homeBase.name,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.patrolCenter,
+      missionWaypoints: buildAwacsMissionWaypoints(flight.homeBase.position, flight.patrolCenter),
+      startTime: flight.tot ?? addMinutes(draft.time, 20),
+      runwayAngle: flight.homeBase.runwayAngle,
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot
+    }).flightGroupId
+    spendHomeBaseLogistics()
+    return flightGroupId
+  }
+
+  if (flight.task === 'AWACS' && flight.patrolCenter) {
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'AWACS',
+      aircraftType: flight.aircraftType,
+      aircraftCount: config.packages.AWACS.aircraftsPerGroup,
+      homeBase: flight.homeBase.name,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.patrolCenter,
+      missionWaypoints: buildAwacsMissionWaypoints(
+        flight.homeBase.position,
+        flight.patrolCenter
+      ),
+      startTime: flight.tot ?? addMinutes(draft.time, 15),
+      runwayAngle: flight.homeBase.runwayAngle,
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot
+    }).flightGroupId
+    spendHomeBaseLogistics()
+    return flightGroupId
+  }
+
+  if (flight.task === 'Intercept' && flight.target) {
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'Intercept',
+      aircraftType: flight.aircraftType,
+      aircraftCount: config.packages.Intercept.aircraftsPerGroup,
+      homeBase: flight.homeBase.name,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.targetPosition,
+      missionWaypoints: buildInterceptMissionWaypoints(
+        flight.homeBase.position,
+        flight.targetPosition
+      ),
+      startTime: flight.tot ?? addMinutes(draft.time, 8),
+      runwayAngle: flight.homeBase.runwayAngle,
+      target: {
+        id: flight.target.id,
+        type: flight.target.type,
+        objectiveId: flight.target.objectiveId
+      },
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot
+    }).flightGroupId
+    spendHomeBaseLogistics()
+    return flightGroupId
+  }
+
+  if (flight.task === 'Fighter Sweep' && flight.patrolCenter) {
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'Fighter Sweep',
+      aircraftType: flight.aircraftType,
+      aircraftCount: config.packages['Fighter Sweep'].aircraftsPerGroup,
+      homeBase: flight.homeBase.name,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.patrolCenter,
+      missionWaypoints: buildFighterSweepMissionWaypoints(
+        flight.homeBase.position,
+        flight.patrolCenter
+      ),
+      startTime: flight.tot ?? addMinutes(draft.time, 25),
+      runwayAngle: flight.homeBase.runwayAngle,
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot
     }).flightGroupId
     spendHomeBaseLogistics()
     return flightGroupId
@@ -1297,6 +2825,34 @@ function commitFlight(
     return flightGroupId
   }
 
+  if (flight.task === 'Runway Attack' && flight.target) {
+    const flightGroupId = spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: 'Runway Attack',
+      aircraftType: flight.aircraftType,
+      aircraftCount: config.packages['Runway Attack'].aircraftsPerGroup,
+      homeBase: flight.homeBase.name,
+      homeBasePosition: flight.homeBase.position,
+      destination: flight.targetPosition,
+      missionWaypoints: buildAttackMissionWaypoints(
+        flight.homeBase.position,
+        flight.targetPosition
+      ),
+      startTime: flight.tot ?? addMinutes(draft.time, 35),
+      runwayAngle: flight.homeBase.runwayAngle,
+      target: {
+        id: flight.target.id,
+        type: flight.target.type,
+        objectiveId: flight.target.objectiveId
+      },
+      packageId: plan.id,
+      tot: flight.tot ?? plan.tot
+    }).flightGroupId
+    spendHomeBaseLogistics()
+    return flightGroupId
+  }
+
   if (flight.task === 'SEAD' && flight.target) {
     const flightGroupId = SeadFlightGroup.spawn(draft, coalition, {
       homeBase: flight.homeBase.name,
@@ -1305,7 +2861,7 @@ function commitFlight(
       targetPosition: flight.targetPosition,
       runwayAngle: flight.homeBase.runwayAngle,
       aircraftType: flight.aircraftType,
-      tot: new Date(plan.tot.getTime() - config.packages.SEAD.leadTime),
+      tot: flight.tot ?? new Date(plan.tot.getTime() - config.packages.SEAD.leadTime),
       packageId: plan.id
     })
     spendHomeBaseLogistics()
@@ -1320,7 +2876,7 @@ function commitFlight(
       targetPosition: flight.targetPosition,
       runwayAngle: flight.homeBase.runwayAngle,
       aircraftType: flight.aircraftType,
-      tot: plan.tot,
+      tot: flight.tot ?? plan.tot,
       packageId: plan.id
     }).flightGroupId
     spendHomeBaseLogistics()
@@ -1385,12 +2941,11 @@ export function commitAtoPackages(
     for (const flight of plan.flights) {
       const flightGroupId = commitFlight(draft, coalition, plan, flight)
       if (!flightGroupId) continue
-      const totOffset =
-        flight.task === 'SEAD'
+      const totOffset = flight.tot
+        ? flight.tot.getTime() - plan.tot.getTime()
+        : flight.task === 'SEAD'
           ? -config.packages.SEAD.leadTime
-          : flight.tot
-            ? flight.tot.getTime() - plan.tot.getTime()
-            : 0
+          : 0
       members.push({
         flightGroupId,
         role: flight.role,

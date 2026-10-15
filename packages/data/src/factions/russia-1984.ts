@@ -13,7 +13,7 @@ export const RUSSIA1984: z.infer<typeof schemas.faction> = {
     CAP: ['MiG-29A', 'Su-27'],
     Escort: ['MiG-29A', 'Su-27'],
     'Pinpoint Strike': ['Su-25', 'Su-27'],
-    'Strategic Strike': [],
+    'Strategic Strike': ['Tu-22M3'],
     CAS: ['Su-25'],
     CSAR: ['Mi-8MT'],
     CASEVAC: ['Mi-8MT'],
@@ -29,7 +29,8 @@ export const RUSSIA1984: z.infer<typeof schemas.faction> = {
     RescueHelo: ['Mi-8MT'],
     AFAC: [],
     Intercept: ['MiG-29A', 'Su-27'],
-    Training: []
+    Training: [],
+    ECM: []
   },
   color: 'red',
   templateName: 'East Germany - Cold War'

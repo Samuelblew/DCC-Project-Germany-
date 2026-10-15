@@ -24,6 +24,7 @@ import { FlightGroup } from '@/logic/entities/flight-group'
 import { logCombatAction } from '@/logic/simulation-log'
 import { updatePackages } from '@/logic/systems/update-packages'
 import { syncDownedPilotsFromMissionState } from '@/logic/systems/downed-pilots'
+import { chokedObjectiveIds } from '@/logic/systems/logistics-interdiction'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type MissionState = z.infer<typeof schemas.missionState>
@@ -34,7 +35,10 @@ type MissionGroundGroup = NonNullable<MissionState['groupPositions']>['blue']['g
 type MissionShipGroup = NonNullable<MissionState['groupPositions']>['blue']['ships'][number]
 type GroundCullingGroups = NonNullable<MissionState['cullingManifest']>['groundGroups'][Coalition]
 
-function campaignDateFromMissionTime(campaignTime: Date, missionTimeSeconds?: number): Date | null {
+export function campaignDateFromMissionTime(
+  campaignTime: Date,
+  missionTimeSeconds?: number
+): Date | null {
   if (missionTimeSeconds == null || !Number.isFinite(missionTimeSeconds)) {
     return null
   }
@@ -93,7 +97,7 @@ function syncGermanySamLosses(
   let changed = false
 
   for (const site of getGermanyIadsSites(campaignIadsEra(draft))) {
-    if (site.kind !== 'sam' || site.units.length === 0) continue
+    if ((site.kind !== 'sam' && site.kind !== 'ewr') || site.units.length === 0) continue
 
     const previous = new Set(deadUnits[site.id] ?? [])
     const next = new Set(previous)
@@ -104,6 +108,9 @@ function syncGermanySamLosses(
       germanyIadsSamGroupName(site, 'opponent')
     ]
 
+    for (const unit of living) {
+      if (lostNames.has(unit.name)) next.add(unit.name)
+    }
     if (living.some((unit) => aliveUnitNames.has(unit.name))) {
       for (const unit of living) {
         if (!aliveUnitNames.has(unit.name)) next.add(unit.name)
@@ -125,12 +132,29 @@ function syncGermanySamLosses(
       logCombatAction(
         draft,
         germanyIadsControllingCoalition(site, owners),
-        `SAM ${site.id} destroyed`
+        `${site.kind === 'ewr' ? 'EWR' : 'SAM'} ${site.id} destroyed`
       )
     }
   }
 
   if (changed) draft.germanyIadsDeadUnits = deadUnits
+}
+
+/** A destroyed search radar stays dead while the sortie is still running, so the bubble catalogue stops asking for it. */
+export function applyLiveIadsDeaths(campaign: Campaign, missionState: MissionState): Campaign {
+  if (missionState.missionId !== campaign.id) return campaign
+  const scenario = scenarios.find((entry) => entry.id === campaign.scenarioId)
+  const theatre = scenario ? theatres.find((entry) => entry.name === scenario.theatreName) : undefined
+  if (!theatre) return campaign
+
+  return produce(campaign, (draft) => {
+    syncGermanySamLosses(
+      draft,
+      theatre,
+      missionState.lostUnits ?? [],
+      missionState.groupPositions
+    )
+  })
 }
 
 function addLostSamUnitIndex(
@@ -547,6 +571,49 @@ function applyToCoalition(
   }
 }
 
+function bubbleGroundUnitName(
+  groupId: string,
+  unit: { id?: string; count: number },
+  copy: number,
+  unitIndex: number
+) {
+  const id = unit.id ?? `legacy-${unitIndex + 1}`
+  const suffix = unit.count > 1 && unit.id ? `${unit.id}-${copy + 1}` : id
+  return `GroundUnit-${groupId}-${suffix}`
+}
+
+/** Corridor culling skips omitted columns. A real kill of a bubble-spawned unit still arrives in lostUnits. */
+function applyOmittedGroundDeaths(
+  draft: Campaign,
+  coalition: Coalition,
+  cullingGroups: GroundCullingGroups | undefined,
+  lostUnitNames: ReadonlySet<string>
+) {
+  if (!cullingGroups) return
+
+  for (const group of draft.coalitions[coalition].groundGroups) {
+    if (cullingGroups[group.id]) continue
+    let unitIndex = 0
+    const next: typeof group.units = []
+    for (const unit of group.units) {
+      const copies = Math.max(0, unit.count)
+      let alive = 0
+      for (let copy = 0; copy < copies; copy++) {
+        if (!lostUnitNames.has(bubbleGroundUnitName(group.id, unit, copy, unitIndex))) alive += 1
+        unitIndex += 1
+      }
+      if (alive > 0) next.push({ ...unit, count: alive })
+    }
+    group.units = next
+  }
+
+  draft.coalitions[coalition].groundGroups = draft.coalitions[coalition].groundGroups.filter(
+    (group) =>
+      Boolean(cullingGroups[group.id]) ||
+      group.units.reduce((sum, unit) => sum + Math.max(0, unit.count), 0) > 0
+  )
+}
+
 export function applyMissionStateUpdate(campaign: Campaign, missionState: MissionState): Campaign {
   const lostUnits = missionState.lostUnits ?? []
   const landedUnits = missionState.landedUnits ?? []
@@ -610,6 +677,18 @@ export function applyMissionStateUpdate(campaign: Campaign, missionState: Missio
       cullingManifest?.groundGroups.opponent,
       protectedGroundGroupIds
     )
+    applyOmittedGroundDeaths(
+      draft,
+      'player',
+      cullingManifest?.groundGroups.player,
+      lostUnitNames
+    )
+    applyOmittedGroundDeaths(
+      draft,
+      'opponent',
+      cullingManifest?.groundGroups.opponent,
+      lostUnitNames
+    )
     syncEwrGroupsFromMissionState(draft, 'player', groupPositions?.blue?.ground, lostUnits)
     syncEwrGroupsFromMissionState(draft, 'opponent', groupPositions?.red?.ground, lostUnits)
     syncNavalGroupsFromMissionState(draft, 'player', groupPositions?.blue?.ships, lostUnitNames)
@@ -640,7 +719,13 @@ export function applyMissionStateUpdate(campaign: Campaign, missionState: Missio
           })
         }
         if (theatre) {
-          beginGroundGroupRetreat({ campaign: draft, coalition, theatre, group })
+          beginGroundGroupRetreat({
+            campaign: draft,
+            coalition,
+            theatre,
+            group,
+            blockedTransitIds: chokedObjectiveIds(draft, coalition)
+          })
         }
       }
 
@@ -705,7 +790,8 @@ export function applyMissionStateUpdate(campaign: Campaign, missionState: Missio
 
         for (const structure of draft.coalitions[coalition].structures) {
           const emittedStructures = cullingManifest?.structures[coalition]
-          if (emittedStructures && !emittedStructures[structure.id]) continue
+          const liveBubble = draft.campaignParams?.worldMode === 'bubble'
+          if (!liveBubble && emittedStructures && !emittedStructures[structure.id]) continue
 
           const namePrefix = `Static-${structure.id}-`
           for (const lostUnitName of lostUnitNames) {

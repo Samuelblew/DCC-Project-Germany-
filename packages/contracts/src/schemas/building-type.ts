@@ -14,6 +14,7 @@ export const buildingType = z.enum([
   'FARP Fuel Depot',
   'FARP Tent',
   'Chemical tank A',
+  'Oil rig',
   'Hangar B',
   'Warehouse',
   'Tank',

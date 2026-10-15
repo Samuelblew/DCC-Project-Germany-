@@ -10,7 +10,12 @@ export const packageMemberRole = z.enum([
   'csar',
   'casevac',
   'troop-extraction',
-  'antiship'
+  'antiship',
+  'awacs',
+  'intercept',
+  'sweep',
+  'relocate',
+  'ecm'
 ])
 
 export const packageMember = z.object({
@@ -30,7 +35,14 @@ export const packageType = z.enum([
   'CASEVAC Package',
   'Troop Extraction Package',
   'Antiship Package',
-  'Transport Package'
+  'Transport Package',
+  'OCA Package',
+  'SEAD OCA Package',
+  'AWACS Package',
+  'Intercept Package',
+  'Sweep Package',
+  'Relocate Package',
+  'ECM Package'
 ])
 
 export const packageStatus = z.enum(['active', 'completed'])

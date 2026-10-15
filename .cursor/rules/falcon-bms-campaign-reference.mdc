@@ -1,0 +1,50 @@
+---
+description: Falcon BMS 4.38 dynamic campaign reference. Use when designing DCC campaign tick, ATO, ground war, capture, victory, posture, or comparing DCC to BMS.
+globs: packages/campaign/**/*.ts,packages/data/src/**/*.ts,apps/frontend/src/logic/**/*.ts,apps/frontend/src/logic/systems/**/*.ts
+alwaysApply: false
+---
+
+# Falcon BMS campaign reference
+
+Samuel's install: `D:\falcon\Game\Falcon BMS 4.38`
+
+Cursor workspace glob will **not** see this drive. Use Shell with absolute paths. Read config/text/XML. Do not copy BMS binaries, `.cam`, terrain, or manuals into the DCC repo. Summarize behavior and reimplement in DCC's own model.
+
+## What the dynamic campaign is
+
+Persistent Korea theater war. Clock runs in the UI. Ground battalions move on an objective graph and capture. An AI planner emits an ATO. The player takes one flight, flies 3D, results write back into the `.cam`. Victory is territorial, not "fly the scripted missions."
+
+`TE_BMS_*` / `TR_BMS_*` / `DF_BMS_*` are **not** the dynamic campaign.
+
+Stock starts: **Iron Fortress** and **Rolling Fire**. Saves: `Save0.cam`–`Save5.cam`, `Auto Save.cam`.
+
+## Where to look
+
+| Path | Why |
+|---|---|
+| `Data\Campaign\korea.cam` | Live theater state (binary) |
+| `Data\Campaign\CampObjData.XML` | ~6000 named objectives with x/y |
+| `Data\Campaign\MissionData_XX.xml` | Per-mission-type planner: role, alt, loiter, FLOT distance, escorts |
+| `Data\Campaign\Offense.pri` `Defense.pri` `Cas.pri` `Attrit.pri` `Intdict.pri` | Commander posture → target/unit/mission weights |
+| `Data\Campaign\Doctrine0.txt`–`Doctrine7.txt` | Per-country ROE (US=1, ROK=2, NK=6, …) |
+| `Data\Campaign\Strings.txt` | ATO labels (BARCAP, SEAD, BAI, CAS, CSAR, …) |
+| `Data\Campaign\Ppt.ini` | SAM/PPT threat rings |
+| `Data\Campaign\Atc.ini` | Player/AI takeoff bump times |
+| `Data\Campaign\F-16 *.str` | Default loadouts per task |
+| `Data\Sim\` | Aircraft/vehicle/weapon tables (`Acdata`, `Vehdef`, …) |
+| `Data\TerrData\TheaterDefinition\` | Theater list; KTO vs add-on **Korea TvT** |
+| `Docs\00 BMS Manuals\BMS-User-Manual.pdf` | Player-facing campaign UI |
+
+Engine code is in `Bin\` (closed). Data is the reference, not the exe.
+
+## Map onto DCC (do not clone filenames)
+
+- CampObj graph → DCC objectives + structures + capture
+- `.pri` posture → ATO planner weights (`ato-planner`, spawn packages)
+- `MissionData` mission types → DCC tasks (SEAD, STRIKE, CAS, CAP, …)
+- `.cam` save → Electron `userData` campaign JSON
+- Player picks ATO flight → select-flight / takeoff
+- Clock compression → campaign tick
+- Doctrine shoot-shoot → faction/AI skill, not a BMS port
+
+When adding a BMS-like behavior, open the matching file above first, then change DCC.

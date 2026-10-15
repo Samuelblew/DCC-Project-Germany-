@@ -33,6 +33,10 @@ export type MissionCullingPlan = {
    * Long-range SAMs (range >= longRangeSamMinRangeMeters) use the SAM band, shorter-range air
    * defence the ground band; the player's direct target always stays.
    */
+  /** Whether a moving ground path (a supply convoy) passes inside the ground band. */
+  includesGroundPath: (path: Position[]) => boolean
+  /** Whether an ambient flight path passes inside the aircraft band. */
+  includesAircraftPath: (path: Position[]) => boolean
   getSamMode: (
     samId: string,
     position: Position,
@@ -234,10 +238,15 @@ export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): M
   const enabled = campaign.campaignParams?.culling === true
   const radius = resolveCullingRadiusMeters(campaign.campaignParams?.cullingRadius)
   const samRadius = resolveSamCullingRadiusMeters(campaign.campaignParams?.cullingSamRadius)
+  const aircraftRadius = resolveAircraftCullingRadiusMeters(
+    campaign.campaignParams?.cullingAircraftRadius
+  )
   const routes = enabled ? playerMissionRoutes(campaign, theatre) : []
   const directTargetIds = new Set<string>()
 
-  if (enabled) {
+  const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
+
+  if (enabled || liveBubble) {
     // Every flight that makes it into the mission needs its target there too, or AI packages fly
     // off to attack something that was culled.
     const selectedFlightIds = selectFlightIdsForMission(campaign, theatre)
@@ -246,7 +255,10 @@ export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): M
         if (!flight.target) continue
         const flown = flight.aircrafts.some((aircraft) => aircraft.client)
         if (flight.careerMission && !flown) continue
-        if ((key === 'player' && flown) || selectedFlightIds?.has(flight.id)) {
+        const inMission = liveBubble
+          ? flown
+          : (key === 'player' && flown) || (selectedFlightIds?.has(flight.id) ?? false)
+        if (inMission) {
           directTargetIds.add(flight.target.id)
         }
       }
@@ -260,6 +272,7 @@ export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): M
     enabled,
     manifest,
     getGroundGroupMode: (coalition, group) => {
+      if (liveBubble) return directTargetIds.has(group.id) ? 'full' : 'omit'
       if (includeAll) return 'full'
       if (directTargetIds.has(group.id)) return 'full'
       if (isNearAnyRoute(group.position, routes, radius)) return 'full'
@@ -272,13 +285,32 @@ export function buildMissionCullingPlan(campaign: Campaign, theatre: Theatre): M
       }
       return 'omit'
     },
+    includesGroundPath: (path) => includeAll || isRouteNearAnyRoute(path, routes, radius),
+    includesAircraftPath: (path) => includeAll || isRouteNearAnyRoute(path, routes, aircraftRadius),
     getSamMode: (samId, position, rangeMeters) => {
+      if (liveBubble) return directTargetIds.has(samId) ? 'full' : 'omit'
       if (includeAll) return 'full'
       if (directTargetIds.has(samId)) return 'full'
       const band = (rangeMeters ?? 0) >= longRangeSamMinRangeMeters ? samRadius : radius
       return isNearAnyRoute(position, routes, band) ? 'full' : 'omit'
     },
-    getStructureMode: (_coalition, structure) => {
+    getStructureMode: (coalition, structure) => {
+      if (liveBubble) {
+        if (directTargetIds.has(structure.id)) return 'full'
+        const home = campaign.coalitions[coalition].flightGroups.some(
+          (flight) => flight.homeBase === structure.id
+        )
+        if (home) return 'full'
+        if (
+          campaign.campaignParams?.iads !== false &&
+          (structure.type === 'Command Center' ||
+            structure.type === 'Power Plant' ||
+            structure.type === 'Logistics Hub')
+        ) {
+          return 'full'
+        }
+        return 'omit'
+      }
       if (includeAll) return 'full'
       if (directTargetIds.has(structure.id)) return 'full'
       return isNearAnyRoute(structure.position, routes, radius) ? 'full' : 'omit'

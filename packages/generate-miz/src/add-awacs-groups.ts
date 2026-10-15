@@ -14,14 +14,19 @@ Object.values(aircrafts).forEach((def) => {
   }
 })
 
-const DEFAULT_AWACS: Record<string, string> = {
-  blue: 'E-3A',
-  red: 'A-50'
-}
-
 const RACETRACK_LEG_KM = 120
 const OFFSET_KM = 120
 const AWACS_ALTITUDE = 9144
+
+function coalitionHasMissionAwacs(
+  mission: z.infer<typeof schemas.dcs.mission>,
+  missionCoalitionKey: 'blue' | 'red'
+) {
+  for (const country of mission.coalition[missionCoalitionKey]?.country ?? []) {
+    if (country.plane?.group?.some((group) => group.task === 'AWACS')) return true
+  }
+  return false
+}
 
 /**
  * Compute the centroid (average position) of a set of airdromes.
@@ -79,9 +84,10 @@ function navalAnchor(
 }
 
 /**
- * Adds one AWACS group per coalition to the mission.
+ * Adds one AWACS group per coalition that fields AWACS aircraft, when the
+ * campaign has not already emitted one into this mission.
  *
- * Each AWACS is spawned airborne behind its own lines with an infinite
+ * Each injected AWACS is spawned airborne behind its own lines with an infinite
  * race-track orbit, and is set immortal, invisible, with unlimited fuel.
  */
 export function addAwacsGroups(
@@ -160,9 +166,10 @@ export function addAwacsGroups(
   const legHalfM = (RACETRACK_LEG_KM * 1000) / 2
 
   for (const coalition of coalitionData) {
-    // Determine AWACS aircraft type
     const awacsTypes = coalition.aircraftTypes['AWACS'] ?? []
-    const aircraftName = awacsTypes[0] ?? DEFAULT_AWACS[coalition.missionCoalitionKey] ?? 'E-3A'
+    const aircraftName = awacsTypes[0]
+    if (!aircraftName) continue
+    if (coalitionHasMissionAwacs(mission, coalition.missionCoalitionKey)) continue
 
     const aircraftDef = aircraftMap.get(aircraftName)
     if (!aircraftDef) {

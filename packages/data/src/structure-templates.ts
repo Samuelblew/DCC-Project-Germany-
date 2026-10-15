@@ -470,5 +470,15 @@ export const structureTemplates: Record<
         }
       ]
     }
+  ],
+  'Oil Platform': [
+    {
+      buildings: [
+        {
+          offset: { x: 0, y: 0 },
+          type: 'Oil rig'
+        }
+      ]
+    }
   ]
 }

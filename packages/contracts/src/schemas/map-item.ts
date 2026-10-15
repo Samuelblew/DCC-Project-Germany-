@@ -81,6 +81,18 @@ export const NavalGroupMapItem = mapItem.extend({
   operationalUnitCount: z.number().int().nonnegative()
 })
 
+export const ConvoyMapItem = mapItem.extend({
+  type: z.literal('Convoy'),
+  kind: z.enum(['road', 'air']),
+  from: z.string(),
+  to: z.string(),
+  vehicles: z.number().int().nonnegative(),
+  /** Total cargo points carried. */
+  cargo: z.number().nonnegative(),
+  /** Remaining route, hub side first, as map coordinates. */
+  path: z.array(z.object({ lng: z.number(), lat: z.number() }))
+})
+
 export const MapItem = z.discriminatedUnion('type', [
   AirdromeMapItem,
   FlightGroupMapItem,
@@ -90,5 +102,6 @@ export const MapItem = z.discriminatedUnion('type', [
   SamMapItem,
   EwrMapItem,
   GciMapItem,
-  NavalGroupMapItem
+  NavalGroupMapItem,
+  ConvoyMapItem
 ])

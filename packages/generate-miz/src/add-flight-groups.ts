@@ -50,6 +50,107 @@ const TARGET_TACAN_START_CHANNEL = 31
 const FARP_NATIVE_PARKING_SLOTS = 4
 const GCI_TASKS = new Set(['CAP', 'Escort', 'Fighter Sweep', 'Intercept'])
 const FARP_SPAWN_SPACING_METERS = 70
+/** A static sitting on this stand; do not also park a live aircraft here. */
+const PARKED_ON_STAND_METERS = 8
+/**
+ * Mi-8 rotor is ~21 m across. A fighter wing (~12 m) parked on the next pad clips the disc
+ * unless the stand is well outside that radius.
+ */
+const HELICOPTER_PARKING_CLEARANCE_METERS = 30
+const AIRCRAFT_PARKING_CLEARANCE_METERS = 18
+
+type ParkingOccupier = { x: number; y: number; helicopter: boolean }
+type AirdromeStand = z.infer<typeof schemas.airdromeDetails>['standlist'][string]
+
+function isParkedAircraftStatic(unit: { category?: string }) {
+  return unit.category === 'Helicopters' || unit.category === 'Planes'
+}
+
+function collectParkedOccupiers(mission: Mission): ParkingOccupier[] {
+  const occupiers: ParkingOccupier[] = []
+  for (const side of ['blue', 'red', 'neutrals'] as const) {
+    for (const country of mission.coalition[side].country ?? []) {
+      for (const group of country.static?.group ?? []) {
+        for (const unit of group.units ?? []) {
+          if (!isParkedAircraftStatic(unit)) continue
+          occupiers.push({
+            x: unit.x,
+            y: unit.y,
+            helicopter: unit.category === 'Helicopters'
+          })
+        }
+      }
+    }
+  }
+  return occupiers
+}
+
+function occupierClearance(occupier: ParkingOccupier) {
+  return occupier.helicopter
+    ? HELICOPTER_PARKING_CLEARANCE_METERS
+    : AIRCRAFT_PARKING_CLEARANCE_METERS
+}
+
+function standClearOfOccupiers(stand: { x: number; y: number }, occupiers: ParkingOccupier[]) {
+  return occupiers.every(
+    (occupier) =>
+      Math.hypot(stand.x - occupier.x, stand.y - occupier.y) >= occupierClearance(occupier)
+  )
+}
+
+function markStandsOccupiedByParkedAircraft(
+  standlist: Record<string, AirdromeStand>,
+  used: Set<string>,
+  occupiers: ParkingOccupier[]
+) {
+  for (const stand of Object.values(standlist)) {
+    if (
+      occupiers.some(
+        (occupier) =>
+          Math.hypot(stand.x - occupier.x, stand.y - occupier.y) < PARKED_ON_STAND_METERS
+      )
+    ) {
+      used.add(stand.id)
+    }
+  }
+}
+
+function pickParkingStand(params: {
+  stands: Record<string, AirdromeStand>
+  used: Set<string>
+  occupiers: ParkingOccupier[]
+  isHelicopter: boolean
+  isLarge: boolean
+  /** Player-chosen stand. Skips the clearance filter; a static sitting on the pad still blocks it. */
+  preferId?: string
+}): AirdromeStand | undefined {
+  const compatible = Object.values(params.stands).filter((stand) => {
+    if (params.used.has(stand.id) || stand.blocked) return false
+    if (params.isHelicopter && !stand.helicopter) return false
+    if (!params.isHelicopter && !stand.plane) return false
+    if (params.isLarge && !stand.large) return false
+    return true
+  })
+  if (params.preferId) {
+    const preferred = compatible.find((stand) => stand.id === params.preferId)
+    if (preferred) return preferred
+  }
+  const clear = compatible.filter((stand) => standClearOfOccupiers(stand, params.occupiers))
+  if (clear[0]) return clear[0]
+  if (compatible.length === 0) return undefined
+
+  return compatible.reduce((best, stand) => {
+    const nearest = Math.min(
+      ...params.occupiers.map((occupier) => Math.hypot(stand.x - occupier.x, stand.y - occupier.y)),
+      Number.POSITIVE_INFINITY
+    )
+    const bestNearest = Math.min(
+      ...params.occupiers.map((occupier) => Math.hypot(best.x - occupier.x, best.y - occupier.y)),
+      Number.POSITIVE_INFINITY
+    )
+    return nearest > bestNearest ? stand : best
+  })
+}
 
 type Mission = z.infer<typeof schemas.dcs.mission>
 type MissionCountry = NonNullable<Mission['coalition']['blue']['country']>[number]
@@ -512,6 +613,12 @@ export type MissionNavigationConfig = {
   }
 }
 
+function orbitPatrolDurationMs(task: FlightGroup['task']) {
+  if (task === 'CAP') return config.packages.CAP.patrolDuration
+  if (task === 'AWACS') return config.packages.AWACS.patrolDuration
+  return undefined
+}
+
 function hasPlayerClientCap(campaign: Campaign) {
   return campaign.coalitions.player.flightGroups.some(
     (flightGroup) =>
@@ -531,6 +638,9 @@ function shouldIncludeFlightGroupInMission(
   if (!options.throttleEnemyNonCapFlights) return true
   if (coalition !== 'opponent') return true
   if (flightGroup.task === 'CAP') return true
+  if (flightGroup.task === 'Intercept') return true
+  if (flightGroup.task === 'Fighter Sweep') return true
+  if (flightGroup.task === 'AWACS') return true
   if (flightGroup.task === 'Strategic Strike') return true
   if (flightGroup.aircrafts.some((aircraft) => aircraft.client)) return true
 
@@ -734,6 +844,27 @@ function createSweepEngageTask(
       zoneRadius: config.packages['Fighter Sweep'].engagementZoneRadius,
       targetTypes: ['Air'],
       value: 'Air;',
+      noTargetTypes: [],
+      priority: 0
+    }
+  }
+}
+
+function createCasEngageTask(
+  targetCenter: z.infer<typeof schemas.position>,
+  taskNumber: number
+): z.infer<typeof schemas.dcs.task> {
+  return {
+    enabled: true,
+    auto: false,
+    id: 'EngageTargetsInZone',
+    number: taskNumber,
+    params: {
+      x: targetCenter.x,
+      y: targetCenter.y,
+      zoneRadius: 8000,
+      targetTypes: ['Ground Units'],
+      value: 'Ground Units;',
       noTargetTypes: [],
       priority: 0
     }
@@ -1264,7 +1395,7 @@ function getMissionAircrafts(
     calculateInFlightPosition(
       flightGroup.flightplan,
       campaign.time,
-      flightGroup.task === 'CAP' ? config.packages.CAP.patrolDuration : undefined
+      orbitPatrolDurationMs(flightGroup.task)
     ) !== null
   const isCarrierStart =
     coalition.navalGroups?.some(
@@ -1399,6 +1530,7 @@ export function addFlightGroups(
   }
 
   const usedParkingSlots = new Map<string, Set<string>>() // Airdrome Name -> Set of Slot IDs
+  const parkedOccupiers = collectParkedOccupiers(mission)
   const usedFarpParkingSlots = new Map<string, number>() // Coalition/FARP -> used native pads
   const usedFarpOverflowSlots = new Map<string, number>() // Coalition/FARP -> next fallback slot
   const flightConfigs: MissionFlightConfig[] = []
@@ -1416,13 +1548,19 @@ export function addFlightGroups(
     resolveAirActivity(campaign.campaignParams?.airActivity) / 3
   )
   const culledFlightIds = selectFlightIdsForMission(campaign, theatre)
+  const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
 
   for (const [key, value] of Object.entries(campaign.coalitions)) {
     const missionCoalitionKey = key === 'player' ? 'blue' : key === 'opponent' ? 'red' : 'neutrals'
     const coalitionKey = key as CoalitionKey
     const flightGroups = value.flightGroups?.filter(
       (fg) =>
-        (culledFlightIds == null || culledFlightIds.has(fg.id)) &&
+        (!liveBubble ||
+          fg.task === 'AWACS' ||
+          fg.aircrafts.some((aircraft) => aircraft.client)) &&
+        (culledFlightIds == null ||
+          culledFlightIds.has(fg.id) ||
+          (liveBubble && fg.task === 'AWACS')) &&
         shouldIncludeFlightGroupInMission(coalitionKey, fg, {
           throttleEnemyNonCapFlights,
           enemyNonCapKeepChance
@@ -1468,7 +1606,8 @@ export function addFlightGroups(
         return
       }
 
-      const frequency = assignFlightGroupFrequency(aircraftDef)
+      const frequency =
+        fg.task === 'AWACS' ? AWACS_FREQUENCY : assignFlightGroupFrequency(aircraftDef)
 
       // Use the pre-assigned group ID
       const groupId = flightGroupIdToGroupId.get(fg.id) ?? nextId()
@@ -1583,7 +1722,9 @@ export function addFlightGroups(
 
       // Initialize used slots for this airdrome if not exists
       if (airdrome && !usedParkingSlots.has(airdromeName)) {
-        usedParkingSlots.set(airdromeName, new Set())
+        const used = new Set<string>()
+        markStandsOccupiedByParkedAircraft(airdrome.standlist, used, parkedOccupiers)
+        usedParkingSlots.set(airdromeName, used)
       }
       const airdromeUsedSlots = usedParkingSlots.get(airdromeName)
 
@@ -1591,7 +1732,7 @@ export function addFlightGroups(
       const inFlightState = calculateInFlightPosition(
         fg.flightplan,
         campaign.time,
-        fg.task === 'CAP' ? config.packages.CAP.patrolDuration : undefined
+        orbitPatrolDurationMs(fg.task)
       )
       const isInFlight = inFlightState !== null
       const airborneSpawnAltitude = inFlightState
@@ -1668,15 +1809,14 @@ export function addFlightGroups(
           const isHelicopter = aircraftDef.isHelicopter ?? false
           const isLarge = aircraftDef.isLarge ?? false
 
-          const slot = Object.values(airdrome.standlist).find((s) => {
-            if (airdromeUsedSlots.has(s.id)) return false
-            if (s.blocked) return false
-
-            if (isHelicopter && !s.helicopter) return false
-            if (!isHelicopter && !s.plane) return false
-            if (isLarge && !s.large) return false
-
-            return true
+          const playerAircraft = missionAircraft.find((entry) => entry.client)
+          const slot = pickParkingStand({
+            stands: airdrome.standlist,
+            used: airdromeUsedSlots,
+            occupiers: parkedOccupiers,
+            isHelicopter,
+            isLarge,
+            preferId: ac === playerAircraft ? fg.parkingStandId : undefined
           })
 
           if (slot) {
@@ -1845,7 +1985,20 @@ export function addFlightGroups(
       if (isInFlight && inFlightState) {
         const nextWp = waypointsToUse[0]
         const currentTasks: z.infer<typeof schemas.dcs.task>[] = []
-        if (fg.task === 'CAP' && inFlightState.capOrbit && inFlightState.capOrbit.remainingMs > 0) {
+        if (
+          (fg.task === 'CAP' || fg.task === 'AWACS') &&
+          inFlightState.capOrbit &&
+          inFlightState.capOrbit.remainingMs > 0
+        ) {
+          if (fg.task === 'AWACS') {
+            currentTasks.push({
+              enabled: true,
+              auto: false,
+              id: 'AWACS',
+              number: currentTasks.length + 1,
+              params: {}
+            })
+          }
           currentTasks.push(
             createCapOrbitTask(
               inFlightState.capOrbit.racetrackStart,
@@ -1984,7 +2137,7 @@ export function addFlightGroups(
                 groupId: targetGroupId,
                 attackQtyLimit: false,
                 expend: 'Auto',
-                groupAttack: false,
+                groupAttack: fg.task === 'CAS',
                 weaponType: 0
               }
             })
@@ -1992,27 +2145,43 @@ export function addFlightGroups(
             const aimpoint = resolveTargetPosition(campaign, theatre, fg)
             if (aimpoint) pushPointBomb(tasks, aimpoint)
           }
+          if (fg.task === 'CAS') {
+            const aimpoint = resolveTargetPosition(campaign, theatre, fg) ?? {
+              x: wp.position.x,
+              y: wp.position.y
+            }
+            tasks.push(createCasEngageTask(aimpoint, tasks.length + 1))
+          }
         }
 
         if (
-          fg.task === 'CAP' &&
+          (fg.task === 'CAP' || fg.task === 'AWACS') &&
           wp.type === 'Task' &&
           nextWp?.type === 'RaceTrack End' &&
-          config.packages.CAP.patrolDuration > 0
+          (orbitPatrolDurationMs(fg.task) ?? 0) > 0
         ) {
+          if (fg.task === 'AWACS') {
+            tasks.push({
+              enabled: true,
+              auto: false,
+              id: 'AWACS',
+              number: tasks.length + 1,
+              params: {}
+            })
+          }
           tasks.push(
             createCapOrbitTask(
               wp.position,
               nextWp.position,
               nextWp.speed,
               wp.altitude,
-              config.packages.CAP.patrolDuration,
+              orbitPatrolDurationMs(fg.task) ?? config.packages.CAP.patrolDuration,
               tasks.length + 1
             )
           )
         }
 
-        if (fg.task === 'Fighter Sweep' && wp.type === 'Task') {
+        if ((fg.task === 'Fighter Sweep' || fg.task === 'Intercept') && wp.type === 'Task') {
           tasks.push(createSweepEngageTask(wp.position, tasks.length + 1))
         }
 

@@ -246,18 +246,18 @@ export function buildCasMissionWaypoints(
         x: targetPosition.x - ux * contactDistance,
         y: targetPosition.y - uy * contactDistance
       },
-      altitude: 3500,
+      altitude: 2500,
       altitudeType: 'BARO',
       speed: 200,
-      type: 'Task'
+      type: 'Nav'
     },
     {
       name: 'Target',
       position: targetPosition,
-      altitude: 0,
-      altitudeType: 'RADIO',
+      altitude: 1500,
+      altitudeType: 'BARO',
       speed: 180,
-      type: 'Nav'
+      type: 'Task'
     },
     {
       name: 'Hold',
@@ -283,9 +283,60 @@ export function buildCasMissionWaypoints(
   ]
 }
 
-export function buildCapMissionWaypoints(
+export function buildAwacsMissionWaypoints(
   homeBasePosition: Position,
   patrolCenter: Position
+): Waypoint[] {
+  const dx = patrolCenter.x - homeBasePosition.x
+  const dy = patrolCenter.y - homeBasePosition.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  const ux = distance > 0 ? dx / distance : 1
+  const uy = distance > 0 ? dy / distance : 0
+
+  const px = -uy
+  const py = ux
+  const racetrackHalfLength = 60_000
+  const entryDistance = 20_000
+  const altitude = 9144
+
+  return [
+    {
+      name: 'Patrol Entry',
+      position: {
+        x: patrolCenter.x - ux * entryDistance,
+        y: patrolCenter.y - uy * entryDistance
+      },
+      altitude,
+      speed: 220,
+      type: 'Nav'
+    },
+    {
+      name: 'Racetrack Start',
+      position: {
+        x: patrolCenter.x + px * racetrackHalfLength,
+        y: patrolCenter.y + py * racetrackHalfLength
+      },
+      altitude,
+      speed: 200,
+      type: 'Task'
+    },
+    {
+      name: 'Racetrack End',
+      position: {
+        x: patrolCenter.x - px * racetrackHalfLength,
+        y: patrolCenter.y - py * racetrackHalfLength
+      },
+      altitude,
+      speed: 200,
+      type: 'RaceTrack End'
+    }
+  ]
+}
+
+export function buildCapMissionWaypoints(
+  homeBasePosition: Position,
+  patrolCenter: Position,
+  altitude = 7000
 ): Waypoint[] {
   const dx = patrolCenter.x - homeBasePosition.x
   const dy = patrolCenter.y - homeBasePosition.y
@@ -305,7 +356,7 @@ export function buildCapMissionWaypoints(
         x: patrolCenter.x - ux * entryDistance,
         y: patrolCenter.y - uy * entryDistance
       },
-      altitude: 7000,
+      altitude,
       speed: 220,
       type: 'Nav'
     },
@@ -315,7 +366,7 @@ export function buildCapMissionWaypoints(
         x: patrolCenter.x + px * racetrackHalfLength,
         y: patrolCenter.y + py * racetrackHalfLength
       },
-      altitude: 7000,
+      altitude,
       speed: 200,
       type: 'Task'
     },
@@ -325,9 +376,51 @@ export function buildCapMissionWaypoints(
         x: patrolCenter.x - px * racetrackHalfLength,
         y: patrolCenter.y - py * racetrackHalfLength
       },
-      altitude: 7000,
+      altitude,
       speed: 200,
       type: 'RaceTrack End'
+    }
+  ]
+}
+
+export function buildInterceptMissionWaypoints(
+  homeBasePosition: Position,
+  interceptPoint: Position
+): Waypoint[] {
+  const dx = interceptPoint.x - homeBasePosition.x
+  const dy = interceptPoint.y - homeBasePosition.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  const ux = distance > 0 ? dx / distance : 1
+  const uy = distance > 0 ? dy / distance : 0
+  const commitDistance = Math.min(18_000, Math.max(8_000, distance * 0.2))
+
+  return [
+    {
+      name: 'Commit',
+      position: {
+        x: interceptPoint.x - ux * commitDistance,
+        y: interceptPoint.y - uy * commitDistance
+      },
+      altitude: 7000,
+      speed: 250,
+      type: 'Nav'
+    },
+    {
+      name: 'Intercept',
+      position: interceptPoint,
+      altitude: 7500,
+      speed: 260,
+      type: 'Task'
+    },
+    {
+      name: 'Egress',
+      position: {
+        x: interceptPoint.x - ux * commitDistance * 1.5,
+        y: interceptPoint.y - uy * commitDistance * 1.5
+      },
+      altitude: 7000,
+      speed: 240,
+      type: 'Nav'
     }
   ]
 }

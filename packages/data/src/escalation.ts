@@ -90,6 +90,8 @@ function applyFactionKit(
   coalition: Campaign['coalitions']['player'],
   faction: (typeof factions)[number]
 ) {
+  coalition.id = faction.id
+  coalition.countryName = faction.countryName
   coalition.aircraftTypes = cloneAircraftTypes(faction.aircraftTypes)
   const template = templates.find((entry) => entry.name === faction.templateName)
   if (template) {

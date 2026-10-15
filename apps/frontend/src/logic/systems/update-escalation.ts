@@ -6,6 +6,8 @@ import {
   MS_PER_ESCALATION_DAY,
   nextEscalationStage,
   pruneGermanyIadsDeadUnitsForEraChange,
+  scenarios,
+  theatres,
   type EscalationStage
 } from '@dcc/data'
 import type * as z from 'zod'
@@ -15,6 +17,12 @@ import { logCampaignAction } from '@/logic/simulation-log'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type CoalitionData = Campaign['coalitions']['player']
+type FlightGroup = CoalitionData['flightGroups'][number]
+type Theatre = z.infer<typeof schemas.theatre>
+type Position = z.infer<typeof schemas.position>
+
+const STARTUP_DELAY_MS = 10 * 60 * 1000
+const RTB_SPEED = 220
 
 function restoreCareerAircraft(draft: Campaign) {
   if (!draft.career) return
@@ -30,24 +38,59 @@ function allowedAircraft(coalition: CoalitionData) {
   return new Set(Object.values(coalition.aircraftTypes).flat())
 }
 
-/** AI sorties from the previous generation free their slots so the new roster can launch. */
-function retirePreviousGenerationFlights(draft: Campaign) {
+function homePosition(theatre: Theatre, homeBase: string | undefined): Position | undefined {
+  if (!homeBase) return undefined
+  const airdrome = theatre.airdromeDetails[homeBase]
+  if (airdrome) return { x: airdrome.x, y: airdrome.y }
+  return theatre.objectives.find((objective) => objective.name === homeBase)?.position
+}
+
+function sendFlightHome(draft: Campaign, group: FlightGroup, theatre: Theatre) {
+  const home = homePosition(theatre, group.homeBase) ?? group.position
+  group.target = undefined
+  group.tot = undefined
+  group.packageId = undefined
+  group.flightplan.startTime = new Date(draft.time.getTime() - STARTUP_DELAY_MS)
+  group.flightplan.waypoints = [
+    {
+      name: 'RTB',
+      type: 'Nav',
+      altitude: 6_000,
+      speed: RTB_SPEED,
+      position: { ...group.position }
+    },
+    {
+      name: 'Landing',
+      type: 'Landing',
+      altitude: 0,
+      speed: RTB_SPEED,
+      position: { ...home }
+    }
+  ]
+}
+
+/** Previous-generation AI recover to base instead of vanishing mid-sortie. */
+function retirePreviousGenerationFlights(draft: Campaign, theatre: Theatre | undefined) {
   for (const side of ['player', 'opponent'] as const) {
     const coalition = draft.coalitions[side]
     const allowed = allowedAircraft(coalition)
-    const removed = new Set<string>()
-    coalition.flightGroups = coalition.flightGroups.filter((group) => {
+    const recovering = new Set<string>()
+    for (const group of coalition.flightGroups) {
       const crewed = group.aircrafts.some((aircraft) => aircraft.client)
       const current = group.aircrafts.every((aircraft) => allowed.has(aircraft.aircraftName))
-      if (crewed || current) return true
-      removed.add(group.id)
-      return false
-    })
+      if (crewed || current) continue
+      recovering.add(group.id)
+      if (theatre) sendFlightHome(draft, group, theatre)
+    }
+    if (recovering.size === 0) continue
     coalition.packages = coalition.packages.filter(
       (missionPackage) =>
         missionPackage.members.length > 0 &&
-        missionPackage.members.every((member) => !removed.has(member.flightGroupId))
+        missionPackage.members.every((member) => !recovering.has(member.flightGroupId))
     )
+    if (!theatre) {
+      coalition.flightGroups = coalition.flightGroups.filter((group) => !recovering.has(group.id))
+    }
   }
 }
 
@@ -87,6 +130,7 @@ export function updateEscalation(draft: Campaign) {
   const durationMs = escalation.eraDurationDays * MS_PER_ESCALATION_DAY
   if (durationMs <= 0) return
 
+  const previous = stage
   while (stage !== 'Modern') {
     if (draft.time.getTime() - stageStartedAt.getTime() < durationMs) break
     const next = nextEscalationStage(stage)
@@ -101,15 +145,21 @@ export function updateEscalation(draft: Campaign) {
     stage = next
     stageStartedAt = new Date(draft.time)
     escalation.history.push({ stage: next, startedAt: stageStartedAt })
-    logCampaignAction(draft, 'player', `IADS and fleet advanced to ${next}`)
   }
 
   if (stage === escalation.stage) return
 
   restoreCareerAircraft(draft)
-  retirePreviousGenerationFlights(draft)
+  const scenario = scenarios.find((entry) => entry.id === draft.scenarioId)
+  const theatre = theatres.find((entry) => entry.name === scenario?.theatreName)
+  retirePreviousGenerationFlights(draft, theatre)
   refreshGroundGenerations(draft)
   escalation.stage = stage
   escalation.stageStartedAt = stageStartedAt
   draft.era = stage
+  logCampaignAction(
+    draft,
+    'player',
+    `Generation advanced to ${stage}. USAFE and GSFG re-equipped; ${previous} sorties are recovering to base.`
+  )
 }

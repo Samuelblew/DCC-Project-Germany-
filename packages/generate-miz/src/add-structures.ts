@@ -78,10 +78,11 @@ export function addStructures(
         if (!buildingInfo) return
 
         const unitId = nextId()
-        // A FARP is a complete deployable template. The theatre target only marks
-        // its origin; using the target's first static would replace the landing
-        // pad with whatever scenery object happened to reserve that location.
-        const targetPosition = struct.type === 'Farp' ? undefined : target?.unitPositions[index]
+        // A FARP or an oil rig is a complete template. The theatre target only marks
+        // its origin; using the target's first static would replace the rig with
+        // whatever land object reserved that spot.
+        const keepTemplate = struct.type === 'Farp' || struct.type === 'Oil Platform'
+        const targetPosition = keepTemplate ? undefined : target?.unitPositions[index]
         const useTargetStatic = targetPosition != null
         const posX = targetPosition?.x ?? basePos.x + building.offset.x
         const posY = targetPosition?.y ?? basePos.y + building.offset.y

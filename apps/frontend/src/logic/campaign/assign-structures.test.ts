@@ -53,7 +53,34 @@ describe('scenario-placed spawn structures', () => {
     )
 
     expect(spawners.map((s) => `${s.objectiveId}:${s.type}`).sort()).toEqual(
-      required.map((r) => `${r.objectiveId}:${r.type}`).sort()
+      required
+        .filter((assignment) => assignment.type === 'Barrack' || assignment.type === 'Depot')
+        .map((r) => `${r.objectiveId}:${r.type}`)
+        .sort()
     )
+  })
+
+  test('Fulda puts the Eisenach car plant beside the barrack, not on top of it', () => {
+    const scenario = scenarios.find((candidate) => candidate.id === 'fulda-gap')!
+    const theatre = theatres.find((candidate) => candidate.name === scenario.theatreName)!
+    const objective = theatre.objectives.find((candidate) => candidate.name === 'Eisenach')!
+    const assignments = assignStructures(
+      [
+        {
+          id: objective.name,
+          position: objective.position,
+          targets: theatre.targets[objective.name] ?? []
+        }
+      ],
+      [],
+      { requiredStructures: scenario.start.opponent.structureAssignments }
+    )
+    const barrack = assignments.find((assignment) => assignment.type === 'Barrack')
+    const factory = assignments.find((assignment) => assignment.type === 'Factory')
+
+    expect(factory?.buildings.map((building) => building.type)).toEqual(
+      expect.arrayContaining(['Workshop A', 'Warehouse'])
+    )
+    expect(factory?.position).not.toEqual(barrack?.position)
   })
 })

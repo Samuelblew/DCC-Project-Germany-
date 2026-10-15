@@ -41,6 +41,29 @@ describe('Germany IADS escalation ladder', () => {
     expect(sites.find((site) => site.id === 'BSAM-PATRIOT-1')?.kind).toBe('sam')
   })
 
+  test('does not stack cloned airbase aircraft on the same parking spot', () => {
+    const vietnam = getGermanyIadsSites('Vietnam')
+    const lateCw = getGermanyIadsSites('Late CW')
+
+    expect(vietnam.some((site) => site.units[0]?.type === 'Mi-8MT')).toBe(true)
+    expect(getGermanyIadsSites('Korea').some((site) => site.units[0]?.type === 'Mi-8MT')).toBe(
+      false
+    )
+
+    for (const sites of [vietnam, lateCw, getGermanyIadsSites('Modern')]) {
+      const parking = sites
+        .filter((site) => site.kind === 'airbase')
+        .map((site) => {
+          const unit = site.units[0]
+          return `${unit?.type}:${Math.round((unit?.x ?? site.x) * 1000)}:${Math.round((unit?.y ?? site.y) * 1000)}`
+        })
+      expect(parking).toHaveLength(new Set(parking).size)
+    }
+
+    expect(lateCw.find((site) => site.id === 'Static Mi-8MTV2-1')).toBeDefined()
+    expect(lateCw.find((site) => site.id === 'Static Mi-8MTV2-1-1')).toBeUndefined()
+  })
+
   test('IADS follows Escalation stage even if campaign.era is Late CW', () => {
     const era = campaignIadsEra({
       era: 'Late CW',

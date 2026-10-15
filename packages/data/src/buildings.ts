@@ -69,6 +69,11 @@ export const buildings: Record<
     shapeName: 'him_bak_a',
     type: 'Chemical tank A'
   },
+  'Oil rig': {
+    category: 'Heliports',
+    shapeName: 'oil_platform',
+    type: 'Oil rig'
+  },
   'Hangar B': {
     category: 'Fortifications',
     shapeName: 'angar_b',

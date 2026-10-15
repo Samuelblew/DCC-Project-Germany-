@@ -371,4 +371,101 @@ describe('updateFlightGroups', () => {
     expect(campaign.coalitions.player.navalGroups[0]?.damage).toBe(0)
     expect(campaign.coalitions.opponent.flightGroups[0]?.targetDestroyed).toBe(true)
   })
+
+  test('CAS destroys enemy ground units at TOT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'gg-1',
+        units: [{ name: 'T-55', count: 8 }],
+        position: { x: 5000, y: 0 },
+        objectiveId: 'Vacha',
+        state: 'combat'
+      }
+    ]
+    const cas = createScheduledFlight({
+      id: 'cas-1',
+      task: 'CAS',
+      startTime: new Date('2026-01-01T11:45:00.000Z')
+    })
+    cas.target = { id: 'gg-1', type: 'Ground Group', objectiveId: 'Vacha' }
+    cas.tot = new Date('2026-01-01T11:59:00.000Z')
+    campaign.coalitions.player.flightGroups = [cas]
+
+    updateFlightGroups(campaign, 'player')
+
+    expect(campaign.coalitions.opponent.groundGroups[0]?.units[0]?.count).toBe(4)
+    expect(campaign.coalitions.player.flightGroups[0]?.targetDestroyed).toBe(true)
+    expect(campaign.logs.some((entry) => entry.message.includes('CAS hit'))).toBe(true)
+  })
+
+  test('company air defense drives the CAS flight off', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'gg-1',
+        units: [
+          { name: 'T-55', count: 6 },
+          { name: 'ZSU-23-4 Shilka', count: 2 }
+        ],
+        position: { x: 5000, y: 0 },
+        objectiveId: 'Vacha',
+        state: 'combat'
+      }
+    ]
+    const cas = createScheduledFlight({
+      id: 'cas-1',
+      task: 'CAS',
+      startTime: new Date('2026-01-01T11:45:00.000Z')
+    })
+    cas.target = { id: 'gg-1', type: 'Ground Group', objectiveId: 'Vacha' }
+    cas.tot = new Date('2026-01-01T11:59:00.000Z')
+    campaign.coalitions.player.flightGroups = [cas]
+
+    updateFlightGroups(campaign, 'player')
+
+    expect(campaign.coalitions.opponent.groundGroups[0]?.units.reduce((sum, unit) => sum + unit.count, 0)).toBe(8)
+    expect(campaign.logs.some((entry) => entry.message.includes('driven off'))).toBe(true)
+  })
+
+  test('CAS does not attack before TOT', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'gg-1',
+        units: [{ name: 'T-55', count: 8 }],
+        position: { x: 5000, y: 0 },
+        objectiveId: 'Vacha',
+        state: 'combat'
+      }
+    ]
+    const cas = createScheduledFlight({
+      id: 'cas-1',
+      task: 'CAS',
+      startTime: new Date('2026-01-01T11:45:00.000Z')
+    })
+    cas.target = { id: 'gg-1', type: 'Ground Group', objectiveId: 'Vacha' }
+    cas.tot = new Date('2026-01-01T12:30:00.000Z')
+    campaign.coalitions.player.flightGroups = [cas]
+
+    updateFlightGroups(campaign, 'player')
+
+    expect(campaign.coalitions.opponent.groundGroups[0]?.units[0]?.count).toBe(8)
+    expect(campaign.coalitions.player.flightGroups[0]?.targetDestroyed).toBeUndefined()
+  })
+
+  test('a landed flight waits an hour before that type launches from the same field', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.player.flightGroups = [createLandedStrategicStrike()]
+
+    updateFlightGroups(campaign, 'player')
+
+    expect(campaign.coalitions.player.flightGroups).toHaveLength(0)
+    expect(campaign.coalitions.player.aircraftTurnaroundUntil?.['Home:B-52H']).toBe(
+      campaignTime.getTime() + 60 * 60 * 1000
+    )
+  })
 })

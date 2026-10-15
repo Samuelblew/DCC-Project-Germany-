@@ -14,6 +14,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { getAircraftDisplayName } from '@/lib/aircraft-display'
 import { cn } from '@/lib/utils'
 import { AircraftRosterFilterToggle } from './aircraft-roster-filter-toggle'
+import { PlayerParkingSelect } from './player-parking-select'
 
 type FlightGroup = z.infer<typeof schemas.flightGroup>
 
@@ -274,6 +275,14 @@ export function FlightGroupCard({
           )}
         </div>
       )}
+      {showClientControls && hasClients ? (
+        <div className="mt-2 border-t border-synthwave-pink/10 pt-2">
+          <PlayerParkingSelect
+            flightGroupId={group.id}
+            aircraftName={group.aircrafts.find((aircraft) => aircraft.client)?.aircraftName}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }

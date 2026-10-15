@@ -568,6 +568,246 @@ describe('addFlightGroups parking assignment', () => {
     expect(units.map((unit) => unit.parking)).toEqual(['2', '3'])
   })
 
+  test('parks the player on the stand they chose and gives the wingman another spot', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const group = createFlightGroup('blue-1', 'Enfield-1', startTime)
+    group.aircrafts[0]!.client = true
+    group.parkingStandId = '03'
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+
+    const theatreWithParking: Theatre = {
+      ...theatre,
+      airdromeDetails: {
+        'Test Base': {
+          id: 1,
+          name: 'Test Base',
+          x: 1000,
+          y: 1000,
+          runwayAngle: 90,
+          standlist: {
+            '01': {
+              id: '01',
+              crossroad_index: 1,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 100,
+              y: 100
+            },
+            '02': {
+              id: '02',
+              crossroad_index: 2,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: true,
+              x: 200,
+              y: 200
+            },
+            '03': {
+              id: '03',
+              crossroad_index: 3,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 300,
+              y: 300
+            }
+          }
+        }
+      }
+    }
+
+    const result = addFlightGroups(mission, campaign, theatreWithParking)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+
+    const units = mission.coalition.blue.country?.[0]?.plane?.group?.[0]?.units ?? []
+    expect(units.map((unit) => unit.parking_id)).toEqual(['03', '01'])
+    expect(units.map((unit) => unit.parking)).toEqual(['3', '1'])
+  })
+
+  test('keeps live aircraft clear of a parked helicopter on the ramp', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    campaign.coalitions.player.flightGroups = [createFlightGroup('blue-1', 'Enfield-1', startTime)]
+    campaign.coalitions.opponent.flightGroups = []
+    mission.coalition.red.country![0]!.static = {
+      group: [
+        {
+          groupId: 800,
+          name: 'Static Mi-8MTV2-1',
+          heading: 0,
+          hidden: false,
+          dead: false,
+          x: 100,
+          y: 100,
+          units: [
+            {
+              unitId: 801,
+              name: 'Static Mi-8MTV2-1',
+              type: 'Mi-8MT',
+              category: 'Helicopters',
+              x: 100,
+              y: 100,
+              heading: 0
+            }
+          ],
+          route: { points: [] }
+        }
+      ]
+    }
+
+    const theatreWithParking: Theatre = {
+      ...theatre,
+      airdromeDetails: {
+        'Test Base': {
+          id: 1,
+          name: 'Test Base',
+          x: 1000,
+          y: 1000,
+          runwayAngle: 90,
+          standlist: {
+            '01': {
+              id: '01',
+              crossroad_index: 1,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 105,
+              y: 100
+            },
+            '02': {
+              id: '02',
+              crossroad_index: 2,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 118,
+              y: 100
+            },
+            '03': {
+              id: '03',
+              crossroad_index: 3,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 160,
+              y: 100
+            },
+            '04': {
+              id: '04',
+              crossroad_index: 4,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 190,
+              y: 100
+            }
+          }
+        }
+      }
+    }
+
+    const result = addFlightGroups(mission, campaign, theatreWithParking)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+
+    const units = mission.coalition.blue.country?.[0]?.plane?.group?.[0]?.units ?? []
+    expect(units.map((unit) => unit.parking_id)).toEqual(['03', '04'])
+  })
+
+  test('honors a chosen stand that sits near a parked helicopter', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const group = createFlightGroup('blue-1', 'Enfield-1', startTime)
+    group.aircrafts[0]!.client = true
+    group.parkingStandId = '02'
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+    mission.coalition.red.country![0]!.static = {
+      group: [
+        {
+          groupId: 800,
+          name: 'Static Mi-8MTV2-1',
+          heading: 0,
+          hidden: false,
+          dead: false,
+          x: 100,
+          y: 100,
+          units: [
+            {
+              unitId: 801,
+              name: 'Static Mi-8MTV2-1',
+              type: 'Mi-8MT',
+              category: 'Helicopters',
+              x: 100,
+              y: 100,
+              heading: 0
+            }
+          ],
+          route: { points: [] }
+        }
+      ]
+    }
+
+    const theatreWithParking: Theatre = {
+      ...theatre,
+      airdromeDetails: {
+        'Test Base': {
+          id: 1,
+          name: 'Test Base',
+          x: 1000,
+          y: 1000,
+          runwayAngle: 90,
+          standlist: {
+            '02': {
+              id: '02',
+              crossroad_index: 2,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 118,
+              y: 100
+            },
+            '03': {
+              id: '03',
+              crossroad_index: 3,
+              helicopter: true,
+              large: true,
+              plane: true,
+              shelter: false,
+              x: 160,
+              y: 100
+            }
+          }
+        }
+      }
+    }
+
+    const result = addFlightGroups(mission, campaign, theatreWithParking)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+
+    const units = mission.coalition.blue.country?.[0]?.plane?.group?.[0]?.units ?? []
+    expect(units.map((unit) => unit.parking_id)).toEqual(['02', '03'])
+  })
+
   test('assigns native FARP parking slots across client helicopter groups', () => {
     const startTime = new Date('2026-01-01T00:00:00Z')
     const mission = createMission()
@@ -1259,6 +1499,78 @@ describe('addFlightGroups mission script config', () => {
       expect.objectContaining({
         id: 'AttackGroup',
         params: expect.objectContaining({ groupId: 900 })
+      })
+    )
+  })
+
+  test('orders CAS flights to attack the targeted ground group at the task waypoint', () => {
+    const startTime = new Date('2026-01-01T00:00:00Z')
+    const mission = createMission()
+    const campaign = createCampaign(startTime)
+    const group = createTaskFlightGroup('blue-cas-attack', 'Enfield-1', startTime, 'CAS')
+    group.target = {
+      id: 'ground-1',
+      type: 'Ground Group',
+      objectiveId: 'Target Objective'
+    }
+    campaign.coalitions.player.flightGroups = [group]
+    campaign.coalitions.opponent.flightGroups = []
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'ground-1',
+        units: [{ name: 'T-55', count: 6 }],
+        position: { x: 2000, y: 2000 },
+        objectiveId: 'Target Objective',
+        state: 'combat'
+      }
+    ]
+    mission.coalition.red.country![0]!.vehicle = {
+      group: [
+        {
+          groupId: 812,
+          name: 'Ground-ground-1-812',
+          units: [
+            {
+              unitId: 813,
+              name: 'Ground-ground-1-812-1',
+              x: 2000,
+              y: 2000,
+              type: 'T-55',
+              heading: 0,
+              skill: 'Average'
+            }
+          ],
+          x: 2000,
+          y: 2000,
+          hidden: false,
+          start_time: 0,
+          route: { points: [] }
+        }
+      ]
+    }
+
+    const result = addFlightGroups(mission, campaign, theatre)
+
+    expect(result.isOk()).toBe(true)
+    if (result.isErr()) throw result.error
+    const dcsGroup = mission.coalition.blue.country?.[0]?.plane?.group?.[0]
+    const taskWaypoint = dcsGroup?.route?.points.find((point) => point.name === 'CAS')
+    const tasks = taskWaypoint?.task?.params?.tasks
+
+    expect(dcsGroup?.task).toBe('CAS')
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        id: 'AttackGroup',
+        params: expect.objectContaining({ groupId: 812, groupAttack: true })
+      })
+    )
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        id: 'EngageTargetsInZone',
+        params: expect.objectContaining({
+          targetTypes: ['Ground Units'],
+          zoneRadius: 8000
+        })
       })
     )
   })

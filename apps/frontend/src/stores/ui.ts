@@ -5,10 +5,13 @@ export const mapLayerKeys = [
   'towns',
   'flights',
   'ground',
+  'naval',
+  'convoys',
   'structures',
   'sam',
   'ewr',
   'gci',
+  'pilots',
   'frontline',
   'samRange'
 ] as const
@@ -22,10 +25,13 @@ export const defaultMapLayers: MapLayers = {
   towns: true,
   flights: true,
   ground: true,
+  naval: true,
+  convoys: true,
   structures: true,
   sam: true,
   ewr: true,
   gci: true,
+  pilots: true,
   frontline: true,
   samRange: false
 }
@@ -49,6 +55,11 @@ export const uiStore = createStore({
       ...context,
       showMissionFootprint: !context.showMissionFootprint
     }),
+    setMapLayer: (context, event: { layer: MapLayerKey; visible: boolean }) => ({
+      ...context,
+      mapLayers: { ...defaultMapLayers, ...context.mapLayers, [event.layer]: event.visible }
+    }),
+    resetMapLayers: (context) => ({ ...context, mapLayers: { ...defaultMapLayers } }),
     toggleMapLayer: (context, event: { layer: MapLayerKey }) => ({
       ...context,
       mapLayers: {

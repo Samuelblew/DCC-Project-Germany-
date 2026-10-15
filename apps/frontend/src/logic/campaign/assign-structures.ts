@@ -106,18 +106,21 @@ function ensureRequiredStructures(
   requirements: NonNullable<AssignStructuresOptions['requiredStructures']>
 ) {
   const ensuredAssignments = [...assignments]
+  const placedOnObjective = new Map<string, number>()
 
   for (const requirement of requirements) {
     const objective = objectives.find((candidate) => candidate.id === requirement.objectiveId)
     if (!objective) continue
 
+    const sameObjectiveCount = placedOnObjective.get(requirement.objectiveId) ?? 0
     const assignment = createStructureAssignment(
       objective,
       requirement.type,
-      { x: 0, y: 0 },
+      { x: sameObjectiveCount * 280, y: 0 },
       requirement.targetName
     )
     if (!assignment) continue
+    placedOnObjective.set(requirement.objectiveId, sameObjectiveCount + 1)
 
     const duplicateIndex = ensuredAssignments.findIndex(
       (candidate) =>
@@ -227,9 +230,19 @@ export function assignStructures(
   const scenarioPlacesSpawns = (options.requiredStructures ?? []).some((requirement) =>
     requiredSpawnStructureTypeSet.has(requirement.type)
   )
+  const authoredTypes = new Set(
+    (options.requiredStructures ?? [])
+      .map((requirement) => requirement.type)
+      .filter((type) => !requiredSpawnStructureTypeSet.has(type))
+  )
   const requiredTypes = [
     ...(scenarioPlacesSpawns ? [] : requiredSpawnStructureTypes),
-    ...StructureType.filter((type) => !requiredSpawnStructureTypeSet.has(type))
+    ...StructureType.filter(
+      (type) =>
+        !requiredSpawnStructureTypeSet.has(type) &&
+        !authoredTypes.has(type) &&
+        type !== 'Oil Platform'
+    )
   ]
   const structureExclusionRangeOverrides: Partial<Record<StructureType, number>> =
     config.structureExclusionRanges

@@ -19,7 +19,7 @@ function createMission(): Mission {
 }
 
 describe('addAwacsGroups', () => {
-  test('adds AWACS to the carrier-based Falklands coalition', () => {
+  test('does not invent AWACS when the faction list is empty', () => {
     const scenario = scenarios.find((candidate) => candidate.id === 'falklands-1982')
     const theatre = theatres.find((candidate) => candidate.name === scenario?.theatreName)
     if (!scenario || !theatre) throw new Error('Falklands scenario data is missing')
@@ -44,6 +44,35 @@ describe('addAwacsGroups', () => {
     const result = addAwacsGroups(mission, campaign, theatre)
 
     expect(result.isOk()).toBe(true)
+    expect(mission.coalition.blue.country?.[0]?.plane?.group).toEqual([])
+    expect(mission.coalition.red.country?.[0]?.plane?.group).toEqual([])
+  })
+
+  test('injects faction AWACS when the campaign has not already spawned one', () => {
+    const scenario = scenarios.find((candidate) => candidate.id === 'falklands-1982')
+    const theatre = theatres.find((candidate) => candidate.name === scenario?.theatreName)
+    if (!scenario || !theatre) throw new Error('Falklands scenario data is missing')
+
+    const campaign = {
+      scenarioId: scenario.id,
+      coalitions: {
+        player: {
+          airdromeNames: scenario.start.player.airdromeNames,
+          aircraftTypes: { AWACS: ['E-3A'] },
+          navalGroups: structuredClone(scenario.navalGroups?.player ?? [])
+        },
+        opponent: {
+          airdromeNames: scenario.start.opponent.airdromeNames,
+          aircraftTypes: { AWACS: ['A-50'] },
+          navalGroups: structuredClone(scenario.navalGroups?.opponent ?? [])
+        }
+      }
+    } as unknown as Campaign
+    const mission = createMission()
+
+    const result = addAwacsGroups(mission, campaign, theatre)
+
+    expect(result.isOk()).toBe(true)
     expect(mission.coalition.blue.country?.[0]?.plane?.group[0]).toMatchObject({
       name: 'AWACS-blue',
       task: 'AWACS',
@@ -54,5 +83,44 @@ describe('addAwacsGroups', () => {
       task: 'AWACS',
       units: [{ type: 'A-50' }]
     })
+  })
+
+  test('does not inject a second AWACS when the mission already has one', () => {
+    const scenario = scenarios.find((candidate) => candidate.id === 'falklands-1982')
+    const theatre = theatres.find((candidate) => candidate.name === scenario?.theatreName)
+    if (!scenario || !theatre) throw new Error('Falklands scenario data is missing')
+
+    const campaign = {
+      scenarioId: scenario.id,
+      coalitions: {
+        player: {
+          airdromeNames: scenario.start.player.airdromeNames,
+          aircraftTypes: { AWACS: ['E-3A'] },
+          navalGroups: structuredClone(scenario.navalGroups?.player ?? [])
+        },
+        opponent: {
+          airdromeNames: scenario.start.opponent.airdromeNames,
+          aircraftTypes: { AWACS: ['A-50'] },
+          navalGroups: structuredClone(scenario.navalGroups?.opponent ?? [])
+        }
+      }
+    } as unknown as Campaign
+    const mission = createMission()
+    mission.coalition.blue.country![0]!.plane!.group.push({
+      name: 'Magic',
+      task: 'AWACS',
+      units: [{ type: 'E-3A' }]
+    } as never)
+    mission.coalition.red.country![0]!.plane!.group.push({
+      name: 'Mainstay',
+      task: 'AWACS',
+      units: [{ type: 'A-50' }]
+    } as never)
+
+    const result = addAwacsGroups(mission, campaign, theatre)
+
+    expect(result.isOk()).toBe(true)
+    expect(mission.coalition.blue.country?.[0]?.plane?.group).toHaveLength(1)
+    expect(mission.coalition.red.country?.[0]?.plane?.group).toHaveLength(1)
   })
 })

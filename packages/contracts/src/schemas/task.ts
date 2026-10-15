@@ -22,7 +22,8 @@ export const task = z.enum([
   'Refueling',
   'RescueHelo',
   'AFAC',
-  'Training'
+  'Training',
+  'ECM'
 ])
 
 type Task = z.infer<typeof task>
@@ -55,8 +56,8 @@ export function aircraftSupportsTask(availableTasks: readonly string[], taskName
 }
 
 /**
- * With no list configured, sweeps fall back to the CAP aircraft and training to every aircraft the
- * coalition owns.
+ * Any aircraft can train, any air-to-air aircraft can sweep, and scramble
+ * intercepts fall back to the CAP list when Intercept is empty.
  */
 export function resolveTaskAircraftTypes(
   aircraftTypes: Partial<Record<Task, string[]>>,
@@ -64,7 +65,7 @@ export function resolveTaskAircraftTypes(
 ): string[] {
   const configured = aircraftTypes[taskName] ?? []
   if (configured.length > 0) return configured
-  if (taskName === 'Fighter Sweep') return aircraftTypes.CAP ?? []
+  if (taskName === 'Fighter Sweep' || taskName === 'Intercept') return aircraftTypes.CAP ?? []
   if (taskName === 'Training') {
     return [...new Set(Object.values(aircraftTypes).flatMap((types) => types ?? []))]
   }

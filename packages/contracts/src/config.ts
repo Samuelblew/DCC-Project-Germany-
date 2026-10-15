@@ -52,6 +52,37 @@ export function resolveAirActivity(value: number | undefined) {
   return Math.min(airActivity.max, Math.max(airActivity.min, value))
 }
 
+/** Prefix of every supply-convoy DCS group, so mission-state sync can find them. */
+export const CONVOY_GROUP_PREFIX = 'DCC-CNV-'
+
+export type ImmersionSettings = {
+  civTraffic: 'off' | 'low' | 'medium' | 'high'
+  groundCrew: boolean
+  baseLife: boolean
+  convoys: boolean
+  ambientAir: boolean
+}
+
+const defaultImmersion: ImmersionSettings = {
+  civTraffic: 'low',
+  groundCrew: true,
+  baseLife: true,
+  convoys: true,
+  ambientAir: true
+}
+
+export function resolveImmersion(
+  value: Partial<ImmersionSettings> | undefined
+): ImmersionSettings {
+  return {
+    civTraffic: value?.civTraffic ?? defaultImmersion.civTraffic,
+    groundCrew: value?.groundCrew ?? defaultImmersion.groundCrew,
+    baseLife: value?.baseLife ?? defaultImmersion.baseLife,
+    convoys: value?.convoys ?? defaultImmersion.convoys,
+    ambientAir: value?.ambientAir ?? defaultImmersion.ambientAir
+  }
+}
+
 export const config = {
   packages: {
     'Pinpoint Strike': {
@@ -64,7 +95,7 @@ export const config = {
     },
     'Strategic Strike': {
       maxActive: {
-        player: 0,
+        player: 1,
         opponent: 1
       },
       maxDistance: 650_000,
@@ -88,7 +119,8 @@ export const config = {
         opponent: 1
       },
       maxDistance: 300_000,
-      aircraftsPerGroup: 2
+      aircraftsPerGroup: 2,
+      leadTime: 60 * 1000 // 1 minute before strike ToT when escorting a package
     },
     'Antiship Strike': {
       maxActive: {
@@ -114,9 +146,50 @@ export const config = {
       maxDistance: 200_000,
       aircraftsPerGroup: 2,
       engagementRange: 80_000, // Radar + missile range for A2A engagement
-      patrolDuration: 60 * 60 * 1000 // 1 hour patrol time
+      patrolDuration: 60 * 60 * 1000, // 1 hour patrol time
+      escortLeadTime: 8 * 60 * 1000 // on station before strike ToT
+    },
+    AWACS: {
+      maxActive: {
+        player: 1,
+        opponent: 1
+      },
+      maxDistance: 400_000,
+      aircraftsPerGroup: 1,
+      patrolDuration: 4 * 60 * 60 * 1000 // 4 campaign hours on station
+    },
+    ECM: {
+      maxActive: {
+        player: 1,
+        opponent: 1
+      },
+      maxDistance: 250_000,
+      aircraftsPerGroup: 1,
+      patrolDuration: 60 * 60 * 1000
+    },
+    Intercept: {
+      maxActive: {
+        player: 1,
+        opponent: 1
+      },
+      maxDistance: 250_000,
+      aircraftsPerGroup: 2,
+      engagementRange: 80_000
+    },
+    'Runway Attack': {
+      maxActive: {
+        player: 1,
+        opponent: 1
+      },
+      maxDistance: 300_000,
+      aircraftsPerGroup: 2,
+      recoveryMs: 4 * 60 * 60 * 1000 // cratered field stays quiet for 4 campaign hours
     },
     'Fighter Sweep': {
+      maxActive: {
+        player: 1,
+        opponent: 1
+      },
       maxDistance: 250_000,
       aircraftsPerGroup: 2,
       conflictSeparation: 25_000,

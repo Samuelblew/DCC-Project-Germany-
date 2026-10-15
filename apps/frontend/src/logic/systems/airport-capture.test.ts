@@ -3,7 +3,7 @@ import { schemas } from '@dcc/contracts'
 import { theatres } from '@dcc/data'
 import type * as z from 'zod'
 
-import { getNearbyObjectiveIds, isAirdromeVulnerable } from './airport-capture'
+import { craterAirdrome, getNearbyObjectiveIds, isAirdromeRecovering, isAirdromeVulnerable } from './airport-capture'
 import { spawnGroundGroups } from './spawn/ground-groups'
 import { updateGroundGroups } from './update-ground-groups'
 
@@ -175,6 +175,17 @@ describe('airport capture', () => {
       objectiveId: 'Sukhumi-Babushara',
       targetAirdromeName: undefined
     })
+  })
+
+  test('OCA craters a field so it stays in recovery', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.airdromeNames = ['Sukhumi-Babushara']
+    craterAirdrome(campaign, 'opponent', 'Sukhumi-Babushara', campaignTime)
+
+    expect(isAirdromeRecovering(campaign, 'opponent', 'Sukhumi-Babushara', campaignTime)).toBe(true)
+    expect(
+      campaign.coalitions.opponent.supplyNodes?.['Sukhumi-Babushara']?.logistics?.recoveryUntil
+    ).toEqual(new Date(campaignTime.getTime() + 4 * 60 * 60 * 1000))
   })
 })
 

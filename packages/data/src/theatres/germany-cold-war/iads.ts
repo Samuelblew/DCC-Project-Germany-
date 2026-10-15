@@ -35,11 +35,35 @@ export function isGermanyIadsTheatre(theatreName: string) {
   return theatreName === GERMANY_IADS_THEATRE
 }
 
-export function getGermanyIadsSites(era?: string) {
-  return germanyIadsSites.flatMap((site) => {
-    const resolved = resolveGermanyIadsSiteForEra(site, era)
-    return resolved ? [resolved] : []
+/**
+ * The Sentry import kept DCS clone groups (`Static Mi-8MTV2-1` and `Static Mi-8MTV2-1-1`) on the
+ * same parking spot. Keep the first, drop the rest, so Vietnam-on missions do not stack aircraft.
+ */
+function coincidentAirbaseKey(site: GermanyIadsSite) {
+  const unit = site.units[0]
+  const type = unit?.type ?? site.id
+  const x = Math.round((unit?.x ?? site.x) * 1000)
+  const y = Math.round((unit?.y ?? site.y) * 1000)
+  return `${type}:${x}:${y}`
+}
+
+function dropCoincidentAirbaseClones(sites: GermanyIadsSite[]) {
+  const occupied = new Set<string>()
+  return sites.filter((site) => {
+    if (site.kind !== 'airbase') return true
+    const key = coincidentAirbaseKey(site)
+    if (occupied.has(key)) return false
+    occupied.add(key)
+    return true
   })
+}
+
+export function getGermanyIadsSites(era?: string) {
+  const resolved = germanyIadsSites.flatMap((site) => {
+    const resolvedSite = resolveGermanyIadsSiteForEra(site, era)
+    return resolvedSite ? [resolvedSite] : []
+  })
+  return dropCoincidentAirbaseClones(resolved)
 }
 
 export function findGermanyIadsSite(id: string) {
@@ -72,7 +96,7 @@ export function livingGermanyIadsSite<T extends GermanyIadsSite>(
   site: T,
   deadUnits: Readonly<Record<string, readonly string[]>> | undefined
 ): T | null {
-  if (site.kind !== 'sam') return site
+  if (site.kind !== 'sam' && site.kind !== 'ewr') return site
   const dead = new Set(deadUnits?.[site.id] ?? [])
   if (dead.size === 0) return site
   const units = site.units.filter((unit) => !dead.has(unit.name))

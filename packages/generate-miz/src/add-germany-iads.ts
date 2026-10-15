@@ -11,6 +11,7 @@ import {
 } from '@dcc/data'
 import * as z from 'zod'
 
+import { gciPictureAnchors } from './add-gci'
 import { resolveAiSkill } from './ai-skill'
 import type { MissionCullingPlan } from './mission-culling'
 
@@ -28,15 +29,21 @@ export function addGermanyIads(
 
   // SAM batteries carry their range: long-range ones use the SAM band, everything else
   // (short-range air defence, radars, command posts) the ground band.
-  const sites = getGermanyIadsSites(campaignIadsEra(campaign)).filter(
-    (site) =>
+  const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
+  const residentRadars = gciPictureAnchors(campaign, theatre).sites
+  const sites = getGermanyIadsSites(campaignIadsEra(campaign)).filter((site) => {
+    // Command posts stay in the mission. A GCI van keeps its nearest search radar.
+    // The rest of the radars join the live bubble.
+    if (liveBubble && (site.kind === 'hq' || residentRadars.has(site.id))) return true
+    return (
       !cullingPlan ||
       cullingPlan.getSamMode(
         site.id,
         { x: site.x, y: site.y },
         site.kind === 'sam' ? site.range : undefined
       ) === 'full'
-  )
+    )
+  })
   const owners = germanyIadsOwnersFromObjectives(
     theatre.objectives,
     campaign.coalitions.player.objectiveIds,

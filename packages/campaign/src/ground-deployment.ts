@@ -1,6 +1,8 @@
 import { config, schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
+import { landNeighbors } from './objective-graph'
+
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
 type DeploymentSite = z.infer<typeof schemas.deploymentSite>
@@ -17,7 +19,7 @@ export const DEPLOYMENT_UNIT_FLOOR = 4
 
 const INFANTRY_PATTERN = /infantry|soldier|rifle|manpad|stinger|igla/i
 const AIR_DEFENSE_PATTERN =
-  /shorad|aaa|sam|stinger|igla|avenger|chaparral|osa|tunguska|tor|strela|roland|rapier|vulcan|hawk|zu-23|hq-7/i
+  /shorad|aaa|sam|stinger|igla|avenger|chaparral|osa|tunguska|tor|strela|roland|rapier|vulcan|hawk|zu-23|zsu|shilka|linebacker|gepard|quadmount|37mm|hq-7/i
 const ARTILLERY_PATTERN = /artillery|howitzer|mortar|mlrs|grad|paladin|m109|l118/i
 
 function stableHash(input: string): number {
@@ -48,11 +50,71 @@ export function classifyGroundUnit(name: string) {
   return 'vehicle' as const
 }
 
+/** APC or IFV the squad rides. A tank alone does not make the infantry mounted. */
+const TROOP_CARRIER = /m-113|mtlb|marder|bradley|stryker|m1126|\bbmp-|btr-/i
+
+export function isTroopCarrier(name: string) {
+  return TROOP_CARRIER.test(name)
+}
+
+export function isFootSoldier(name: string) {
+  return /infantry|soldier|manpad|stinger|igla/i.test(name)
+}
+
+/**
+ * Mounted when a carrier is in the group. Foot soldiers without one keep the infantry pace,
+ * even if a tank is along. A group with no infantry is armor and uses the vehicle pace.
+ */
+export function groundMarchKind(units: { name: string }[]): 'mounted' | 'foot' | 'armor' {
+  if (units.some((unit) => isTroopCarrier(unit.name))) return 'mounted'
+  if (units.some((unit) => isFootSoldier(unit.name))) return 'foot'
+  return 'armor'
+}
+
 export function isInfantryGroundGroup(group: GroundGroup): boolean {
   return (
     group.units.length > 0 &&
     group.units.every((unit) => classifyGroundUnit(unit.name) === 'infantry')
   )
+}
+
+function unitKindCounts(groups: { units: { name: string; count: number }[] }[]) {
+  let infantry = 0
+  let vehicles = 0
+  let total = 0
+  for (const group of groups) {
+    for (const unit of group.units) {
+      const count = Math.max(0, unit.count)
+      if (count === 0) continue
+      total += count
+      const kind = classifyGroundUnit(unit.name)
+      if (kind === 'infantry') infantry += count
+      else if (kind === 'vehicle' || kind === 'artillery') vehicles += count
+    }
+  }
+  return { infantry, vehicles, total }
+}
+
+/**
+ * A town held by infantry is harder than a column of tanks in the open.
+ * Armor meeting infantry on the road hits harder. Armor without infantry
+ * pays for driving into a held town.
+ */
+export function engagementPowerModifier(
+  ownGroups: { units: { name: string; count: number }[] }[],
+  enemyGroups: { units: { name: string; count: number }[] }[],
+  posture: 'town-defense' | 'town-assault' | 'meeting'
+) {
+  const own = unitKindCounts(ownGroups)
+  const enemy = unitKindCounts(enemyGroups)
+  if (own.total === 0) return 1
+  const infantryShare = own.infantry / own.total
+  const vehicleShare = own.vehicles / own.total
+  const enemyInfantryShare = enemy.total === 0 ? 0 : enemy.infantry / enemy.total
+  if (posture === 'town-defense' && infantryShare >= 0.4) return 1.45
+  if (posture === 'town-assault' && infantryShare < 0.25 && enemyInfantryShare >= 0.4) return 0.7
+  if (posture === 'meeting' && vehicleShare >= 0.3 && enemyInfantryShare >= 0.5) return 1.4
+  return 1
 }
 
 export function getGroundUnitWeight(name: string): number {
@@ -272,17 +334,22 @@ export function assignDeploymentSite(params: {
 }
 
 function getConnectionNeighbors(theatre: Theatre, objectiveId: string, mode: 'land' | 'any') {
-  const result: Array<{ objectiveId: string; waypoints: Position[] }> = []
-  for (const connection of theatre.connections ?? []) {
-    if (mode === 'land' && connection.mode === 'sea') continue
-    if (connection.from === objectiveId) {
-      result.push({ objectiveId: connection.to, waypoints: connection.waypoints })
+  if (mode === 'any') {
+    const result: Array<{ objectiveId: string; waypoints: Position[] }> = []
+    for (const connection of theatre.connections ?? []) {
+      if (connection.from === objectiveId) {
+        result.push({ objectiveId: connection.to, waypoints: connection.waypoints })
+      }
+      if (connection.bidirectional && connection.to === objectiveId) {
+        result.push({
+          objectiveId: connection.from,
+          waypoints: [...connection.waypoints].reverse()
+        })
+      }
     }
-    if (connection.bidirectional && connection.to === objectiveId) {
-      result.push({ objectiveId: connection.from, waypoints: [...connection.waypoints].reverse() })
-    }
+    return result
   }
-  return result
+  return landNeighbors(theatre, objectiveId)
 }
 
 export function findOwnedObjectiveRoute(params: {
@@ -290,6 +357,8 @@ export function findOwnedObjectiveRoute(params: {
   ownedObjectiveIds: ReadonlySet<string>
   fromObjectiveId: string
   destinationObjectiveIds: ReadonlySet<string>
+  /** Interdicted owned towns are not used as bridges; the destination itself may still be entered. */
+  blockedTransitIds?: ReadonlySet<string>
 }): { destinationObjectiveId: string; waypoints: Position[] } | null {
   const queue: Array<{ objectiveId: string; waypoints: Position[] }> = [
     { objectiveId: params.fromObjectiveId, waypoints: [] }
@@ -308,6 +377,12 @@ export function findOwnedObjectiveRoute(params: {
       if (
         visited.has(neighbor.objectiveId) ||
         !params.ownedObjectiveIds.has(neighbor.objectiveId)
+      ) {
+        continue
+      }
+      if (
+        params.blockedTransitIds?.has(neighbor.objectiveId) &&
+        !params.destinationObjectiveIds.has(neighbor.objectiveId)
       ) {
         continue
       }
@@ -393,6 +468,7 @@ export function beginGroundGroupRetreat(params: {
   theatre: Theatre
   group: GroundGroup
   now?: Date
+  blockedTransitIds?: ReadonlySet<string>
 }): 'withdrawing' | 'awaiting-extraction' | 'trapped' | null {
   const viability = evaluateCombatViability(params.group)
   if (!viability.mustRetreat || !params.group.objectiveId) return null
@@ -409,7 +485,8 @@ export function beginGroundGroupRetreat(params: {
     theatre: params.theatre,
     ownedObjectiveIds,
     fromObjectiveId: params.group.objectiveId,
-    destinationObjectiveIds: recoveryObjectiveIds(params.theatre, [...ownedObjectiveIds])
+    destinationObjectiveIds: recoveryObjectiveIds(params.theatre, [...ownedObjectiveIds]),
+    blockedTransitIds: params.blockedTransitIds
   })
 
   if (route) {

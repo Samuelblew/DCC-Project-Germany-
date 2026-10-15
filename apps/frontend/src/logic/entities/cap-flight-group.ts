@@ -19,15 +19,22 @@ export class CapFlightGroup extends FlightGroup {
       runwayAngle?: number
       aircraftType: z.infer<typeof schemas.dcs.aircraftName>
       packageId?: string
+      startTime?: Date
+      patrolAltitude?: number
+      patrolDurationMs?: number
+      target?: z.infer<typeof schemas.flightGroup>['target']
     }
   ): { flightGroupId: string; tot: Date } {
     const numAircraft = config.packages.CAP.aircraftsPerGroup
-    const missionWaypoints = buildCapMissionWaypoints(params.homeBasePosition, params.patrolCenter)
-
-    // Start 10-20 minutes in the future
-    const startTime = new Date(
-      draft.time.getTime() + Math.floor(Math.random() * (20 - 10 + 1) + 10) * 60 * 1000
+    const missionWaypoints = buildCapMissionWaypoints(
+      params.homeBasePosition,
+      params.patrolCenter,
+      params.patrolAltitude
     )
+
+    const startTime =
+      params.startTime ??
+      new Date(draft.time.getTime() + Math.floor(Math.random() * (20 - 10 + 1) + 10) * 60 * 1000)
 
     const { flightGroupId, tot } = spawnPlannedFlightGroup({
       draft,
@@ -41,8 +48,13 @@ export class CapFlightGroup extends FlightGroup {
       missionWaypoints,
       startTime,
       runwayAngle: params.runwayAngle,
-      packageId: params.packageId
+      packageId: params.packageId,
+      target: params.target
     })
+    const spawned = draft.coalitions[coalition].flightGroups.find(
+      (group) => group.id === flightGroupId
+    )
+    if (spawned && params.patrolDurationMs) spawned.patrolDurationMs = params.patrolDurationMs
 
     debugLog(
       `Spawned CAP group from ${params.homeBase} patrolling near ${params.patrolCenter.x}, ${params.patrolCenter.y}`
@@ -67,7 +79,12 @@ export class CapFlightGroup extends FlightGroup {
     const enemyFlightGroups = draft.coalitions[enemyCoalition].flightGroups
 
     // CAP engagement range (radar detection + missile range approximation)
-    const engagementRange = config.packages.CAP.engagementRange
+    const engagementRange =
+      this._data.task === 'Intercept'
+        ? config.packages.Intercept.engagementRange
+        : this._data.task === 'Fighter Sweep'
+          ? config.packages['Fighter Sweep'].engagementZoneRadius
+          : config.packages.CAP.engagementRange
 
     let engaged = false
 
@@ -248,7 +265,7 @@ export class CapFlightGroup extends FlightGroup {
     }
 
     const legTimeMs = this.getLegTimeMs(racetrackStart, racetrackEnd, racetrackEndSpeed)
-    const patrolDurationMs = config.packages.CAP.patrolDuration
+    const patrolDurationMs = this.patrolDurationMs()
 
     if (elapsed < patrolDurationMs) {
       const patrolPos = this.getPatrolPosition(racetrackStart, racetrackEnd, legTimeMs, elapsed)
@@ -332,7 +349,7 @@ export class CapFlightGroup extends FlightGroup {
     }
 
     const legTimeMs = this.getLegTimeMs(racetrackStart, racetrackEnd, racetrackEndSpeed)
-    const patrolDurationMs = config.packages.CAP.patrolDuration
+    const patrolDurationMs = this.patrolDurationMs()
 
     if (elapsed < patrolDurationMs) {
       return false
@@ -365,8 +382,19 @@ export class CapFlightGroup extends FlightGroup {
 
     return true
   }
+
+  private patrolDurationMs() {
+    if (this._data.patrolDurationMs) return this._data.patrolDurationMs
+    return this._data.task === 'AWACS'
+      ? config.packages.AWACS.patrolDuration
+      : config.packages.CAP.patrolDuration
+  }
 }
 
 export const isCapFlightGroup = (flightGroup: FlightGroup): flightGroup is CapFlightGroup => {
-  return flightGroup.task === 'CAP'
+  return (
+    flightGroup.task === 'CAP' ||
+    flightGroup.task === 'Intercept' ||
+    flightGroup.task === 'Fighter Sweep'
+  )
 }

@@ -5,7 +5,11 @@ import type * as z from 'zod'
 import { CapFlightGroup } from './cap-flight-group'
 import { DeadFlightGroup } from './dead-flight-group'
 import { FlightGroup } from './flight-group'
-import { buildStrikeMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
+import {
+  buildCasMissionWaypoints,
+  buildStrikeMissionWaypoints,
+  spawnPlannedFlightGroup
+} from './flight-group-spawn'
 import { SeadFlightGroup } from './sead-flight-group'
 import { StrikeFlightGroup } from './strike-flight-group'
 import { TransportFlightGroup } from './transport-flight-group'
@@ -319,41 +323,9 @@ describe('DEAD flight group creation', () => {
 })
 
 describe('CAS flight group creation', () => {
-  test('creates a CAS group through the shared planned-flight helper', () => {
+  test('creates a CAS group with the attack task on the target waypoint', () => {
     const campaign = createCampaign()
-    const missionWaypoints = [
-      {
-        name: 'Contact',
-        position: { x: 90_000, y: 0 },
-        altitude: 3500,
-        altitudeType: 'BARO' as const,
-        speed: 200,
-        type: 'Task' as const
-      },
-      {
-        name: 'Target',
-        position: targetPosition,
-        altitude: 0,
-        altitudeType: 'RADIO' as const,
-        speed: 180,
-        type: 'Nav' as const
-      },
-      {
-        name: 'Hold',
-        position: { x: 90_000, y: 12_000 },
-        altitude: 3500,
-        altitudeType: 'BARO' as const,
-        speed: 190,
-        type: 'Hold' as const
-      },
-      {
-        name: 'Egress',
-        position: { x: 90_000, y: -12_000 },
-        altitude: 3500,
-        speed: 220,
-        type: 'Nav' as const
-      }
-    ]
+    const missionWaypoints = buildCasMissionWaypoints(homeBasePosition, targetPosition)
 
     const result = spawnPlannedFlightGroup({
       draft: campaign,
@@ -383,10 +355,16 @@ describe('CAS flight group creation', () => {
       'Descent',
       'Landing'
     ])
-    expect(group.flightplan.waypoints.find((wp) => wp.name === 'Target')).toMatchObject({
-      altitude: 0,
-      altitudeType: 'RADIO'
+    expect(group.flightplan.waypoints.find((wp) => wp.name === 'Contact')).toMatchObject({
+      type: 'Nav',
+      altitudeType: 'BARO'
     })
+    expect(group.flightplan.waypoints.find((wp) => wp.name === 'Target')).toMatchObject({
+      type: 'Task',
+      altitude: 1500,
+      altitudeType: 'BARO'
+    })
+    expect(group.tot).toBeInstanceOf(Date)
   })
 })
 

@@ -14,7 +14,11 @@ import {
   deleteFile
 } from '../../utils'
 import { createCampaign } from './create-campaign'
-import { generateMizFromCampaign } from '@dcc/generate-miz'
+import {
+  buildBubbleCatalogue,
+  formatBubbleCatalogueSource,
+  generateMizFromCampaign
+} from '@dcc/generate-miz'
 import { getScenarios } from '../data/get-scenarios'
 import { getTheatre } from '../data/get-theatre'
 import { syncDcsPersistenceForAppRuntime } from '../../dcs-persistence'
@@ -471,6 +475,64 @@ export const loadMissionState = pub.campaign.loadMissionState.handler(async ({ e
   return readAndValidateMissionState(filePath, errors)
 })
 
+const bubbleCatalogueFileName = 'dcc_bubble.lua'
+
+async function writeTextReplacing(filePath: string, contents: string) {
+  const tmpPath = `${filePath}.${process.pid}.tmp`
+  await fs.writeFile(tmpPath, contents, 'utf-8')
+  try {
+    await fs.copyFile(tmpPath, filePath)
+  } finally {
+    await fs.unlink(tmpPath).catch(() => undefined)
+  }
+}
+
+export const saveBubbleCatalogue = pub.campaign.saveBubbleCatalogue.handler(
+  async ({ input, errors }) => {
+    if (input.campaignParams?.worldMode !== 'bubble') {
+      return { written: false }
+    }
+
+    const state = await getState()
+    const statePath = getMissionStateSearchPaths(state.settings).find((candidate) =>
+      existsSync(candidate)
+    )
+    if (!statePath) {
+      return { written: false }
+    }
+
+    const scenarios = getScenarios()
+    const scenario = scenarios.find((entry) => entry.id === input.scenarioId)
+    const theatre = scenario ? getTheatre(scenario.theatreName) : undefined
+    if (!theatre) {
+      throw errors.FAILED_TO_WRITE_FILE({
+        data: { path: statePath, message: 'Theatre for the live bubble catalogue was not found' }
+      })
+    }
+
+    const source = formatBubbleCatalogueSource(input.id, buildBubbleCatalogue(input, theatre))
+    if (source.isErr()) {
+      throw errors.FAILED_TO_WRITE_FILE({
+        data: { path: statePath, message: source.error.message }
+      })
+    }
+
+    const cataloguePath = path.join(path.dirname(statePath), bubbleCatalogueFileName)
+    try {
+      await writeTextReplacing(cataloguePath, source.value)
+    } catch (error) {
+      throw errors.FAILED_TO_WRITE_FILE({
+        data: {
+          path: cataloguePath,
+          message: error instanceof Error ? error.message : 'Failed to write the bubble catalogue'
+        }
+      })
+    }
+
+    return { written: true }
+  }
+)
+
 export const loadMissionStateFromFile = pub.campaign.loadMissionStateFromFile.handler(
   async ({ input, errors }) => {
     return readAndValidateMissionState(input.path, errors)
@@ -484,6 +546,7 @@ export const campaign = {
   generateMiz,
   loadMissionState,
   loadMissionStateFromFile,
+  saveBubbleCatalogue,
   listCampaigns,
   openCampaign,
   deleteCampaign,

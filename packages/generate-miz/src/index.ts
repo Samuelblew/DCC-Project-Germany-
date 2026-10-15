@@ -12,8 +12,16 @@ import { addGermanyIads } from './add-germany-iads'
 import { addGroundGroups } from './add-ground-groups'
 import { addNavalGroups } from './add-naval-groups'
 import { addStructures } from './add-structures'
+import { type BubbleEntry, buildBubbleCatalogue } from './bubble-catalogue'
 import { getFrontlineSegments } from './frontline'
 import { buildIadsConfig, type MissionIadsConfig } from './iads'
+import {
+  addAmbientAirTraffic,
+  addSupplyConvoys,
+  createImmersionScriptConfig,
+  createSeededRandom,
+  type ImmersionScriptConfig
+} from './immersion'
 import { createKneeboardImages } from './kneeboard'
 import { dictionary, mapResource } from './l10n'
 import {
@@ -21,14 +29,17 @@ import {
   createDoScriptFileAction,
   createLoggedStartupAction,
   createTriggerFunction,
-  createTriggerFunctionMap
+  createTriggerFunctionMap,
+  fillTriggerGaps
 } from './mission-config-trigger'
 import { buildMissionCullingPlan, type MissionCullingManifest } from './mission-culling'
-import { options } from './options'
+import { forcedOptions, options } from './options'
+import bubbleLuaScript from './scripts/bubble.lua?raw'
 import casLuaScript from './scripts/cas.lua?raw'
 import ctldLuaScript from './scripts/ctld.lua?raw'
 import dccIadsLuaScript from './scripts/dcc_iads.lua?raw'
 import ewrLuaScript from './scripts/ewr.lua?raw'
+import immersionLuaScript from './scripts/immersion.lua?raw'
 import mistLuaScript from './scripts/mist_4_5_126.lua?raw'
 import navigationLuaScript from './scripts/navigation.lua?raw'
 import skynetIadsLuaScript from './scripts/skynet-iads.lua?raw'
@@ -36,6 +47,8 @@ import splashDamageLuaScript from './scripts/splash_damage.lua?raw'
 import stateLuaScript from './scripts/state.lua?raw'
 import { warehouses } from './warehouses'
 
+export type { BubbleEntry } from './bubble-catalogue'
+export { buildBubbleCatalogue, formatBubbleCatalogueSource } from './bubble-catalogue'
 export { resolveAppIconPath, setAppIconPath } from './kneeboard-logo'
 export {
   createRouteMapViewport,
@@ -79,6 +92,8 @@ type MissionScriptConfig = {
   welcomeMessage?: MissionWelcomeMessage
   cullingManifest?: MissionCullingManifest
   magneticVariationDegrees?: number
+  immersion?: ImmersionScriptConfig
+  bubble?: BubbleEntry[]
 }
 
 type CarrierOpsConfig = {
@@ -166,7 +181,20 @@ export function configureMissionCountries(
 }
 
 function getStartupTriggerIndexes(ewrEnabled: boolean, iadsEnabled: boolean) {
-  return [1, 2, 3, 4, 5, 6, 10, 11, ...(ewrEnabled ? [7] : []), ...(iadsEnabled ? [8, 9] : [])]
+  return [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    10,
+    11,
+    12,
+    13,
+    ...(ewrEnabled ? [7] : []),
+    ...(iadsEnabled ? [8, 9] : [])
+  ]
 }
 
 function createIadsConfigScript(iadsConfig: MissionIadsConfig) {
@@ -680,6 +708,14 @@ export async function generateMizFromCampaign(
           'Scheduling welcome message',
           createDoScriptAction(createWelcomeMessageScript())
         ),
+        12: createLoggedStartupAction(
+          'Loading immersion',
+          createDoScriptFileAction('ResKey_Action_22')
+        ),
+        13: createLoggedStartupAction(
+          'Loading bubble',
+          createDoScriptFileAction('ResKey_Action_23')
+        ),
         ...(ewrEnabled
           ? {
               7: createLoggedStartupAction(
@@ -713,6 +749,8 @@ export async function generateMizFromCampaign(
         6: true,
         10: true,
         11: true,
+        12: true,
+        13: true,
         ...(ewrEnabled ? { 7: true } : {}),
         ...(iadsRequested ? { 8: true, 9: true } : {})
       },
@@ -725,6 +763,8 @@ export async function generateMizFromCampaign(
         6: 'return(true)',
         10: 'return(true)',
         11: 'return(true)',
+        12: 'return(true)',
+        13: 'return(true)',
         ...(ewrEnabled ? { 7: 'return(true)' } : {}),
         ...(iadsRequested ? { 8: 'return(true)', 9: 'return(true)' } : {})
       },
@@ -798,6 +838,22 @@ export async function generateMizFromCampaign(
         actions: { 1: { predicate: 'a_do_script', text: createWelcomeMessageScript() } },
         colorItem: '0x00ffffff'
       },
+      12: {
+        rules: {},
+        eventlist: '',
+        predicate: 'triggerStart',
+        comment: 'DCC Immersion',
+        actions: { 1: { predicate: 'a_do_script_file', file: 'ResKey_Action_22' } },
+        colorItem: '0x00ffffff'
+      },
+      13: {
+        rules: {},
+        eventlist: '',
+        predicate: 'triggerStart',
+        comment: 'DCC Live Bubble',
+        actions: { 1: { predicate: 'a_do_script_file', file: 'ResKey_Action_23' } },
+        colorItem: '0x00ffffff'
+      },
       ...(ewrEnabled
         ? {
             7: {
@@ -860,7 +916,7 @@ export async function generateMizFromCampaign(
   }
 
   const germanyIads = addGermanyIads(mission, campaign, theatre, cullingPlan)
-  const iadsConfig = buildIadsConfig(mission, campaign)
+  const iadsConfig = buildIadsConfig(mission, campaign, theatre)
   if (iadsConfig && germanyIads) {
     iadsConfig.commandCenters.push(...germanyIads.commandCenters)
   }
@@ -885,11 +941,26 @@ export async function generateMizFromCampaign(
     enabled: ewrEnabled
   })
   const carrierOps = createCarrierOpsConfig(campaign)
+  const nextMissionId = () => {
+    mission.currentKey += 1
+    return mission.currentKey
+  }
+  const immersionRandom = createSeededRandom(`${campaign.id}:${campaign.time.toISOString()}`)
+  addSupplyConvoys(mission, campaign, theatre, cullingPlan, nextMissionId)
+  const ambientSchedule = addAmbientAirTraffic(
+    mission,
+    campaign,
+    theatre,
+    cullingPlan,
+    nextMissionId,
+    immersionRandom
+  )
   const welcomeMessage = createWelcomeMessage(flightGroupsResult.value, {
     ewrEnabled,
     carrierOpsEnabled: carrierOps.length > 0,
     gciStationEnabled: gciStations.length > 0
   })
+  const bubble = buildBubbleCatalogue(campaign, theatre, cullingPlan)
   const scriptConfig: MissionScriptConfig = {
     missionId: campaign.id,
     flightGroups: flightGroupsResult.value,
@@ -897,6 +968,8 @@ export async function generateMizFromCampaign(
     crashPilotSurvivalChance: config.packages.CSAR.pilotSurvivalChance,
     ...(welcomeMessage ? { welcomeMessage } : {}),
     ...(cullingPlan.enabled ? { cullingManifest: cullingPlan.manifest } : {}),
+    ...(bubble.length > 0 ? { bubble } : {}),
+    immersion: createImmersionScriptConfig(campaign, mission, ambientSchedule),
     ...(theatre.info.magneticVariationDegrees != null
       ? { magneticVariationDegrees: theatre.info.magneticVariationDegrees }
       : {})
@@ -952,6 +1025,15 @@ export async function generateMizFromCampaign(
   }
 
   addFrontlineDrawings(mission, campaign, theatre)
+  fillTriggerGaps(mission.trig as MissionTriggerTables, mission.trigrules as MissionTriggerRules)
+
+  const forced = forcedOptions(campaign)
+  if (Object.keys(forced).length > 0) {
+    mission.forcedOptions = {
+      ...(mission.forcedOptions as Record<string, unknown> | undefined),
+      ...forced
+    }
+  }
 
   const missionLuaResult = luaTable.stringify(mission, { mixedKeyTypes: true })
   if (missionLuaResult.isErr()) {
@@ -1021,6 +1103,8 @@ export async function generateMizFromCampaign(
   zip.addFile('l10n/DEFAULT/cas.lua', Buffer.from(casLuaScript, 'utf-8'))
   zip.addFile('l10n/DEFAULT/ewr.lua', Buffer.from(ewrLuaScript, 'utf-8'))
   zip.addFile('l10n/DEFAULT/navigation.lua', Buffer.from(navigationLuaScript, 'utf-8'))
+  zip.addFile('l10n/DEFAULT/immersion.lua', Buffer.from(immersionLuaScript, 'utf-8'))
+  zip.addFile('l10n/DEFAULT/bubble.lua', Buffer.from(bubbleLuaScript, 'utf-8'))
   if (iadsConfig) {
     zip.addFile('l10n/DEFAULT/skynet-iads.lua', Buffer.from(skynetIadsLuaScript, 'utf-8'))
     zip.addFile('l10n/DEFAULT/dcc_iads.lua', Buffer.from(dccIadsLuaScript, 'utf-8'))

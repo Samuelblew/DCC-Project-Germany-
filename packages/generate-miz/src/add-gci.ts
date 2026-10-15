@@ -1,8 +1,12 @@
 import { schemas } from '@dcc/contracts'
 import {
+  campaignIadsEra,
   FULCRUM_AIRCRAFT_NAME,
   GCI_CHANNEL,
   GCI_RANGE_METERS,
+  getGermanyIadsSites,
+  isGermanyIadsTheatre,
+  livingGermanyIadsSite,
   planCampaignGciStations,
   type PlannedGciStation
 } from '@dcc/data'
@@ -27,6 +31,11 @@ export const GCI_RADAR_LINK_METERS = 250_000
 /**
  * Search radars the KRU will pick up, using the DCS type names from the ED Fulcrum mini-update.
  * FPS-177 in that post is the FPS-117 family in DCS.
+ *
+ * P-14 and P-19 are on that list, but a van that only has one of them never gets a picture
+ * the player can use. Vietnam escalation replaces 55G6, 1L13 and FPS-117 with the P-19, so
+ * those early sets must not count as "the station already has a radar" or the fallback
+ * dishes are never planted.
  */
 export const GCI_COMPATIBLE_RADAR_TYPES = new Set([
   'P14_SR',
@@ -43,6 +52,64 @@ export const GCI_COMPATIBLE_RADAR_TYPES = new Set([
   'SA-11 Buk SR 9S18M1',
   'RLS_19J6'
 ])
+
+const GCI_EARLY_SEARCH_RADAR_TYPES = new Set(['P14_SR', 'p-19 s-125 sr'])
+
+function usefulGciRadar(type: string) {
+  return GCI_COMPATIBLE_RADAR_TYPES.has(type) && !GCI_EARLY_SEARCH_RADAR_TYPES.has(type)
+}
+
+/**
+ * In the live bubble the vans stay in the mission. Each one also keeps the nearest
+ * search radar that can feed it, so the generator does not plant three reserve dishes
+ * for a radar that still exists on the campaign map.
+ */
+export function gciPictureAnchors(campaign: Campaign, theatre: Theatre) {
+  const sites = new Set<string>()
+  const ewrs = new Set<string>()
+  if (campaign.campaignParams?.worldMode !== 'bubble') return { sites, ewrs }
+  if (campaign.campaignParams?.ewr === false) return { sites, ewrs }
+
+  const planned = planCampaignGciStations(campaign, theatre)
+  const stations = [
+    ...(campaignHasFulcrumClient(campaign) ? planned.player : []),
+    ...planned.opponent
+  ]
+  const germanySites = isGermanyIadsTheatre(theatre.name)
+    ? getGermanyIadsSites(campaignIadsEra(campaign)).filter(
+        (site) => site.kind === 'ewr' && livingGermanyIadsSite(site, campaign.germanyIadsDeadUnits)
+      )
+    : []
+
+  for (const station of stations) {
+    let bestSite: { id: string; distance: number } | undefined
+    for (const site of germanySites) {
+      if (site.coalition !== station.coalition) continue
+      if (!site.units.some((unit) => usefulGciRadar(unit.type))) continue
+      const distance = Math.hypot(site.x - station.position.x, site.y - station.position.y)
+      if (distance > GCI_RADAR_LINK_METERS) continue
+      if (!bestSite || distance < bestSite.distance) bestSite = { id: site.id, distance }
+    }
+    if (bestSite) {
+      sites.add(bestSite.id)
+      continue
+    }
+
+    let bestEwr: { id: string; distance: number } | undefined
+    for (const ewr of campaign.coalitions[station.coalition].ewrGroups ?? []) {
+      if (ewr.destroyed || !usefulGciRadar(ewr.type)) continue
+      const distance = Math.hypot(
+        ewr.position.x - station.position.x,
+        ewr.position.y - station.position.y
+      )
+      if (distance > GCI_RADAR_LINK_METERS) continue
+      if (!bestEwr || distance < bestEwr.distance) bestEwr = { id: ewr.id, distance }
+    }
+    if (bestEwr) ewrs.add(bestEwr.id)
+  }
+
+  return { sites, ewrs }
+}
 
 const NATO_COUNTRIES = new Set(['USA', 'UK', 'France', 'Germany', 'Israel', 'Argentina'])
 const FALLBACK_RADAR_OFFSET_METERS = 25_000
@@ -101,9 +168,13 @@ function spawnNetwork(
   if (!country.vehicle) country.vehicle = { group: [] }
 
   const radars = collectCompatibleRadars(country)
+  const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
   const spawned: PlayerGciStation[] = []
   for (const station of stations) {
-    if (cullingPlan?.getSamMode(station.id, station.position, GCI_RANGE_METERS) === 'omit') {
+    if (
+      !liveBubble &&
+      cullingPlan?.getSamMode(station.id, station.position, GCI_RANGE_METERS) === 'omit'
+    ) {
       continue
     }
     spawned.push(spawnGciStation(mission, country, campaign, station))
@@ -129,6 +200,7 @@ function collectCompatibleRadars(country: MissionCountry): RadarContact[] {
   for (const group of country.vehicle?.group ?? []) {
     for (const unit of group.units ?? []) {
       if (!GCI_COMPATIBLE_RADAR_TYPES.has(unit.type)) continue
+      if (GCI_EARLY_SEARCH_RADAR_TYPES.has(unit.type)) continue
       radars.push({ x: unit.x, y: unit.y, type: unit.type })
     }
   }

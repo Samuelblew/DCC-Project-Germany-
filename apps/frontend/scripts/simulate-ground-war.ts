@@ -156,6 +156,10 @@ type RunResult = {
   objectives: Record<Coalition, number>
   groups: Record<Coalition, { total: number; idle: number }>
   peakGroups: number
+  /** Mean fill of the non-hub supply nodes (towns) at the end. */
+  townSupply: Record<Coalition, number>
+  /** Supply convoys on the road: average over the run and the most at once. */
+  convoys: { average: number; peak: number }
   timeline: string[]
   events: Map<string, number>
 }
@@ -200,6 +204,9 @@ function simulate(
   const events = new Map<string, number>()
   let captures = 0
   let peakGroups = 0
+  let convoySum = 0
+  let convoyTicks = 0
+  let convoyPeak = 0
   let playerGoalAt: number | undefined
   let opponentGoalAt: number | undefined
 
@@ -230,6 +237,13 @@ function simulate(
     ) {
       opponentGoalAt = now
     }
+    const convoysNow = COALITIONS.reduce(
+      (sum, coalition) => sum + (campaign.coalitions[coalition].supplyConvoys?.length ?? 0),
+      0
+    )
+    convoySum += convoysNow
+    convoyTicks += 1
+    convoyPeak = Math.max(convoyPeak, convoysNow)
     peakGroups = Math.max(
       peakGroups,
       campaign.coalitions.player.groundGroups.length +
@@ -270,9 +284,22 @@ function simulate(
     },
     groups: { player: groupStats('player'), opponent: groupStats('opponent') },
     peakGroups,
+    townSupply: {
+      player: townSupplyFill(campaign, 'player'),
+      opponent: townSupplyFill(campaign, 'opponent')
+    },
+    convoys: { average: convoyTicks > 0 ? convoySum / convoyTicks : 0, peak: convoyPeak },
     timeline,
     events
   }
+}
+
+function townSupplyFill(campaign: Campaign, coalition: Coalition) {
+  const towns = Object.values(campaign.coalitions[coalition].supplyNodes ?? {}).filter(
+    (supply) => supply.logistics?.hub !== true && supply.max > 0
+  )
+  if (towns.length === 0) return 0
+  return towns.reduce((sum, supply) => sum + supply.current / supply.max, 0) / towns.length
 }
 
 function formatHours(value: number | undefined) {
@@ -315,7 +342,9 @@ function main() {
     'flipped',
     'obj P/O',
     'groups P(idle)/O(idle)',
-    'peak'
+    'peak',
+    'town supply P/O',
+    'convoys avg/peak'
   ]
   const rows = results.map((result, index) => [
     String(options.seed + index),
@@ -326,7 +355,9 @@ function main() {
     String(result.flippedObjectives),
     `${result.objectives.player}/${result.objectives.opponent}`,
     `${result.groups.player.total}(${result.groups.player.idle})/${result.groups.opponent.total}(${result.groups.opponent.idle})`,
-    String(result.peakGroups)
+    String(result.peakGroups),
+    `${Math.round(result.townSupply.player * 100)}%/${Math.round(result.townSupply.opponent * 100)}%`,
+    `${result.convoys.average.toFixed(1)}/${result.convoys.peak}`
   ])
   const widths = header.map((title, column) =>
     Math.max(title.length, ...rows.map((row) => row[column]!.length))

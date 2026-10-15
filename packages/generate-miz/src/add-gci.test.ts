@@ -283,6 +283,24 @@ describe('addPlayerGciStation', () => {
     expect(types).toEqual(['1L13 EWR', GCI_STATION_TYPE])
   })
 
+  test('still plants fallback dishes when the only radar in range is a P-19', () => {
+    const mission = createMission()
+    addRadar(mission, 'p-19 s-125 sr', 4200, 5000)
+
+    addPlayerGciStation(mission, createCampaign(), createTheatre())
+
+    const types = mission.coalition.blue.country?.[0]?.vehicle?.group.map(
+      (group) => group.units[0]?.type
+    )
+    expect(types).toEqual([
+      'p-19 s-125 sr',
+      GCI_STATION_TYPE,
+      '55G6 EWR',
+      '55G6 EWR',
+      '55G6 EWR'
+    ])
+  })
+
   test('keeps the home station when a radar is out of link range and spawns fallbacks', () => {
     const mission = createMission()
     addRadar(mission, 'p-19 s-125 sr', 400_000, 500_000)
@@ -376,6 +394,27 @@ describe('theatre GCI network', () => {
       )
       expect(covered, `${name} left uncovered`).toBe(true)
     }
+  })
+
+  test('the live bubble keeps every GCI station in the mission', () => {
+    const theatre = createTheatre()
+    theatre.airdromeDetails['Far Base'] = {
+      id: 2,
+      name: 'Far Base',
+      x: 400_000,
+      y: 500_000,
+      runwayAngle: 0,
+      standlist: {}
+    }
+    const campaign = createCampaign()
+    campaign.coalitions.player.airdromeNames = ['Test Base', 'Far Base']
+    campaign.campaignParams = { culling: true, worldMode: 'bubble' }
+    const mission = createMission()
+    const cullingPlan = buildMissionCullingPlan(campaign, theatre)
+
+    const spawned = addPlayerGciStations(mission, campaign, theatre, cullingPlan)
+
+    expect(spawned.map((station) => station.airdromeName).sort()).toEqual(['Far Base', 'Test Base'])
   })
 
   test('culling keeps the home KRU and omits a station beyond the SAM corridor', () => {

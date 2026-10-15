@@ -68,6 +68,16 @@ export const objectives: z.infer<typeof schemas.objective>[] = [
     position: { x: 18619.0859375, y: -668838.1875 }
   },
   {
+    name: 'Schwedeneck A',
+    type: 'Installation',
+    position: { x: 42132, y: -675831 }
+  },
+  {
+    name: 'Schwedeneck B',
+    type: 'Installation',
+    position: { x: 39644, y: -672941 }
+  },
+  {
     name: 'Hamburg',
     type: 'Airport',
     position: { x: -62281.59765625, y: -690651.875 }

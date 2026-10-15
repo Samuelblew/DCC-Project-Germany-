@@ -1,3 +1,4 @@
+import { groundMarchKind } from '@dcc/campaign'
 import { schemas } from '@dcc/contracts'
 import {
   getSamDeadUnitIndexes,
@@ -350,7 +351,7 @@ export function addGroundGroups(
         if (!firstUnit) continue
 
         // Build route waypoints
-        const isInfantry = gg.units.every((u) => /infantry|soldier/i.test(u.name))
+        const onFoot = groundMarchKind(gg.units) === 'foot'
         const routePoints = [
           {
             alt: 0,
@@ -368,7 +369,7 @@ export function addGroundGroups(
         ]
 
         if (gg.state === 'withdrawing' && gg.retreat?.route.length) {
-          const speed = isInfantry ? 4 : 12
+          const speed = onFoot ? 4 : 12
           for (const waypoint of gg.retreat.route) {
             routePoints.push({
               alt: 0,
@@ -377,7 +378,7 @@ export function addGroundGroups(
               y: waypoint.y,
               x: waypoint.x,
               speed,
-              action: isInfantry ? 'Off Road' : 'On Road',
+              action: onFoot ? 'Off Road' : 'On Road',
               ETA: 0,
               ETA_locked: false,
               speed_locked: true,
@@ -387,7 +388,7 @@ export function addGroundGroups(
         } else if (gg.targetObjectiveId) {
           const targetObj = theatre.objectives.find((o) => o.name === gg.targetObjectiveId)
           if (targetObj) {
-            const speed = isInfantry ? 4 : 12
+            const speed = onFoot ? 4 : 12
             const connection = (theatre.connections ?? []).find(
               (entry) =>
                 (entry.from === gg.objectiveId && entry.to === gg.targetObjectiveId) ||
@@ -413,7 +414,7 @@ export function addGroundGroups(
                 y: waypoint.y,
                 x: waypoint.x,
                 speed,
-                action: connection?.mode === 'road' && !isInfantry ? 'On Road' : 'Off Road',
+                action: connection?.mode === 'road' && !onFoot ? 'On Road' : 'Off Road',
                 ETA: 0,
                 ETA_locked: false,
                 speed_locked: true,

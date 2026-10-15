@@ -6,9 +6,11 @@ import { isStrikeFlightGroup } from '../entities/strike-flight-group'
 import { isSeadFlightGroup } from '../entities/sead-flight-group'
 import { isDeadFlightGroup } from '../entities/dead-flight-group'
 import { isCapFlightGroup } from '../entities/cap-flight-group'
+import { isCasFlightGroup } from '../entities/cas-flight-group'
 import { FlightGroupFactory } from '../entities/flight-group-factory'
 import { logCombatAction } from '../simulation-log'
 import { debugLog } from '@/lib/debug'
+import { craterAirdrome } from './airport-capture'
 
 function createStrategicStrikeCooldown(currentTime: Date) {
   const min = config.packages['Strategic Strike'].cooldownMinMs
@@ -125,9 +127,33 @@ function resolveAntiShipStrike(
   group.targetDestroyed = true
 }
 
+function applyRunwayAttack(
+  draft: z.infer<typeof schemas.campaign.campaign>,
+  coalition: z.infer<typeof schemas.coalition>,
+  group: ReturnType<typeof FlightGroupFactory.getCoalitionFlightGroups>[number]
+) {
+  if (group.task !== 'Runway Attack' || !group.target || group.targetDestroyed) return
+  if (!group.tot || draft.time < group.tot) return
+
+  const enemyCoalition = coalition === 'player' ? 'opponent' : 'player'
+  craterAirdrome(draft, enemyCoalition, group.target.id, draft.time)
+  group.targetDestroyed = true
+  logCombatAction(
+    draft,
+    coalition,
+    `OCA cratered ${group.target.id}; field recovering`,
+    group.callsign,
+    {
+      entityType: 'flightGroup',
+      entityId: group.id
+    }
+  )
+}
+
 export function updateFlightGroups(
   draft: z.infer<typeof schemas.campaign.campaign>,
-  coalition: z.infer<typeof schemas.coalition>
+  coalition: z.infer<typeof schemas.coalition>,
+  frozenFlightIds?: ReadonlySet<string>
 ) {
   const groups = FlightGroupFactory.getCoalitionFlightGroups(draft, coalition)
   const finishedIds = new Set<string>()
@@ -139,6 +165,8 @@ export function updateFlightGroups(
   debugLog('Updating flight groups', groups.length)
 
   for (const group of groups) {
+    // Inside the running mission, DCS owns the flight. The debrief applies its losses.
+    if (frozenFlightIds?.has(group.id)) continue
     if (group.aircrafts.length === 0) {
       failRecoveryFlight(draft, coalition, group)
       finishedIds.add(group.id)
@@ -148,14 +176,26 @@ export function updateFlightGroups(
     group.move(draft.time)
     resolveAntiShipStrike(draft, coalition, group)
     if (group.isLanded(draft.time)) {
+      const turnaround = (draft.coalitions[coalition].aircraftTurnaroundUntil ??= {})
+      const readyAt = draft.time.getTime() + 60 * 60 * 1000
+      for (const aircraft of group.aircrafts) {
+        const key = `${group.homeBase}:${aircraft.aircraftName}`
+        turnaround[key] = Math.max(turnaround[key] ?? 0, readyAt)
+      }
       completeRecoveryFlight(draft, coalition, group)
       finishedIds.add(group.id)
       if (
         group.task === 'CAP' ||
+        group.task === 'Intercept' ||
+        group.task === 'Fighter Sweep' ||
+        group.task === 'AWACS' ||
         group.task === 'SEAD' ||
         group.task === 'DEAD' ||
         group.task === 'Pinpoint Strike' ||
-        group.task === 'Strategic Strike'
+        group.task === 'Strategic Strike' ||
+        group.task === 'Runway Attack' ||
+        group.task === 'CAS' ||
+        group.task === 'ECM'
       ) {
         logCombatAction(draft, coalition, `${group.task} landed`, group.callsign, {
           entityType: 'flightGroup',
@@ -167,6 +207,8 @@ export function updateFlightGroups(
     if (isStrikeFlightGroup(group)) {
       debugLog('Striking structure', group)
       group.strikeStructure(draft, coalition)
+    } else if (group.task === 'Runway Attack') {
+      applyRunwayAttack(draft, coalition, group)
     } else if (isSeadFlightGroup(group) && theatre) {
       debugLog('SEAD suppressing radar emitter', group)
       group.suppressSam(draft, coalition, theatre)
@@ -176,8 +218,11 @@ export function updateFlightGroups(
     } else if (isCapFlightGroup(group)) {
       debugLog('CAP patrolling', group)
       group.engageAirTargets(draft, coalition)
+    } else if (isCasFlightGroup(group)) {
+      debugLog('CAS attacking ground group', group)
+      group.attackGroundGroup(draft, coalition)
     } else {
-      debugLog('Not a strike/strategic strike/SEAD/DEAD/CAP group', group.task)
+      debugLog('Not a strike/strategic strike/SEAD/DEAD/CAP/CAS group', group.task)
     }
   }
 
@@ -239,5 +284,14 @@ export function updateFlightGroups(
     draft.coalitions[coalition].flightGroups = draft.coalitions[coalition].flightGroups.filter(
       (g) => !finishedIds.has(g.id)
     )
+  }
+
+  const pictureCoalition = coalition === 'player' ? 'opponent' : 'player'
+  const ecmUp = draft.coalitions[coalition].flightGroups.some(
+    (flight) =>
+      flight.task === 'ECM' && new Date(flight.flightplan.startTime).getTime() <= draft.time.getTime()
+  )
+  for (const ewr of draft.coalitions[pictureCoalition].ewrGroups ?? []) {
+    ewr.jammed = ecmUp
   }
 }

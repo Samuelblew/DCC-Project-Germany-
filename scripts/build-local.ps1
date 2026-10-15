@@ -35,7 +35,9 @@ function Invoke-Step([string]$label, [scriptblock]$step) {
 }
 
 $started = Get-Date
-Invoke-Step 'Compilando frontend, document e core' { bunx turbo run build }
+# Read-only cache: each frontend build carries the offline maps (~1.2 GB); caching every build
+# filled .turbo/cache with gigabytes that a local rebuild never reuses.
+Invoke-Step 'Compilando frontend, document e core' { bunx turbo run build --cache=local:r,remote:r }
 Invoke-Step 'Empacotando executavel' {
   Push-Location (Join-Path $root 'apps\core')
   try { bun run build:unpack } finally { Pop-Location }

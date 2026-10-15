@@ -1,6 +1,7 @@
 import { resolveAirActivity, type schemas } from '@dcc/contracts'
 import * as z from 'zod'
 import { featureFlags } from '@/lib/feature-flags'
+import { campaignIadsEra, eraAtoAircraftCap, eraAtoNewPackagesPerTick } from '@dcc/data'
 import { enforcePackageStartSpacing } from './package-start-spacing'
 import {
   commitAtoPackages,
@@ -24,13 +25,17 @@ export function spawnPackages(
   spawnTroopExtraction(draft, coalition)
   spawnCasevac(draft, coalition)
   spawnAntiShip(draft, coalition)
+  const generation = campaignIadsEra(draft)
   const tempo = draft.operationProfile?.tempo ?? 'standard'
   const tempoPolicy: Partial<AtoPlannerPolicy> =
     tempo === 'cautious'
-      ? { maxNewPackagesPerLogicTick: 1, maxActiveAircraft: 22 }
+      ? { maxNewPackagesPerLogicTick: 1, maxActiveAircraft: eraAtoAircraftCap(generation) }
       : tempo === 'surge'
-        ? { maxNewPackagesPerLogicTick: 3, maxActiveAircraft: 34 }
-        : {}
+        ? { maxNewPackagesPerLogicTick: 3, maxActiveAircraft: eraAtoAircraftCap(generation) }
+        : {
+            maxNewPackagesPerLogicTick: eraAtoNewPackagesPerTick(generation),
+            maxActiveAircraft: eraAtoAircraftCap(generation)
+          }
 
   const base = { ...defaultAtoPlannerPolicy, ...tempoPolicy }
   const activity = resolveAirActivity(draft.campaignParams?.airActivity)

@@ -3,6 +3,7 @@ import { isSamOperational, scenarios, theatres } from '@dcc/data'
 import type * as z from 'zod'
 
 import { calculateDistance } from '../utils/calculate-distance'
+import { logisticsInterdictionAt } from './logistics-interdiction'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -36,6 +37,7 @@ const FLIGHT_LOGISTICS_COST: Partial<
   Record<FlightTask, { fuel: number; munitions: number; repair: number; supply: number }>
 > = {
   CAP: { fuel: 140, munitions: 20, repair: 20, supply: 35 },
+  Intercept: { fuel: 150, munitions: 25, repair: 20, supply: 35 },
   'Fighter Sweep': { fuel: 160, munitions: 30, repair: 25, supply: 40 },
   Training: { fuel: 80, munitions: 0, repair: 15, supply: 20 },
   'Pinpoint Strike': { fuel: 190, munitions: 140, repair: 35, supply: 75 },
@@ -46,7 +48,8 @@ const FLIGHT_LOGISTICS_COST: Partial<
   Transport: { fuel: 160, munitions: 10, repair: 30, supply: 45 },
   Refueling: { fuel: 240, munitions: 0, repair: 35, supply: 55 },
   AWACS: { fuel: 220, munitions: 0, repair: 35, supply: 50 },
-  'Ground Attack': { fuel: 180, munitions: 160, repair: 40, supply: 85 }
+  'Ground Attack': { fuel: 180, munitions: 160, repair: 40, supply: 85 },
+  'Runway Attack': { fuel: 200, munitions: 180, repair: 45, supply: 90 }
 }
 
 /**
@@ -83,13 +86,19 @@ export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000
     if (!source) continue
 
     const route = upsertRoute(supply, source.id, nodeId)
-    route.disruption = getRouteDisruption(
-      draft,
-      enemyCoalition,
-      source.position,
-      destinationPosition,
-      route,
-      routeRepairFactor
+    route.disruption = Math.min(
+      0.9,
+      Math.max(
+        getRouteDisruption(
+          draft,
+          enemyCoalition,
+          source.position,
+          destinationPosition,
+          route,
+          routeRepairFactor
+        ),
+        supply.logistics?.interdiction ?? 0
+      )
     )
 
     transferAlongRoute(source.supply, supply, route, productionFactor)
@@ -256,8 +265,10 @@ function updateNodeSupply(supply: Supply, now: Date, timeFactor: number): void {
     supply.logistics?.recoveryUntil && now < supply.logistics.recoveryUntil
       ? RECOVERING_BASE_OUTPUT_MULTIPLIER
       : 1
+  const interdictionMultiplier = 1 - (supply.logistics?.interdiction ?? 0)
 
-  supply.current += supply.productionRate * recoveryMultiplier * timeFactor
+  supply.current +=
+    supply.productionRate * recoveryMultiplier * interdictionMultiplier * timeFactor
   supply.current -= supply.consumptionRate * timeFactor
 
   supply.current = Math.max(0, Math.min(supply.max, supply.current))
@@ -287,6 +298,9 @@ function applyInfrastructurePressure(
     0
   )
   const health = totalBuildings > 0 ? aliveBuildings / totalBuildings : 1
+  if (supply.logistics) {
+    supply.logistics.interdiction = logisticsInterdictionAt(draft, coalition, nodeId)
+  }
   const hasFuel = relevantStructures.some((structure) => /fuel/i.test(structure.type))
   const hasMunitions = relevantStructures.some((structure) => /ammo|munition/i.test(structure.type))
   const hasRepair = relevantStructures.some((structure) =>

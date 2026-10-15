@@ -2,14 +2,18 @@ import { schemas } from '@dcc/contracts'
 import {
   assignDeploymentSite,
   beginGroundGroupRetreat,
+  groundMarchKind,
   classifyGroundUnit,
   dissolveGroundGroupIntoReplacementPool,
+  engagementPowerModifier,
+  findAdjacentHostileTarget,
   getGroundGroupCombatPower,
   getGroundGroupUnitCount,
   recordInfantryCasualties,
+  theatreHasLandGraph,
   updateReplacementPools
 } from '@dcc/campaign'
-import { scenarios, theatres } from '@dcc/data'
+import { campaignIadsEra, eraGroundLimits, scenarios, theatres } from '@dcc/data'
 import * as z from 'zod'
 import { calculateDistance } from '@/logic/utils/calculate-distance'
 import { logCombatAction } from '@/logic/simulation-log'
@@ -19,7 +23,16 @@ import {
   isAirdromeVulnerable,
   transferAirdromeOwnership
 } from './airport-capture'
-import { BATTLE_RADIUS, hasOtherGarrison } from './ground-garrison'
+import { BATTLE_RADIUS } from './ground-garrison'
+import {
+  GROUND_SPAWN_INTERDICTION_CHOKE,
+  chokedObjectiveIds,
+  isLandHopChoked,
+  logisticsInterdictionAt
+} from './logistics-interdiction'
+import { mayOpenOffensiveAxis } from './offensive-axes'
+import { activeRoadCutKeys } from './road-cuts'
+import { hopKey } from '@dcc/campaign'
 import { INFANTRY_COST, VEHICLE_COST } from './spawn/ground-group-costs'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -33,6 +46,14 @@ const NM_TO_METERS = 1852
 const INFANTRY_MAX_TARGET_RANGE_METERS = 40 * NM_TO_METERS
 const VEHICLE_MAX_TARGET_RANGE_METERS = 60 * NM_TO_METERS
 const CAPTURE_DISTANCE = 2000 // meters
+/** Short of the town. The column deploys here while a sortie can still arrive. */
+const ASSAULT_LINE_METERS = 4_000
+const ASSAULT_PREP_MS = 20 * 60 * 1000
+/** Inside the town. The approach ring sits at 300–900 m, so this is the occupy line. */
+const OCCUPY_DISTANCE = 1_000
+/** Raw power needed on top of the defender bonus. One company does not take a held town. */
+const OCCUPY_POWER_RATIO = 2
+const PREP_ATTRITION = 0.25
 /** Opposing columns this close stop and fight where they meet instead of passing each other. */
 const ENGAGEMENT_RADIUS = 3000 // meters
 /**
@@ -139,6 +160,20 @@ function hashGroupId(id: string): number {
  * Each group converges on its own point around the target (well inside CAPTURE_DISTANCE),
  * otherwise groups sharing a formation layout end up stacked on the exact same spot.
  */
+function holdShortOf(
+  from: z.infer<typeof schemas.position>,
+  target: z.infer<typeof schemas.position>,
+  meters: number
+) {
+  const dx = from.x - target.x
+  const dy = from.y - target.y
+  const length = Math.hypot(dx, dy) || 1
+  return {
+    x: target.x + (dx / length) * meters,
+    y: target.y + (dy / length) * meters
+  }
+}
+
 function getApproachPosition(
   group: GroundGroup,
   targetPosition: z.infer<typeof schemas.position>
@@ -187,13 +222,15 @@ function moveGroupTowardsObjective(
   group: GroundGroup,
   targetPosition: z.infer<typeof schemas.position>,
   delta: number,
-  timeMultiplier: number
+  timeMultiplier: number,
+  speedFactor = 1
 ): void {
   const distance = calculateDistance(group.position, targetPosition)
   if (distance === 0) return
 
   const campaignDeltaS = (delta * timeMultiplier) / 1000
-  const speed = isInfantryGroup(group.units) ? INFANTRY_SPEED : VEHICLE_SPEED
+  const march = groundMarchKind(group.units)
+  const speed = (march === 'foot' ? INFANTRY_SPEED : VEHICLE_SPEED) * speedFactor
   const ratio = Math.min((speed * campaignDeltaS) / distance, 1)
   const dx = targetPosition.x - group.position.x
   const dy = targetPosition.y - group.position.y
@@ -240,7 +277,13 @@ function triggerDepletedRetreats(
 ) {
   for (const group of groups) {
     if (!draft.coalitions[coalition].groundGroups.some((entry) => entry.id === group.id)) continue
-    const state = beginGroundGroupRetreat({ campaign: draft, coalition, theatre, group })
+    const state = beginGroundGroupRetreat({
+      campaign: draft,
+      coalition,
+      theatre,
+      group,
+      blockedTransitIds: chokedObjectiveIds(draft, coalition)
+    })
     if (!state) continue
     logCombatAction(draft, coalition, `${group.id} is ${state.replace('-', ' ')}`, undefined, {
       entityType: 'groundGroup',
@@ -315,9 +358,18 @@ function distributeCasualties(
 }
 
 function cleanupDestroyedGroups(draft: Campaign, coalition: Coalition): void {
-  draft.coalitions[coalition].groundGroups = draft.coalitions[coalition].groundGroups.filter(
-    (group) => getUnitCount(group) > 0
-  )
+  const groups = draft.coalitions[coalition].groundGroups
+  const readyAt = draft.time.getTime() + 60 * 60 * 1000
+  const wipedTowns = groups.filter((group) => getUnitCount(group) <= 0 && group.objectiveId)
+  if (wipedTowns.length > 0) {
+    const until = (draft.coalitions[coalition].groundReplacementUntil ??= {})
+    for (const group of wipedTowns) {
+      const town = group.objectiveId
+      if (!town) continue
+      until[town] = Math.max(until[town] ?? 0, readyAt)
+    }
+  }
+  draft.coalitions[coalition].groundGroups = groups.filter((group) => getUnitCount(group) > 0)
 }
 
 function getCombatPower(
@@ -354,6 +406,8 @@ function fightBattle(params: {
   defenderObjectiveId?: string
   /** Defenders dug in at an objective fight with DEFENDER_BONUS; columns meeting in the field do not. */
   defenderHoldsGround: boolean
+  /** Preparation is harassing fire. The assault uses the full rate. */
+  attritionScale?: number
 }): void {
   const { draft, attackers, defenders, attackerCoalition, defenderCoalition } = params
   const nowIso = draft.time.toISOString()
@@ -385,6 +439,11 @@ function fightBattle(params: {
   const tacticalAdvantage = getRandomTacticalAdvantage()
   const attackerPower =
     getCombatPower(draft, attackerCoalition, attackers, params.attackerObjectiveId ?? '', false) *
+    engagementPowerModifier(
+      attackers,
+      defenders,
+      params.defenderHoldsGround ? 'town-assault' : 'meeting'
+    ) *
     (tacticalAdvantage.side === 'attacker' ? tacticalAdvantage.multiplier : 1)
   const defenderPower =
     getCombatPower(
@@ -393,10 +452,19 @@ function fightBattle(params: {
       defenders,
       params.defenderObjectiveId ?? '',
       params.defenderHoldsGround
-    ) * (tacticalAdvantage.side === 'defender' ? tacticalAdvantage.multiplier : 1)
+    ) *
+    engagementPowerModifier(
+      defenders,
+      attackers,
+      params.defenderHoldsGround ? 'town-defense' : 'meeting'
+    ) *
+    (tacticalAdvantage.side === 'defender' ? tacticalAdvantage.multiplier : 1)
 
-  const expectedAttackerLosses = BASE_ATTRITION_PER_SECOND * deltaS * (defenderPower / 10)
-  const expectedDefenderLosses = BASE_ATTRITION_PER_SECOND * deltaS * (attackerPower / 10)
+  const attritionScale = params.attritionScale ?? 1
+  const expectedAttackerLosses =
+    BASE_ATTRITION_PER_SECOND * deltaS * (defenderPower / 10) * attritionScale
+  const expectedDefenderLosses =
+    BASE_ATTRITION_PER_SECOND * deltaS * (attackerPower / 10) * attritionScale
   const mutualDestructionPossible =
     Math.ceil(expectedAttackerLosses) >= getTotalUnitCount(attackers) &&
     Math.ceil(expectedDefenderLosses) >= getTotalUnitCount(defenders)
@@ -469,7 +537,12 @@ function groupsHoldingPosition(
   )
 }
 
-/** Town falls when the assaulting force inside capture range outweighs whoever is still fighting. */
+function assaultReady(group: GroundGroup, now: Date) {
+  if (!group.combatStartedAt) return false
+  return now.getTime() - new Date(group.combatStartedAt).getTime() >= ASSAULT_PREP_MS
+}
+
+/** Town falls when the assault is inside it and clearly heavier than the garrison. */
 function canOccupyObjective(
   draft: Campaign,
   coalition: Coalition,
@@ -479,7 +552,7 @@ function canOccupyObjective(
   const occupying = groupsHoldingPosition(
     draft.coalitions[coalition].groundGroups,
     position,
-    CAPTURE_DISTANCE
+    OCCUPY_DISTANCE
   )
   if (occupying.length === 0) return false
   const defenders = groupsHoldingPosition(
@@ -491,7 +564,7 @@ function canOccupyObjective(
   const attackerPower = occupying.reduce((sum, group) => sum + getGroupPower(group), 0)
   const defenderPower =
     defenders.reduce((sum, group) => sum + getGroupPower(group), 0) * DEFENDER_BONUS
-  return attackerPower >= defenderPower
+  return attackerPower >= defenderPower * OCCUPY_POWER_RATIO
 }
 
 function forceRemainingDefendersToRetreat(
@@ -505,7 +578,13 @@ function forceRemainingDefendersToRetreat(
     position,
     BATTLE_RADIUS
   )) {
-    beginGroundGroupRetreat({ campaign: draft, coalition, theatre, group })
+    beginGroundGroupRetreat({
+      campaign: draft,
+      coalition,
+      theatre,
+      group,
+      blockedTransitIds: chokedObjectiveIds(draft, coalition)
+    })
   }
 }
 
@@ -515,7 +594,8 @@ function resolveObjectiveBattle(
   enemyCoalition: Coalition,
   theatre: z.infer<typeof schemas.theatre>,
   targetObjectiveId: string,
-  delta: number
+  delta: number,
+  frozenGroupIds?: ReadonlySet<string>
 ): void {
   const targetObjective = theatre.objectives.find(
     (objective) => objective.name === targetObjectiveId
@@ -526,7 +606,10 @@ function resolveObjectiveBattle(
   const ownGroundGroups = draft.coalitions[coalition].groundGroups
 
   const attackers = ownGroundGroups.filter(
-    (group) => group.targetObjectiveId === targetObjectiveId && group.state !== 'idle'
+    (group) =>
+      group.targetObjectiveId === targetObjectiveId &&
+      group.state !== 'idle' &&
+      !frozenGroupIds?.has(group.id)
   )
   if (attackers.length === 0) return
 
@@ -549,15 +632,29 @@ function resolveObjectiveBattle(
   )
 
   const defendersInRange = draft.coalitions[enemyCoalition].groundGroups.filter(
-    (group) => getUnitCount(group) > 0 && isWithinBattleRadius(group, targetObjective.position)
+    (group) =>
+      getUnitCount(group) > 0 &&
+      !frozenGroupIds?.has(group.id) &&
+      isWithinBattleRadius(group, targetObjective.position)
   )
 
   if (defendersInRange.length > 0 && engagedAttackers.length > 0) {
+    const inTheTown = engagedAttackers.some(
+      (attacker) => calculateDistance(attacker.position, targetObjective.position) <= OCCUPY_DISTANCE
+    )
+    const preparing = !inTheTown && engagedAttackers.every((attacker) => !assaultReady(attacker, draft.time))
+    if (preparing && engagedAttackers.some((attacker) => attacker.combatStartedAt == null)) {
+      logCombatAction(draft, coalition, `Preparing the assault on ${targetObjectiveId}`)
+    }
+    if (!preparing && engagedAttackers.some((attacker) => attacker.captureStartedAt == null)) {
+      for (const attacker of engagedAttackers) attacker.captureStartedAt = draft.time.toISOString()
+      logCombatAction(draft, coalition, `Assault on ${targetObjectiveId}`)
+    }
     fightBattle({
       draft,
       theatre,
       delta,
-      label: `at ${targetObjectiveId}`,
+      label: preparing ? `short of ${targetObjectiveId}` : `at ${targetObjectiveId}`,
       position: targetObjective.position,
       attackerCoalition: coalition,
       attackers: engagedAttackers,
@@ -565,8 +662,10 @@ function resolveObjectiveBattle(
       defenderCoalition: enemyCoalition,
       defenders: defendersInRange,
       defenderObjectiveId: targetObjectiveId,
-      defenderHoldsGround: true
+      defenderHoldsGround: true,
+      attritionScale: preparing ? PREP_ATTRITION : 1
     })
+    if (preparing) return
     if (!canOccupyObjective(draft, coalition, enemyCoalition, targetObjective.position)) return
     forceRemainingDefendersToRetreat(
       draft,
@@ -580,7 +679,7 @@ function resolveObjectiveBattle(
     clearCombatState(attacker)
   }
 
-  if (nearestAttackerDistance > CAPTURE_DISTANCE) {
+  if (nearestAttackerDistance > OCCUPY_DISTANCE) {
     for (const attacker of attackers) {
       clearCaptureState(attacker)
     }
@@ -677,7 +776,8 @@ function resolveAirdromeBattle(
   enemyCoalition: Coalition,
   theatre: z.infer<typeof schemas.theatre>,
   targetAirdromeName: string,
-  delta: number
+  delta: number,
+  frozenGroupIds?: ReadonlySet<string>
 ): void {
   const targetPosition = getAirdromePosition(theatre, targetAirdromeName)
   if (!targetPosition) return
@@ -686,7 +786,10 @@ function resolveAirdromeBattle(
   const ownGroundGroups = draft.coalitions[coalition].groundGroups
 
   const attackers = ownGroundGroups.filter(
-    (group) => group.targetAirdromeName === targetAirdromeName && group.state !== 'idle'
+    (group) =>
+      group.targetAirdromeName === targetAirdromeName &&
+      group.state !== 'idle' &&
+      !frozenGroupIds?.has(group.id)
   )
   if (attackers.length === 0) return
 
@@ -716,7 +819,10 @@ function resolveAirdromeBattle(
   )
 
   const defendersInRange = draft.coalitions[enemyCoalition].groundGroups.filter(
-    (group) => getUnitCount(group) > 0 && isWithinBattleRadius(group, targetPosition)
+    (group) =>
+      getUnitCount(group) > 0 &&
+      !frozenGroupIds?.has(group.id) &&
+      isWithinBattleRadius(group, targetPosition)
   )
 
   if (defendersInRange.length > 0 && engagedAttackers.length > 0) {
@@ -742,7 +848,7 @@ function resolveAirdromeBattle(
     clearCombatState(attacker)
   }
 
-  if (nearestAttackerDistance > CAPTURE_DISTANCE) {
+  if (nearestAttackerDistance > OCCUPY_DISTANCE) {
     for (const attacker of attackers) {
       clearCaptureState(attacker)
     }
@@ -777,13 +883,14 @@ function processObjectiveBattlesAndCaptures(
   coalition: Coalition,
   enemyCoalition: Coalition,
   theatre: z.infer<typeof schemas.theatre>,
-  delta: number
+  delta: number,
+  frozenGroupIds?: ReadonlySet<string>
 ): void {
   const targetObjectiveIds = Array.from(
     new Set(
       draft.coalitions[coalition].groundGroups
         .map((group) => {
-          if (group.state === 'idle') return undefined
+          if (group.state === 'idle' || frozenGroupIds?.has(group.id)) return undefined
           return group.targetObjectiveId
         })
         .filter((targetObjectiveId): targetObjectiveId is string => targetObjectiveId != null)
@@ -792,14 +899,22 @@ function processObjectiveBattlesAndCaptures(
 
   for (const targetObjectiveId of targetObjectiveIds) {
     if (isObjectiveBattleLocked(draft, coalition, targetObjectiveId)) continue
-    resolveObjectiveBattle(draft, coalition, enemyCoalition, theatre, targetObjectiveId, delta)
+    resolveObjectiveBattle(
+      draft,
+      coalition,
+      enemyCoalition,
+      theatre,
+      targetObjectiveId,
+      delta,
+      frozenGroupIds
+    )
   }
 
   const targetAirdromeNames = Array.from(
     new Set(
       draft.coalitions[coalition].groundGroups
         .map((group) => {
-          if (group.state === 'idle') return undefined
+          if (group.state === 'idle' || frozenGroupIds?.has(group.id)) return undefined
           return group.targetAirdromeName
         })
         .filter((targetAirdromeName): targetAirdromeName is string => targetAirdromeName != null)
@@ -808,13 +923,23 @@ function processObjectiveBattlesAndCaptures(
 
   for (const targetAirdromeName of targetAirdromeNames) {
     if (isAirdromeBattleLocked(draft, coalition, targetAirdromeName)) continue
-    resolveAirdromeBattle(draft, coalition, enemyCoalition, theatre, targetAirdromeName, delta)
+    resolveAirdromeBattle(
+      draft,
+      coalition,
+      enemyCoalition,
+      theatre,
+      targetAirdromeName,
+      delta,
+      frozenGroupIds
+    )
   }
 }
 
 type UpdateGroundGroupsOptions = {
   capture?: boolean
   move?: boolean
+  /** Formations already spawned in the running DCS mission. The tick must not march or fight them. */
+  frozenGroupIds?: ReadonlySet<string>
 }
 
 function isActiveGroundBattleLock(
@@ -860,9 +985,35 @@ function assignNextGroundTarget(
   enemyAirdromeNames: string[]
 ): void {
   if (group.targetObjectiveId || group.targetAirdromeName) return
-  if (isLastGarrison(draft, coalition, theatre, group)) {
-    if (canObjectiveRaiseTroops(draft, coalition, group.objectiveId)) return
-    if (coalitionHasAttackingColumn(draft, coalition, group.id)) return
+  if (
+    group.objectiveId &&
+    logisticsInterdictionAt(draft, coalition, group.objectiveId) >= GROUND_SPAWN_INTERDICTION_CHOKE
+  ) {
+    return
+  }
+  if (theatreHasLandGraph(theatre) && group.objectiveId) {
+    const enemyCoalition: Coalition = coalition === 'player' ? 'opponent' : 'player'
+    const hop = findAdjacentHostileTarget({
+      theatre,
+      fromObjectiveId: group.objectiveId,
+      enemyObjectiveIds,
+      enemyAirdromeNames: enemyAirdromeNames.filter((name) =>
+        isAirdromeVulnerable(draft, theatre, coalition, name)
+      ),
+      deprioritizedNames: chokedObjectiveIds(draft, enemyCoalition),
+      closedHops: activeRoadCutKeys(draft)
+    })
+    if (!hop) {
+      returnStrandedGroup(draft, coalition, theatre, group)
+      return
+    }
+    if (!mayOpenOffensiveAxis(draft, coalition, hop.name, theatre)) return
+    if (keepLastGarrison(draft, coalition, group)) return
+    group.state = 'moving'
+    group.targetObjectiveId = hop.type === 'objective' ? hop.name : undefined
+    group.targetAirdromeName = hop.type === 'airdrome' ? hop.name : undefined
+    group.deployment = undefined
+    return
   }
 
   const maxRange = isInfantryGroup(group.units)
@@ -897,6 +1048,9 @@ function assignNextGroundTarget(
     returnStrandedGroup(draft, coalition, theatre, group)
     return
   }
+  const axisName = targetObjectiveId ?? targetAirdromeName
+  if (!axisName || !mayOpenOffensiveAxis(draft, coalition, axisName, theatre)) return
+  if (keepLastGarrison(draft, coalition, group)) return
   group.state = 'moving'
   group.targetObjectiveId = targetObjectiveId
   group.targetAirdromeName = targetAirdromeName
@@ -912,6 +1066,39 @@ function getObjectiveOrAirdromePosition(
     theatre.objectives.find((objective) => objective.name === objectiveId)?.position ??
     getAirdromePosition(theatre, objectiveId)
   )
+}
+
+export function groundReplacementBlocked(draft: Campaign, coalition: Coalition, objectiveId: string) {
+  const until = draft.coalitions[coalition].groundReplacementUntil?.[objectiveId]
+  return until != null && until > draft.time.getTime()
+}
+
+function shouldHoldForRoadCut(draft: Campaign, group: GroundGroup, theatre: z.infer<typeof schemas.theatre>) {
+  const from = group.objectiveId
+  const to = group.targetObjectiveId ?? group.targetAirdromeName
+  if (!from || !to) return false
+  if (!activeRoadCutKeys(draft).has(hopKey(from, to))) return false
+  const targetPosition = getObjectiveOrAirdromePosition(theatre, to)
+  if (targetPosition && isWithinBattleRadius(group, targetPosition)) return false
+  return true
+}
+
+function shouldAbortInterdictedHop(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: z.infer<typeof schemas.theatre>,
+  group: GroundGroup
+) {
+  if (!group.objectiveId) return false
+  if (!group.targetObjectiveId && !group.targetAirdromeName) return false
+  if (!isLandHopChoked(draft, coalition, group.objectiveId)) return false
+  const targetPosition = group.targetObjectiveId
+    ? theatre.objectives.find((objective) => objective.name === group.targetObjectiveId)?.position
+    : group.targetAirdromeName
+      ? getAirdromePosition(theatre, group.targetAirdromeName)
+      : undefined
+  if (targetPosition && isWithinBattleRadius(group, targetPosition)) return false
+  return true
 }
 
 /**
@@ -947,45 +1134,19 @@ function returnStrandedGroup(
   }
 }
 
-/** A formation holding its own objective stays there unless another idle formation takes over. */
-function isLastGarrison(
-  draft: Campaign,
-  coalition: Coalition,
-  theatre: z.infer<typeof schemas.theatre>,
-  group: GroundGroup
-) {
+/** One company leaves the town. The last idle formation stays so the place is not abandoned. */
+function keepLastGarrison(draft: Campaign, coalition: Coalition, group: GroundGroup) {
   if (!group.objectiveId) return false
-  const home = getObjectiveOrAirdromePosition(theatre, group.objectiveId)
-  if (!home || !isWithinBattleRadius(group, home)) return false
-  if (!draft.coalitions[coalition].objectiveIds.includes(group.objectiveId)) {
-    const airdromes = draft.coalitions[coalition].airdromeNames
-    if (!airdromes.includes(group.objectiveId)) return false
-  }
-  return !hasOtherGarrison(draft, coalition, theatre, group.objectiveId, group.id)
-}
-
-function canObjectiveRaiseTroops(
-  draft: Campaign,
-  coalition: Coalition,
-  objectiveId: string | undefined
-) {
-  if (!objectiveId) return false
-  return draft.coalitions[coalition].structures.some(
-    (structure) =>
-      structure.objectiveId === objectiveId &&
-      (structure.type === 'Barrack' || structure.type === 'Depot') &&
-      structure.buildings.some((building) => building.alive)
+  const others = draft.coalitions[coalition].groundGroups.filter(
+    (other) => other.id !== group.id && other.objectiveId === group.objectiveId
   )
-}
-
-function coalitionHasAttackingColumn(draft: Campaign, coalition: Coalition, excludedGroupId: string) {
-  return draft.coalitions[coalition].groundGroups.some(
-    (group) =>
-      group.id !== excludedGroupId &&
-      getUnitCount(group) > 0 &&
-      (group.state === 'moving' || group.state === 'combat') &&
-      (group.targetObjectiveId != null || group.targetAirdromeName != null)
+  const columnAlreadyOut = others.some(
+    (other) =>
+      (other.state === 'moving' || other.state === 'combat') &&
+      (other.targetObjectiveId != null || other.targetAirdromeName != null)
   )
+  const anotherIdle = others.some((other) => other.state === 'idle')
+  return columnAlreadyOut && !anotherIdle
 }
 
 function isFieldCombatant(group: GroundGroup, theatre: z.infer<typeof schemas.theatre>) {
@@ -1017,7 +1178,11 @@ function findFieldContact(
  * coalitions resolved their objective battles. Each cluster of formations in contact is one fight;
  * formations no longer in contact resume their march.
  */
-export function resolveFieldEngagements(draft: Campaign, delta: number): void {
+export function resolveFieldEngagements(
+  draft: Campaign,
+  delta: number,
+  frozenGroupIds?: ReadonlySet<string>
+): void {
   const scenario = scenarios.find((s) => s.id === draft.scenarioId)
   const theatre = scenario && theatres.find((t) => t.name === scenario.theatreName)
   if (!theatre) return
@@ -1026,7 +1191,9 @@ export function resolveFieldEngagements(draft: Campaign, delta: number): void {
   const candidates = (coalition: Coalition) =>
     draft.coalitions[coalition].groundGroups.filter(
       (group) =>
-        isFieldCombatant(group, theatre) && !isGroundGroupLocked(draft, coalition, group.id)
+        isFieldCombatant(group, theatre) &&
+        !frozenGroupIds?.has(group.id) &&
+        !isGroundGroupLocked(draft, coalition, group.id)
     )
   const player = candidates('player')
   const opponent = candidates('opponent')
@@ -1112,12 +1279,20 @@ export function updateGroundGroups(
   const theatre = theatres.find((t) => t.name === scenario.theatreName)
   if (!theatre) return
 
+  const speedFactor = eraGroundLimits(campaignIadsEra(draft)).speedFactor
   const captureEnabled = options.capture ?? true
   const moveEnabled = options.move ?? true
   const enemyCoalition: Coalition = coalition === 'player' ? 'opponent' : 'player'
   updateReplacementPools(draft, coalition)
   if (captureEnabled && !moveEnabled) {
-    processObjectiveBattlesAndCaptures(draft, coalition, enemyCoalition, theatre, delta)
+    processObjectiveBattlesAndCaptures(
+      draft,
+      coalition,
+      enemyCoalition,
+      theatre,
+      delta,
+      options.frozenGroupIds
+    )
   }
 
   const groundGroups = draft.coalitions[coalition].groundGroups
@@ -1127,10 +1302,11 @@ export function updateGroundGroups(
   const surrenderedGroupIds = new Set<string>()
 
   for (const group of groundGroups) {
+    if (options.frozenGroupIds?.has(group.id)) continue
     if (group.state === 'withdrawing') {
       const waypoint = group.retreat?.route[0]
       if (waypoint && moveEnabled) {
-        moveGroupTowardsObjective(group, waypoint, delta, draft.timeMultiplier)
+        moveGroupTowardsObjective(group, waypoint, delta, draft.timeMultiplier, speedFactor)
         if (calculateDistance(group.position, waypoint) < 1) {
           group.retreat?.route.shift()
         }
@@ -1173,6 +1349,55 @@ export function updateGroundGroups(
           entityId: group.id
         })
       }
+      continue
+    }
+
+    if (
+      moveEnabled &&
+      (group.state === 'moving' || group.state === 'combat') &&
+      !isGroundGroupLocked(draft, coalition, group.id) &&
+      shouldHoldForRoadCut(draft, group, theatre)
+    ) {
+      clearCombatState(group)
+      clearCaptureState(group)
+      group.state = 'idle'
+      const from = group.objectiveId
+      const to = group.targetObjectiveId ?? group.targetAirdromeName
+      clearTargetState(group)
+      logCombatAction(
+        draft,
+        coalition,
+        `${group.id} holds; the road from ${from} to ${to} is cut`,
+        undefined,
+        {
+          entityType: 'groundGroup',
+          entityId: group.id
+        }
+      )
+      continue
+    }
+
+    if (
+      moveEnabled &&
+      (group.state === 'moving' || group.state === 'combat') &&
+      !isGroundGroupLocked(draft, coalition, group.id) &&
+      shouldAbortInterdictedHop(draft, coalition, theatre, group)
+    ) {
+      clearCombatState(group)
+      clearCaptureState(group)
+      group.state = 'idle'
+      clearTargetState(group)
+      logCombatAction(
+        draft,
+        coalition,
+        `${group.id} aborted the hop; ${group.objectiveId} is interdicted`,
+        undefined,
+        {
+          entityType: 'groundGroup',
+          entityId: group.id
+        }
+      )
+      returnStrandedGroup(draft, coalition, theatre, group)
       continue
     }
 
@@ -1228,20 +1453,36 @@ export function updateGroundGroups(
     }
 
     if (group.state === 'combat') {
-      // Road fights stay put. An assault that has already contacted the garrison keeps closing
-      // to capture range — combat used to freeze them 5 km out, short of the 2 km occupy line.
+      // On the road, stay put. Short of a held town, wait out the preparation. Then close in.
       if (
         moveEnabled &&
         targetPosition &&
-        !findFieldContact(draft, enemyCoalition, theatre, group) &&
-        calculateDistance(group.position, targetPosition) > CAPTURE_DISTANCE
+        !findFieldContact(draft, enemyCoalition, theatre, group)
       ) {
-        moveGroupTowardsObjective(
-          group,
-          getApproachPosition(group, targetPosition),
-          delta,
-          draft.timeMultiplier
+        const distance = calculateDistance(group.position, targetPosition)
+        const defendersAhead = draft.coalitions[enemyCoalition].groundGroups.some(
+          (enemy) =>
+            getUnitCount(enemy) > 0 && calculateDistance(enemy.position, targetPosition) <= BATTLE_RADIUS
         )
+        const waiting =
+          defendersAhead && distance > OCCUPY_DISTANCE && !assaultReady(group, draft.time)
+        if (waiting && distance > ASSAULT_LINE_METERS) {
+          moveGroupTowardsObjective(
+            group,
+            holdShortOf(group.position, targetPosition, ASSAULT_LINE_METERS),
+            delta,
+            draft.timeMultiplier,
+            speedFactor
+          )
+        } else if (!waiting && distance > CAPTURE_DISTANCE) {
+          moveGroupTowardsObjective(
+            group,
+            getApproachPosition(group, targetPosition),
+            delta,
+            draft.timeMultiplier,
+            speedFactor
+          )
+        }
       }
       continue
     }
@@ -1261,7 +1502,8 @@ export function updateGroundGroups(
         group,
         getApproachPosition(group, targetPosition),
         delta,
-        draft.timeMultiplier
+        draft.timeMultiplier,
+        speedFactor
       )
     }
   }
@@ -1294,4 +1536,6 @@ export function updateGroundGroups(
       (group) => !surrenderedGroupIds.has(group.id)
     )
   }
+
+  cleanupDestroyedGroups(draft, coalition)
 }
