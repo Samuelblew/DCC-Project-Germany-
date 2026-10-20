@@ -44,8 +44,9 @@ export function WelcomeHero({ appVersion, className }: WelcomeHeroProps) {
           <span className="welcome-hero__caret" aria-hidden />
         </div>
         <p className="welcome-hero__pitch">
-          A dynamic campaign generator for DCS World. Spin up a persistent theatre, watch flight groups
-          move in real time, and export a <code>.miz</code> you can fly — no config, no scripting.
+          A dynamic campaign generator for DCS World. Spin up a persistent theatre, watch flight
+          groups move in real time, and export a <code>.miz</code> you can fly — no config, no
+          scripting.
         </p>
       </div>
     </div>

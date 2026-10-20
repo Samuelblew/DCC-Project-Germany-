@@ -33,7 +33,8 @@ function createAircraftTypes(): CoalitionData['aircraftTypes'] {
     AFAC: [],
     CASEVAC: [],
     'Troop Extraction': [],
-    Training: []
+    Training: [],
+    ECM: []
   }
 }
 

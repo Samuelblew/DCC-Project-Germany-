@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
 import sharp from 'sharp'
 
 const APP_ICON_RELATIVE = join('apps', 'core', 'resources', 'icon.png')

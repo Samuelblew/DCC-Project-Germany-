@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { activeStore, isCareerCrewedOnly } from '@/stores/active'
+import { activeStore, getCareerFlightConstraints, isCareerCrewedOnly } from '@/stores/active'
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { canCreateManualFlightGroup } from '@/logic/systems/spawn/manual-flight-group'
 import { getTaskAircraftTypeOptions } from '@/lib/aircraft-display'
@@ -28,10 +28,14 @@ import {
 const MANUAL_FLIGHT_TASKS = [
   'CAP',
   'CAS',
+  'Ground Attack',
   'DEAD',
   'Pinpoint Strike',
   'SEAD',
   'Fighter Sweep',
+  'CSAR',
+  'Air Assault',
+  'Transport',
   'Training'
 ] as const
 
@@ -50,13 +54,18 @@ export function ActiveFlightGroups({ selectedItem, onSelect, onPreview }: Active
     (state) => state.context.coalitions.player.flightGroups
   )
   const campaign = useSelector(activeStore, (state) => state.context)
-  const creatableTasks = useMemo(
-    () =>
-      new Set(
-        MANUAL_FLIGHT_TASKS.filter((task) => canCreateManualFlightGroup(campaign, 'player', task))
-      ),
-    [campaign]
-  )
+  const creatableTasks = useMemo(() => {
+    const constraints = getCareerFlightConstraints(campaign)
+    return new Set(
+      MANUAL_FLIGHT_TASKS.filter((task) => {
+        if (campaign.career && constraints?.aircraftType) {
+          const supported = getTaskAircraftTypeOptions(task).includes(constraints.aircraftType)
+          if (!supported) return false
+        }
+        return canCreateManualFlightGroup(campaign, 'player', task, constraints)
+      })
+    )
+  }, [campaign])
   const campaignTime = useSelector(activeStore, (state) => state.context.time)
   const currentTime = campaignTime ? new Date(campaignTime) : new Date()
   const taskGroups = useMemo(() => {

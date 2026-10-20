@@ -24,7 +24,12 @@ export const FlightGroupFactory = {
       if (data.task === 'DEAD') {
         return new DeadFlightGroup(data)
       }
-      if (data.task === 'CAP' || data.task === 'AWACS' || data.task === 'Intercept' || data.task === 'Fighter Sweep') {
+      if (
+        data.task === 'CAP' ||
+        data.task === 'AWACS' ||
+        data.task === 'Intercept' ||
+        data.task === 'Fighter Sweep'
+      ) {
         return new CapFlightGroup(data)
       }
       if (data.task === 'Transport') {

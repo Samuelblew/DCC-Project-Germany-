@@ -19,6 +19,7 @@ import {
   EyeOff,
   X
 } from 'lucide-react'
+import { WarStatus } from './war-status'
 import React from 'react'
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 import { useSelector } from '@xstate/store/react'
@@ -43,6 +44,8 @@ import { uiStore } from '@/stores/ui'
 import { coreClient, orpc } from '@/lib/orpc'
 import { Clock } from './clock'
 import { CheatMenu } from './cheat-menu'
+import { PrioritiesDialog } from './priorities-dialog'
+import { IntelDialog } from './intel-dialog'
 import { WorldModeMenu } from './world-mode-menu'
 import { ActiveFlightGroups } from './active-flight-groups'
 import { AtoPackageBoard } from './ato-package-board'
@@ -423,8 +426,19 @@ export function Home() {
                 <span className="retro-font text-xs uppercase tracking-wide text-synthwave-pink">
                   Goal reached
                 </span>
+              ) : campaignStatus === 'lost' ? (
+                <span className="retro-font text-xs uppercase tracking-wide text-[#ef7f70]">
+                  Campaign lost
+                </span>
+              ) : campaignStatus === 'stalemate' ? (
+                <span className="retro-font text-xs uppercase tracking-wide text-secondary">
+                  Stalemate
+                </span>
               ) : null}
+              <WarStatus />
               <div className="flex items-center gap-1">
+                <IntelDialog />
+                <PrioritiesDialog />
                 <WorldModeMenu />
                 <CheatMenu />
               </div>

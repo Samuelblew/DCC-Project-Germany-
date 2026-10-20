@@ -16,7 +16,15 @@ function pylons(stations: Record<number, string>) {
 }
 
 const airToAir = pylons({ 1: R73, 2: R73, 3: R27R, 5: R27R, 6: R73, 7: R73 })
-const airToAirTank = pylons({ 1: R73, 2: R73, 3: R27ER, 4: FUEL_TANK_1400L, 5: R27ER, 6: R73, 7: R73 })
+const airToAirTank = pylons({
+  1: R73,
+  2: R73,
+  3: R27ER,
+  4: FUEL_TANK_1400L,
+  5: R27ER,
+  6: R73,
+  7: R73
+})
 
 const aircraftDefinition: z.infer<typeof schemas.dcs.aircraft> = {
   chaff: 30,

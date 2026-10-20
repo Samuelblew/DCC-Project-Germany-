@@ -3,53 +3,77 @@ import { describe, expect, test } from 'vitest'
 
 import { detachmentVehicleNames, planDetachment } from './detachment'
 
-const koreaUsa = {
+type UnitTypes = Parameters<typeof planDetachment>[0]['groundUnitTypes']
+
+/** Faction fixtures only list what a detachment uses; the rest of the record is empty. */
+function unitTypes(partial: Partial<UnitTypes>): UnitTypes {
+  return {
+    SAM: [],
+    Vehicle: [],
+    Infantry: [],
+    'Shorad Vehicle': [],
+    'Shorad Infantry': [],
+    EWS: [],
+    ...partial
+  }
+}
+
+const koreaUsa = unitTypes({
   Vehicle: ['M4_Sherman', 'M-113'],
   Infantry: ['Soldier M4'],
   'Shorad Vehicle': ['M1_37mm'],
   'Shorad Infantry': ['M45_Quadmount']
-}
-const koreaPact = {
+})
+const koreaPact = unitTypes({
   Infantry: ['Infantry AK'],
   Vehicle: ['T-55', 'PT_76'],
   'Shorad Vehicle': ['ZSU_57_2'],
   'Shorad Infantry': ['Ural-375 ZU-23']
-}
-const vietnamUsa = {
+})
+const vietnamUsa = unitTypes({
   Vehicle: ['M-113', 'M-60'],
   Infantry: ['Soldier M4'],
   'Shorad Vehicle': ['M1_37mm', 'Vulcan'],
   'Shorad Infantry': ['M45_Quadmount']
-}
-const vietnamPact = {
+})
+const vietnamPact = unitTypes({
   Infantry: ['Infantry AK'],
   Vehicle: ['BMP-1', 'MTLB', 'T-55'],
   'Shorad Vehicle': ['ZSU-23-4 Shilka', 'ZSU_57_2'],
   'Shorad Infantry': ['Ural-375 ZU-23']
-}
+})
 const lateUsa = vietnamUsa
-const latePact = {
+const latePact = unitTypes({
   Infantry: ['Infantry AK'],
   Vehicle: ['T-72B', 'T-55', 'BMP-1', 'BMP-2', 'MTLB'],
   'Shorad Vehicle': ['ZSU-23-4 Shilka', 'Strela-1 9P31', 'Osa 9A33 ln'],
   'Shorad Infantry': ['Ural-375 ZU-23']
-}
-const modernUsa = {
+})
+const modernUsa = unitTypes({
   Vehicle: ['M-2 Bradley', 'M-1 Abrams', 'M1126 Stryker ICV'],
   Infantry: ['Soldier M4'],
   'Shorad Vehicle': ['Vulcan', 'M6 Linebacker'],
   'Shorad Infantry': ['Soldier stinger']
-}
-const modernPact = {
+})
+const modernPact = unitTypes({
   Infantry: ['Infantry AK'],
   Vehicle: ['BMP-2', 'BMP-3', 'T-90'],
-  'Shorad Vehicle': ['ZSU-23-4 Shilka', 'Ural-375 ZU-23', 'Osa 9A33 ln', '2S6 Tunguska', 'Tor 9A331'],
+  'Shorad Vehicle': [
+    'ZSU-23-4 Shilka',
+    'Ural-375 ZU-23',
+    'Osa 9A33 ln',
+    '2S6 Tunguska',
+    'Tor 9A331'
+  ],
   'Shorad Infantry': ['SA-18 Igla manpad']
-}
+})
 
 const origin = { x: 0, y: 0 }
 
-function names(types: Parameters<typeof planDetachment>[0]['groundUnitTypes'], withVehicles = true) {
+function names(
+  types: Parameters<typeof planDetachment>[0]['groundUnitTypes'],
+  withVehicles = true
+) {
   return planDetachment({
     groundUnitTypes: types,
     origin,
@@ -88,22 +112,12 @@ describe('era detachments', () => {
   })
 
   test('Vietnam pact rides BMP-1 behind a T-55', () => {
-    expect(unique(names(vietnamPact))).toEqual([
-      'T-55',
-      'BMP-1',
-      'ZSU-23-4 Shilka',
-      'Infantry AK'
-    ])
+    expect(unique(names(vietnamPact))).toEqual(['T-55', 'BMP-1', 'ZSU-23-4 Shilka', 'Infantry AK'])
   })
 
   test('Late Cold War uses the kit that faction actually owns', () => {
     expect(unique(names(lateUsa))).toEqual(['M-60', 'M-113', 'Vulcan', 'Soldier M4'])
-    expect(unique(names(latePact))).toEqual([
-      'T-72B',
-      'BMP-2',
-      'ZSU-23-4 Shilka',
-      'Infantry AK'
-    ])
+    expect(unique(names(latePact))).toEqual(['T-72B', 'BMP-2', 'ZSU-23-4 Shilka', 'Infantry AK'])
   })
 
   test('Modern is Abrams and Bradley, or T-90 and BMP-3', () => {
@@ -113,12 +127,7 @@ describe('era detachments', () => {
       'M6 Linebacker',
       'Soldier M4'
     ])
-    expect(unique(names(modernPact))).toEqual([
-      'T-90',
-      'BMP-3',
-      '2S6 Tunguska',
-      'Infantry AK'
-    ])
+    expect(unique(names(modernPact))).toEqual(['T-90', 'BMP-3', '2S6 Tunguska', 'Infantry AK'])
   })
 
   test('without a depot the squad still leaves, on foot, with a light gun', () => {
@@ -137,7 +146,7 @@ describe('era detachments', () => {
 
   test('a depot on its own does not invent infantry', () => {
     const units = planDetachment({
-      groundUnitTypes: { Infantry: ['Infantry AK'], Vehicle: ['BMP-2'] },
+      groundUnitTypes: unitTypes({ Infantry: ['Infantry AK'], Vehicle: ['BMP-2'] }),
       origin,
       heading: 0,
       withVehicles: true,

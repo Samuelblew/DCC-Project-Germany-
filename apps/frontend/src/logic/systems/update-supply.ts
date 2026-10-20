@@ -4,6 +4,7 @@ import type * as z from 'zod'
 
 import { calculateDistance } from '../utils/calculate-distance'
 import { logisticsInterdictionAt } from './logistics-interdiction'
+import { dispatchConvoy, moveConvoys } from './supply-convoys'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -58,7 +59,12 @@ const FLIGHT_LOGISTICS_COST: Partial<
  * Production rate and route capacity are per campaign hour, so a sortie
  * stays spent longer than one tick. Route repair is per campaign minute.
  */
-export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000): void {
+export function updateSupply(
+  draft: Campaign,
+  coalition: Coalition,
+  delta = 1000,
+  frozenConvoyIds?: ReadonlySet<string>
+): void {
   const timeFactor = Math.max(0, (delta * draft.timeMultiplier) / 1000)
   const productionFactor = timeFactor / CAMPAIGN_HOUR_SECONDS
   const routeRepairFactor = timeFactor / CAMPAIGN_MINUTE_SECONDS
@@ -101,8 +107,19 @@ export function updateSupply(draft: Campaign, coalition: Coalition, delta = 1000
       )
     )
 
-    transferAlongRoute(source.supply, supply, route, productionFactor)
+    // Supply moves only inside convoys: the hub loads one per route and it has to arrive.
+    dispatchConvoy({
+      draft,
+      coalition,
+      theatre,
+      route,
+      source,
+      destination: { id: nodeId, supply, position: destinationPosition }
+    })
   }
+
+  moveConvoys(draft, coalition, timeFactor, frozenConvoyIds)
+  for (const supply of Object.values(supplyNodes)) updateSupplyStatus(supply)
 }
 
 function createBaselineSupply(isAirdrome: boolean): Supply {
@@ -267,8 +284,7 @@ function updateNodeSupply(supply: Supply, now: Date, timeFactor: number): void {
       : 1
   const interdictionMultiplier = 1 - (supply.logistics?.interdiction ?? 0)
 
-  supply.current +=
-    supply.productionRate * recoveryMultiplier * interdictionMultiplier * timeFactor
+  supply.current += supply.productionRate * recoveryMultiplier * interdictionMultiplier * timeFactor
   supply.current -= supply.consumptionRate * timeFactor
 
   supply.current = Math.max(0, Math.min(supply.max, supply.current))
@@ -412,44 +428,6 @@ function getRouteDisruption(
     route.interdictedUntil && draft.time < route.interdictedUntil ? route.disruption : 0
   const repaired = Math.max(0, current - ROUTE_REPAIR_PER_TICK * timeFactor)
   return Math.min(0.85, Math.max(repaired, enemyInterdiction ? 0.65 : 0))
-}
-
-function transferPool(
-  sourcePool: SupplyPool | undefined,
-  destinationPool: SupplyPool | undefined,
-  amount: number
-) {
-  if (!sourcePool || !destinationPool || amount <= 0) return
-  const transferred = Math.min(
-    amount,
-    sourcePool.current,
-    destinationPool.max - destinationPool.current
-  )
-  sourcePool.current -= transferred
-  destinationPool.current += transferred
-}
-
-function transferAlongRoute(
-  source: Supply,
-  destination: Supply,
-  route: LogisticsRoute,
-  timeFactor: number
-): void {
-  const effectiveCapacity = route.capacity * (1 - route.disruption) * timeFactor
-  if (effectiveCapacity <= 0) return
-
-  const supplyTransfer = Math.min(
-    effectiveCapacity,
-    source.current,
-    destination.max - destination.current
-  )
-  source.current -= supplyTransfer
-  destination.current += supplyTransfer
-  transferPool(source.fuel, destination.fuel, effectiveCapacity * 0.45)
-  transferPool(source.munitions, destination.munitions, effectiveCapacity * 0.35)
-  transferPool(source.repair, destination.repair, effectiveCapacity * 0.2)
-  updateSupplyStatus(source)
-  updateSupplyStatus(destination)
 }
 
 /**

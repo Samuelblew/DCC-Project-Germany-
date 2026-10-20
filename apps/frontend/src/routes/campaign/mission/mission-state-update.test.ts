@@ -207,7 +207,13 @@ function carrierGroup(state: 'operational' | 'sunk' = 'operational') {
   }
 }
 
-function createMissionState(overrides: Partial<MissionState>): MissionState {
+type MissionSide = NonNullable<MissionState['groupPositions']>['blue']
+/** Sides may leave out empty lists; the helper fills them. */
+type MissionStateOverrides = Omit<Partial<MissionState>, 'groupPositions'> & {
+  groupPositions?: { blue?: Partial<MissionSide>; red?: Partial<MissionSide> }
+}
+
+function createMissionState(overrides: MissionStateOverrides): MissionState {
   const emptySide = { aircraft: [], ground: [], ships: [] }
   return {
     missionId: 'campaign-1',
@@ -217,6 +223,8 @@ function createMissionState(overrides: Partial<MissionState>): MissionState {
     lostUnits: [],
     landedUnits: [],
     cargoDeliveries: {},
+    troopExtractions: [],
+    casevacPickups: [],
     ...overrides,
     groupPositions: {
       blue: { ...emptySide, ...overrides.groupPositions?.blue },
@@ -245,8 +253,8 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
       createMissionState({
         landedUnits: [trackedUnit('Enfield-1-1'), trackedUnit('Enfield-1-2')],
         groupPositions: {
-          blue: { aircraft: [aircraftPositionGroup('Enfield-1', [])], ground: [] },
-          red: { aircraft: [], ground: [] }
+          blue: { aircraft: [aircraftPositionGroup('Enfield-1', [])], ground: [], ships: [] },
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -289,8 +297,8 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
       createMissionState({
         landedUnits: [trackedUnit('Enfield-1-1'), trackedUnit('Enfield-1-2')],
         groupPositions: {
-          blue: { aircraft: [aircraftPositionGroup('Enfield-1', [])], ground: [] },
-          red: { aircraft: [], ground: [] }
+          blue: { aircraft: [aircraftPositionGroup('Enfield-1', [])], ground: [], ships: [] },
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -312,7 +320,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             aircraft: [aircraftPositionGroup('Enfield-1', [{ unitNumber: 2, inAir: false }])],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -338,7 +346,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             ],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -367,7 +375,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             ],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -393,7 +401,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             ],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -417,7 +425,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             aircraft: [aircraftPositionGroup('Enfield-1', [{ unitNumber: 2, inAir: true }])],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -458,7 +466,7 @@ describe('applyMissionStateUpdate flight group cleanup', () => {
             ],
             ground: []
           },
-          red: { aircraft: [], ground: [] }
+          red: { aircraft: [], ground: [], ships: [] }
         }
       })
     )
@@ -477,8 +485,8 @@ describe('applyMissionStateUpdate culling manifest', () => {
       campaign,
       createMissionState({
         groupPositions: {
-          blue: { aircraft: [], ground: [] },
-          red: { aircraft: [], ground: [] }
+          blue: { aircraft: [], ground: [], ships: [] },
+          red: { aircraft: [], ground: [], ships: [] }
         },
         cullingManifest: {
           groundGroups: { player: {}, opponent: {} },
@@ -503,8 +511,8 @@ describe('applyMissionStateUpdate culling manifest', () => {
       campaign,
       createMissionState({
         groupPositions: {
-          blue: { aircraft: [], ground: [] },
-          red: { aircraft: [], ground: [] }
+          blue: { aircraft: [], ground: [], ships: [] },
+          red: { aircraft: [], ground: [], ships: [] }
         },
         lostUnits: [trackedUnit('GroundUnit-omitted-ground-legacy-1', 'Ground-omitted-ground-1')],
         cullingManifest: {
@@ -539,7 +547,7 @@ describe('applyMissionStateUpdate culling manifest', () => {
       campaign,
       createMissionState({
         groupPositions: {
-          blue: { aircraft: [], ground: [] },
+          blue: { aircraft: [], ground: [], ships: [] },
           red: {
             aircraft: [],
             ground: [groundPositionGroup('mixed-ground', [{ type: 'Soldier stinger', count: 1 }])]
@@ -567,7 +575,7 @@ describe('applyMissionStateUpdate culling manifest', () => {
       campaign,
       createMissionState({
         groupPositions: {
-          blue: { aircraft: [], ground: [] },
+          blue: { aircraft: [], ground: [], ships: [] },
           red: {
             aircraft: [],
             ground: [groundPositionGroup('full-ground', [{ type: 'M-1 Abrams', count: 1 }])]

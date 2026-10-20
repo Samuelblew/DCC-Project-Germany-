@@ -14,5 +14,6 @@ export const settings = z.object({
 
 export const settingsOutput = settings.extend({
   detectedMissionExportPath: z.string().optional(),
-  detectedDcsInstallPath: z.string().optional()
+  detectedDcsInstallPath: z.string().optional(),
+  installedMods: z.array(z.string()).optional()
 })

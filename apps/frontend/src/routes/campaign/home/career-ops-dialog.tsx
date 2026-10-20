@@ -145,7 +145,10 @@ export function CareerOpsDialog({
   // Only tasks the planner can actually build from this base right now.
   const plannableTasks = base
     ? schemas.task.options
-        .filter((task) => aircraft.loadouts.some((entry) => entry.tasks.includes(task)))
+        .filter(
+          (task) =>
+            task === 'Training' || aircraft.loadouts.some((entry) => entry.tasks.includes(task))
+        )
         .filter((task) =>
           canCreateManualFlightGroup(activeStore.getSnapshot().context, 'player', task, {
             homeBases: new Set([base]),

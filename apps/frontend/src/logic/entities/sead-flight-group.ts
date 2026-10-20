@@ -6,6 +6,7 @@ import {
   samTemplates
 } from '@dcc/data'
 import * as z from 'zod'
+import { recordAirframeLoss } from '../systems/air-order-of-battle'
 import { FlightGroup } from './flight-group'
 import { calculateDistance } from '../utils/calculate-distance'
 import { buildSeadMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
@@ -149,6 +150,7 @@ export class SeadFlightGroup extends FlightGroup {
           const removedAircraft = this._data.aircrafts.pop()
           debugLog(`SEAD aircraft ${removedAircraft?.unitName} shot down by ${emitterType}`)
           if (removedAircraft) {
+            recordAirframeLoss(draft, coalition, removedAircraft)
             maybeCreateDownedPilotFromAircraftLoss(draft, coalition, {
               name: removedAircraft.unitName,
               position: this._data.position

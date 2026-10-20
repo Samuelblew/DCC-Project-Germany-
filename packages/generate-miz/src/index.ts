@@ -1,5 +1,5 @@
 import { config, schemas } from '@dcc/contracts'
-import { factions } from '@dcc/data'
+import { dcsMissionWeather, factions } from '@dcc/data'
 import * as luaTable from '@dcc/lua-table'
 import AdmZip from 'adm-zip'
 import { err, ok, Result } from 'neverthrow'
@@ -548,6 +548,7 @@ export async function generateMizFromCampaign(
   const ewrEnabled = campaign.campaignParams?.ewr !== false
   const iadsRequested = campaign.campaignParams?.iads !== false
 
+  const missionWeather = dcsMissionWeather(theatre, campaign.weather, campaign.time)
   const mission: z.infer<typeof schemas.dcs.mission> = {
     version: 23,
     theatre: theatre.dcsName ?? theatre.name,
@@ -570,42 +571,18 @@ export async function generateMizFromCampaign(
     map: createMissionMapConfig(theatre),
     goals: [],
     weather: {
-      name: 'Winter, clean sky',
+      name: 'DCC campaign weather',
       atmosphere_type: 0,
-      wind: {
-        at8000: {
-          speed: theatre.info.weather.wind.speed,
-          dir: theatre.info.weather.wind.direction
-        },
-        atGround: {
-          speed: theatre.info.weather.wind.speed,
-          dir: theatre.info.weather.wind.direction
-        },
-        at2000: {
-          speed: theatre.info.weather.wind.speed,
-          dir: theatre.info.weather.wind.direction
-        }
-      },
+      wind: missionWeather.wind,
       enable_dust: false,
       dust_density: 0,
-      qnh: 760,
+      qnh: missionWeather.qnh,
       groundTurbulence: 0,
       type_weather: 0,
-      season: { temperature: 20 },
-      visibility: { distance: 80000 },
-      clouds: {
-        density: 0,
-        thickness: 200,
-        preset: 'Preset2',
-        base: 2500,
-        iprecptns: 0
-      },
+      season: { temperature: missionWeather.temperature },
+      visibility: { distance: missionWeather.visibility },
+      clouds: missionWeather.clouds,
       cyclones: [],
-      name_ru: 'Лето. Штиль',
-      name_cn: '夏季 晴天+无风',
-      name_de: 'Sommer, Klar',
-      name_fr: 'Eté, ciel dégagé, vent nul',
-      name_es: 'Verano. Despejado',
       halo: { preset: 'auto' }
     },
     coalitions: {

@@ -20,6 +20,7 @@ import * as turf from '@turf/turf'
 import { tryDcsPositionToLngLat } from '@/logic/dcs-coordinates'
 import { hasFlightGroupTakenOff } from '@/logic/entities/flight-status'
 import { getGroundGroupSpawnCost } from '@/logic/systems/spawn/ground-group-costs'
+import { isFogOfWarEnabled } from '@/logic/systems/intel'
 import { createEwrMapItems } from './ewr-map-items'
 import { createGciMapItems } from './gci-map-items'
 import { createNavalGroupMapItems } from './naval-map-items'
@@ -34,6 +35,15 @@ export type ObjectiveMarker = {
     lng: number
     lat: number
   }
+}
+
+/** A sighting older than this is drawn faded, with its age. */
+const STALE_CONTACT_MS = 15 * 60_000
+
+function formatAge(ms: number) {
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 90) return `${minutes} min`
+  return `${Math.round(minutes / 60)} h`
 }
 
 export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
@@ -81,6 +91,18 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       }
     }
     const mapItems: z.infer<typeof schemas.MapItem>[] = []
+    // Fog of war: enemy units that move show only once seen, at the position they were seen.
+    const fogOfWar = isFogOfWarEnabled(campaign)
+    const intel = playerCoalition.intel ?? {}
+    const seen = <T extends { id: string; position: { x: number; y: number } }>(
+      entities: readonly T[]
+    ): T[] => {
+      if (!fogOfWar) return [...entities]
+      return entities.flatMap((entity) => {
+        const contact = intel[entity.id]
+        return contact ? [{ ...entity, position: contact.position }] : []
+      })
+    }
     for (const airdromeName of playerCoalition.airdromeNames) {
       const airdrome = theatre.airdromeDetails[airdromeName]
       if (airdrome == null) continue
@@ -401,7 +423,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     addStructureMarkers(playerCoalition.structures ?? [], 'player')
     addStructureMarkers(opponentCoalition.structures ?? [], 'opponent')
     addGroundGroupMarkers(playerCoalition.groundGroups ?? [], 'player')
-    addGroundGroupMarkers(opponentCoalition.groundGroups ?? [], 'opponent')
+    addGroundGroupMarkers(seen(opponentCoalition.groundGroups ?? []), 'opponent')
     if (!isGermanyIadsTheatre(theatre.name)) {
       addSamMarkers(playerCoalition.samGroups ?? [], 'player')
       addSamMarkers(opponentCoalition.samGroups ?? [], 'opponent')
@@ -462,14 +484,41 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     }
     mapItems.push(
       ...createNavalGroupMapItems(playerCoalition.navalGroups ?? [], 'player', theatre.name),
-      ...createNavalGroupMapItems(opponentCoalition.navalGroups ?? [], 'opponent', theatre.name)
+      ...createNavalGroupMapItems(
+        seen(opponentCoalition.navalGroups ?? []),
+        'opponent',
+        theatre.name
+      )
     )
     addFlightGroupMarkers(playerCoalition.flightGroups ?? [], 'player')
-    addFlightGroupMarkers(opponentCoalition.flightGroups ?? [], 'opponent')
+    addFlightGroupMarkers(
+      // A radar track gives position, not the route or the target.
+      seen(opponentCoalition.flightGroups ?? []).map((group) =>
+        fogOfWar ? { ...group, flightplan: { ...group.flightplan, waypoints: [] } } : group
+      ),
+      'opponent'
+    )
     addDownedPilotMarkers(playerCoalition.downedPilots ?? [], 'player')
     addDownedPilotMarkers(opponentCoalition.downedPilots ?? [], 'opponent')
     addConvoyMarkers(playerCoalition.supplyConvoys ?? [], 'player')
-    addConvoyMarkers(opponentCoalition.supplyConvoys ?? [], 'opponent')
+    addConvoyMarkers(
+      // A sighted convoy shows where it was, not where it is heading.
+      seen(opponentCoalition.supplyConvoys ?? []).map((convoy) =>
+        fogOfWar ? { ...convoy, path: [], nextPoint: 0 } : convoy
+      ),
+      'opponent'
+    )
+    if (fogOfWar) {
+      for (const item of mapItems) {
+        if (item.coalition !== 'opponent') continue
+        const contact = intel[item.id]
+        if (!contact || contact.kind === 'air') continue
+        const ageMs = campaignTime.getTime() - contact.seenAt.getTime()
+        if (ageMs < STALE_CONTACT_MS) continue
+        item.lastSeenAt = contact.seenAt
+        item.name = `${item.name} · seen ${formatAge(ageMs)} ago`
+      }
+    }
 
     let frontline: GeoJSON.FeatureCollection<GeoJSON.LineString> | null = null
 

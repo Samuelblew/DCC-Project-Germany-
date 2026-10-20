@@ -328,7 +328,9 @@ describe('garrisons', () => {
 
     spawnGroundGroups(campaign, 'player')
 
-    expect(campaign.coalitions.player.groundGroups.length).toBeLessThanOrEqual(MAX_LIVE_GROUND_GROUPS)
+    expect(campaign.coalitions.player.groundGroups.length).toBeLessThanOrEqual(
+      MAX_LIVE_GROUND_GROUPS
+    )
     const units = campaign.coalitions.player.groundGroups.reduce(
       (sum, group) => sum + group.units.reduce((total, unit) => total + unit.count, 0),
       0
@@ -340,7 +342,9 @@ describe('garrisons', () => {
     const campaign = createCampaign()
     const towns = [
       home,
-      ...germany.objectives.filter((entry) => entry.name !== home.name && entry.name !== enemyTown.name)
+      ...germany.objectives.filter(
+        (entry) => entry.name !== home.name && entry.name !== enemyTown.name
+      )
     ].slice(0, MAX_LIVE_GROUND_GROUPS)
     campaign.coalitions.player.objectiveIds = towns.map((entry) => entry.name)
     campaign.coalitions.player.structures.push(barrack(home.name, home.position, 5_000))
@@ -479,9 +483,7 @@ describe('ground battles', () => {
         campaign.coalitions.player.groundGroups[0]!.position.x - enemyTown.position.x,
         campaign.coalitions.player.groundGroups[0]!.position.y - enemyTown.position.y
       )
-    ).toBeLessThan(
-      Math.hypot(contact.x - enemyTown.position.x, contact.y - enemyTown.position.y)
-    )
+    ).toBeLessThan(Math.hypot(contact.x - enemyTown.position.x, contact.y - enemyTown.position.y))
   })
 
   test('a company holds short of a defended town through the preparation', () => {
@@ -531,6 +533,53 @@ describe('ground battles', () => {
     updateGroundGroups(campaign, 'player', 1_000, { move: false })
 
     expect(campaign.coalitions.opponent.objectiveIds).toContain(enemyTown.name)
+  })
+
+  test('a trapped remnant is not pulled back into the fight, so its surrender clock keeps running', () => {
+    const campaign = createCampaign()
+    const surrenderAt = new Date(campaign.time.getTime() + 30 * 60 * 1000).toISOString()
+    campaign.coalitions.player.groundGroups.push(
+      infantry('lead', {
+        position: { ...enemyTown.position },
+        state: 'combat',
+        combatStartedAt: new Date(campaign.time.getTime() - 30 * 60 * 1000).toISOString(),
+        targetObjectiveId: enemyTown.name
+      })
+    )
+    campaign.coalitions.opponent.groundGroups.push(
+      infantry('cut-off', {
+        position: { ...enemyTown.position },
+        objectiveId: enemyTown.name,
+        units: [{ name: 'Infantry AK', count: 2 }],
+        state: 'trapped',
+        retreat: { route: [], startedAt: campaign.time.toISOString(), surrenderAt }
+      })
+    )
+
+    updateGroundGroups(campaign, 'player', 1_000, { move: false })
+
+    const cutOff = campaign.coalitions.opponent.groundGroups.find((group) => group.id === 'cut-off')
+    // Either it is still waiting with the same deadline, or the town fell and it surrendered.
+    if (cutOff) {
+      expect(cutOff.state).toBe('trapped')
+      expect(cutOff.retreat?.surrenderAt).toBe(surrenderAt)
+    } else {
+      expect(campaign.coalitions.player.objectiveIds).toContain(enemyTown.name)
+    }
+  })
+
+  test('a defender goes back to idle once the attackers are gone, so it can take new tasks', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.player.groundGroups.push(
+      infantry('defender', {
+        state: 'combat',
+        combatStartedAt: new Date(campaign.time.getTime() - 60 * 60 * 1000).toISOString()
+      })
+    )
+
+    updateGroundGroups(campaign, 'player', 1_000, { capture: false })
+
+    expect(campaign.coalitions.player.groundGroups[0]!.state).not.toBe('combat')
   })
 
   test('an assault that outweighs the remnant captures the town', () => {
@@ -621,7 +670,9 @@ describe('ground battles', () => {
     updateGroundGroups(campaign, 'opponent', 1_000, { capture: false })
 
     const gap = campaign.coalitions.opponent.groundGroups.find((group) => group.id === 'vacha')
-    const north = campaign.coalitions.opponent.groundGroups.find((group) => group.id === 'haldensleben')
+    const north = campaign.coalitions.opponent.groundGroups.find(
+      (group) => group.id === 'haldensleben'
+    )
     expect(gap).toMatchObject({ state: 'moving', targetObjectiveId: home.name })
     expect(north).toMatchObject({ state: 'moving', targetObjectiveId: helmstedt.name })
   })

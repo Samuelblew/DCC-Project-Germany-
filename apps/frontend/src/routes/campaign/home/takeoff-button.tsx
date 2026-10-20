@@ -89,31 +89,31 @@ export function TakeoffButton() {
       <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
         {parking}
         <div className="grid min-w-0 grid-cols-2 gap-2">
-        {selectFlightButton()}
-        <Button
-          size="sm"
-          variant="tacticalAction"
-          className={cn(
-            'relative h-10 w-full overflow-hidden rounded-md',
-            isForwardingToTakeoff && 'takeoff-forwarding-button'
-          )}
-          aria-label="Forward to Takeoff"
-          onClick={() => {
-            activeStore.trigger.setTimeTarget({ timeTarget: startTime })
-            activeStore.trigger.updateTimeMultiplier({ timeMultiplier: 300 })
-          }}
-        >
-          {isForwardingToTakeoff ? <span className="takeoff-forwarding-sweep" /> : null}
-          <FastForward
+          {selectFlightButton()}
+          <Button
+            size="sm"
+            variant="tacticalAction"
             className={cn(
-              'relative z-10 mr-1.5 h-4 w-4',
-              isForwardingToTakeoff && 'takeoff-forwarding-icon'
+              'relative h-10 w-full overflow-hidden rounded-md',
+              isForwardingToTakeoff && 'takeoff-forwarding-button'
             )}
-          />
-          <span className="relative z-10 flex min-w-0 flex-col items-start leading-none">
-            <span className="text-xs">Forward to Takeoff</span>
-          </span>
-        </Button>
+            aria-label="Forward to Takeoff"
+            onClick={() => {
+              activeStore.trigger.setTimeTarget({ timeTarget: startTime })
+              activeStore.trigger.updateTimeMultiplier({ timeMultiplier: 300 })
+            }}
+          >
+            {isForwardingToTakeoff ? <span className="takeoff-forwarding-sweep" /> : null}
+            <FastForward
+              className={cn(
+                'relative z-10 mr-1.5 h-4 w-4',
+                isForwardingToTakeoff && 'takeoff-forwarding-icon'
+              )}
+            />
+            <span className="relative z-10 flex min-w-0 flex-col items-start leading-none">
+              <span className="text-xs">Forward to Takeoff</span>
+            </span>
+          </Button>
         </div>
         {dialogs}
       </div>
@@ -124,26 +124,26 @@ export function TakeoffButton() {
     <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
       {parking}
       <div className="grid min-w-0 grid-cols-2 gap-2">
-      {selectFlightButton()}
-      <Button
-        size="sm"
-        variant="tacticalAction"
-        className="h-10 w-full rounded-md"
-        onClick={async () => {
-          if (!hasClient || isSaving) return
-          setIsSaving(true)
-          try {
-            await coreClient.campaign.saveActiveCampaign(activeStore.getSnapshot().context)
-            navigate('/mission')
-          } finally {
-            setIsSaving(false)
-          }
-        }}
-        disabled={!hasClient || isSaving}
-      >
-        <PlaneTakeoff className="mr-2 h-4 w-4" />
-        Takeoff
-      </Button>
+        {selectFlightButton()}
+        <Button
+          size="sm"
+          variant="tacticalAction"
+          className="h-10 w-full rounded-md"
+          onClick={async () => {
+            if (!hasClient || isSaving) return
+            setIsSaving(true)
+            try {
+              await coreClient.campaign.saveActiveCampaign(activeStore.getSnapshot().context)
+              navigate('/mission')
+            } finally {
+              setIsSaving(false)
+            }
+          }}
+          disabled={!hasClient || isSaving}
+        >
+          <PlaneTakeoff className="mr-2 h-4 w-4" />
+          Takeoff
+        </Button>
       </div>
       {dialogs}
     </div>

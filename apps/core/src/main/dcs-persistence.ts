@@ -222,7 +222,9 @@ export function syncDcsPersistenceForAppRuntime(input?: PersistenceSettingsInput
       fs.writeFileSync(missionScriptingPath, patchedContent, 'utf-8')
       console.log(`Enabled DCS persistence in MissionScripting.lua: ${missionScriptingPath}`)
     } else {
-      console.log(`DCS persistence already enabled in MissionScripting.lua: ${missionScriptingPath}`)
+      console.log(
+        `DCS persistence already enabled in MissionScripting.lua: ${missionScriptingPath}`
+      )
     }
 
     registerRestoreHook()

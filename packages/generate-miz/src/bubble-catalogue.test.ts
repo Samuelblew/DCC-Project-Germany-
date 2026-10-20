@@ -139,10 +139,83 @@ describe('buildBubbleCatalogue', () => {
 
     const sam = entries.find((entry) => entry.id === 'far-sam')
     expect(sam?.kind).toBe('sam')
-    expect(sam?.enter).toBe(35_000)
-    expect(sam?.leave).toBe(42_000)
+    // SA-2 reaches 45 km: it is up 10 km before the player gets inside that.
+    expect(sam?.enter).toBe(55_000)
+    expect(sam?.leave).toBe(66_000)
     expect(sam?.units[0]?.name).toBe('SAM-far-sam-SA-2-1-1')
     expect(sam?.x).toBe(200_000)
+  })
+
+  test('a column on the move keeps marching on its target in 3D', () => {
+    const marching = campaign()
+    marching.coalitions.opponent.groundGroups[0] = {
+      ...marching.coalitions.opponent.groundGroups[0]!,
+      state: 'moving',
+      targetObjectiveId: 'near-objective'
+    }
+
+    const column = buildBubbleCatalogue(marching, theatre).find(
+      (entry) => entry.id === 'far-column'
+    )
+    expect(column?.route?.map((point) => [point.x, point.y, point.action])).toEqual([
+      [100_000, 0, 'Off Road'],
+      [1_000, 0, 'On Road']
+    ])
+    // An idle garrison still spawns standing.
+    expect(
+      buildBubbleCatalogue(campaign(), theatre).find((e) => e.id === 'far-column')?.route
+    ).toBeUndefined()
+  })
+
+  test('an airborne flight continues from the leg it is on, not the waypoint behind it', () => {
+    const flying = campaign()
+    flying.coalitions.opponent.flightGroups = [
+      {
+        id: 'ai-strike',
+        task: 'CAS',
+        // 10 km past WP2 on a 100 km leg to WP3: WP2 is the nearest waypoint but it is behind.
+        position: { x: 110_000, y: 0 },
+        homeBase: 'Base',
+        callsign: 'Uzi-1',
+        aircrafts: [{ id: 'a', unitName: 'Uzi-1-1', aircraftName: 'F-4E' }],
+        flightplan: {
+          id: 'plan',
+          startTime: new Date(time.getTime() - 3_600_000),
+          waypoints: [
+            { name: 'WP1', position: { x: 0, y: 0 }, altitude: 6000, speed: 220, type: 'Nav' },
+            {
+              name: 'WP2',
+              position: { x: 100_000, y: 0 },
+              altitude: 6000,
+              speed: 220,
+              type: 'Nav'
+            },
+            { name: 'WP3', position: { x: 200_000, y: 0 }, altitude: 6000, speed: 220, type: 'Nav' }
+          ]
+        }
+      }
+    ] as unknown as typeof flying.coalitions.opponent.flightGroups
+
+    const flight = buildBubbleCatalogue(flying, theatre).find((entry) => entry.id === 'ai-strike')
+    expect(flight?.route?.[1]).toMatchObject({ x: 200_000, y: 0 })
+  })
+
+  test('a long-range SAM enters at its reach, capped by the long-range SAM slider', () => {
+    const base = campaign()
+    const longRange = {
+      ...base,
+      campaignParams: { ...base.campaignParams, cullingSamRadius: 100_000 }
+    } as typeof base
+    longRange.coalitions.opponent.samGroups = longRange.coalitions.opponent.samGroups.map(
+      (sam) => ({
+        ...sam,
+        type: 'SA-5'
+      })
+    )
+
+    const sam = buildBubbleCatalogue(longRange, theatre).find((entry) => entry.kind === 'sam')
+    // SA-5 reaches 240 km; the 100 km slider caps it.
+    expect(sam?.enter).toBe(100_000)
   })
 
   test('keeps Germany EWR and command posts out of the catalogue and lists parked aircraft and support trucks', () => {

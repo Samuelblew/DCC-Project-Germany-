@@ -71,9 +71,7 @@ const defaultImmersion: ImmersionSettings = {
   ambientAir: true
 }
 
-export function resolveImmersion(
-  value: Partial<ImmersionSettings> | undefined
-): ImmersionSettings {
+export function resolveImmersion(value: Partial<ImmersionSettings> | undefined): ImmersionSettings {
   return {
     civTraffic: value?.civTraffic ?? defaultImmersion.civTraffic,
     groundCrew: value?.groundCrew ?? defaultImmersion.groundCrew,
@@ -131,6 +129,22 @@ export const config = {
       aircraftsPerGroup: 2
     },
     CAS: {
+      maxActive: {
+        player: 2,
+        opponent: 2
+      },
+      maxDistance: 250_000,
+      aircraftsPerGroup: 2
+    },
+    'Ground Attack': {
+      maxActive: {
+        player: 2,
+        opponent: 2
+      },
+      maxDistance: 250_000,
+      aircraftsPerGroup: 2
+    },
+    'Air Assault': {
       maxActive: {
         player: 2,
         opponent: 2

@@ -292,13 +292,7 @@ describe('addPlayerGciStation', () => {
     const types = mission.coalition.blue.country?.[0]?.vehicle?.group.map(
       (group) => group.units[0]?.type
     )
-    expect(types).toEqual([
-      'p-19 s-125 sr',
-      GCI_STATION_TYPE,
-      '55G6 EWR',
-      '55G6 EWR',
-      '55G6 EWR'
-    ])
+    expect(types).toEqual(['p-19 s-125 sr', GCI_STATION_TYPE, '55G6 EWR', '55G6 EWR', '55G6 EWR'])
   })
 
   test('keeps the home station when a radar is out of link range and spawns fallbacks', () => {

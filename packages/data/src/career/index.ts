@@ -2,11 +2,15 @@ import type { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
 import type { AircraftRole } from '../aircraft-profiles/types'
+import { isAircraftModInstalled } from '../aircrafts/mods'
 import { a10aCareer } from './a-10a'
+import { ah6jCareer } from './ah-6j'
+import { ah64dCareer } from './ah-64d'
 import { f5eFcCareer } from './f-5e-fc'
 import { f15cCareer } from './f-15c'
 import { f16cCareer } from './f-16c'
 import { f86fFcCareer } from './f-86f-fc'
+import { mh6jCareer } from './mh-6j'
 import { mig15bisFcCareer } from './mig-15bis-fc'
 import { mig29FulcrumCareer } from './mig-29-fulcrum'
 import { mig29sCareer } from './mig-29s'
@@ -36,7 +40,10 @@ export const careerAircraft: CareerAircraft[] = [
   f16cCareer,
   f5eFcCareer,
   f86fFcCareer,
-  mig15bisFcCareer
+  mig15bisFcCareer,
+  ah64dCareer,
+  ah6jCareer,
+  mh6jCareer
 ]
 
 export function getCareerAircraft(aircraftName: string): CareerAircraft | undefined {
@@ -55,11 +62,17 @@ export function isFactionCareerAircraft(
 /** Career aircraft the player may start in or buy: the coalition's own, or any in arcade. */
 export function getAcquirableCareerAircraft(
   rule: AcquisitionRule,
-  playerAircraftTypes: AircraftTypesByTask
+  playerAircraftTypes: AircraftTypesByTask,
+  installedMods?: readonly string[]
 ): CareerAircraft[] {
+  const available = installedMods
+    ? careerAircraft.filter((aircraft) =>
+        isAircraftModInstalled(aircraft.aircraftName, installedMods)
+      )
+    : careerAircraft
   return rule === 'arcade'
-    ? careerAircraft
-    : careerAircraft.filter((aircraft) => isFactionCareerAircraft(aircraft, playerAircraftTypes))
+    ? available
+    : available.filter((aircraft) => isFactionCareerAircraft(aircraft, playerAircraftTypes))
 }
 
 /** Rewards per mission event, in the same currency as the catalog prices. */

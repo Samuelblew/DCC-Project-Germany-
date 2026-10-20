@@ -1,4 +1,9 @@
-import { aircrafts as aircraftDefinitions, ESCALATION_FACTION_IDS, scenarios } from '@dcc/data'
+import {
+  aircrafts as aircraftDefinitions,
+  ESCALATION_FACTION_IDS,
+  isAircraftModInstalled,
+  scenarios
+} from '@dcc/data'
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
@@ -102,12 +107,23 @@ export const aircraftCatalog = Object.values(aircraftDefinitions).sort((left, ri
   left.display_name.localeCompare(right.display_name)
 )
 
-export function getFactionAircraft(faction: Faction | undefined) {
+export function getAvailableAircraftCatalog(installedMods?: readonly string[]) {
+  if (!installedMods) return aircraftCatalog
+  return aircraftCatalog.filter((aircraft) =>
+    isAircraftModInstalled(aircraft.name, installedMods)
+  )
+}
+
+export function getFactionAircraft(
+  faction: Faction | undefined,
+  installedMods?: readonly string[]
+) {
   if (!faction) return []
 
   const rolesByAircraft = new Map<string, string[]>()
   for (const [role, aircraftNames] of Object.entries(faction.aircraftTypes)) {
     for (const aircraftName of aircraftNames) {
+      if (!isAircraftModInstalled(aircraftName, installedMods)) continue
       const roles = rolesByAircraft.get(aircraftName) ?? []
       roles.push(role)
       rolesByAircraft.set(aircraftName, roles)

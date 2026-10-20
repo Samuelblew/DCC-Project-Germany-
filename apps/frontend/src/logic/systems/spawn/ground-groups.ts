@@ -7,7 +7,13 @@ import {
   groundMarchKind,
   theatreHasLandGraph
 } from '@dcc/campaign'
-import { scenarios, theatres, campaignIadsEra, eraGroundLimits, resolveGroundSpawnMultiplier } from '@dcc/data'
+import {
+  scenarios,
+  theatres,
+  campaignIadsEra,
+  eraGroundLimits,
+  resolveGroundSpawnMultiplier
+} from '@dcc/data'
 import * as z from 'zod'
 import { GroundGroup } from '../../entities/ground-group'
 import { calculateDistance } from '@/logic/utils/calculate-distance'
@@ -263,8 +269,7 @@ function pruneExcessGroundGroups(draft: Campaign, coalition: Coalition, theatre:
       }))
       .find((entry) => entry.groups.length > MAX_LIVE_GROUND_GROUPS_PER_OBJECTIVE)
 
-    const overCoalition =
-      groups.length > limits.maxLiveGroups || units > limits.maxLiveUnits
+    const overCoalition = groups.length > limits.maxLiveGroups || units > limits.maxLiveUnits
     const tooManyIdle = idle > limits.maxIdleGarrisons
     if (!overCoalition && !crowdedObjective && !tooManyIdle) return
 
@@ -278,12 +283,11 @@ function pruneExcessGroundGroups(draft: Campaign, coalition: Coalition, theatre:
       })
       .sort((left, right) => {
         const extraLeft = Boolean(
-          left.objectiveId &&
-            hasOtherGarrison(draft, coalition, theatre, left.objectiveId, left.id)
+          left.objectiveId && hasOtherGarrison(draft, coalition, theatre, left.objectiveId, left.id)
         )
         const extraRight = Boolean(
           right.objectiveId &&
-            hasOtherGarrison(draft, coalition, theatre, right.objectiveId, right.id)
+          hasOtherGarrison(draft, coalition, theatre, right.objectiveId, right.id)
         )
         const score = surplusScore(left, extraLeft) - surplusScore(right, extraRight)
         if (score !== 0) return score
@@ -306,11 +310,7 @@ function pruneExcessGroundGroups(draft: Campaign, coalition: Coalition, theatre:
   }
 }
 
-function hasLivingBarrack(
-  draft: Campaign,
-  coalition: Coalition,
-  objectiveId: string
-) {
+function hasLivingBarrack(draft: Campaign, coalition: Coalition, objectiveId: string) {
   return draft.coalitions[coalition].structures.some(
     (structure) =>
       structure.type === 'Barrack' &&
@@ -420,15 +420,17 @@ export function spawnGroundGroups(
       ) {
         continue
       }
-      if (!fromBarrack && (structure.resources || 0) < VEHICLE_COST && pool.equipment.length === 0) {
+      if (
+        !fromBarrack &&
+        (structure.resources || 0) < VEHICLE_COST &&
+        pool.equipment.length === 0
+      ) {
         continue
       }
       // The company leaves from the barrack. A depot beside it does not raise a second group.
       if (!fromBarrack && hasLivingBarrack(draft, coalition, structure.objectiveId)) continue
 
-      const depot = fromBarrack
-        ? payingDepot(draft, coalition, structure.objectiveId)
-        : structure
+      const depot = fromBarrack ? payingDepot(draft, coalition, structure.objectiveId) : structure
       const depotCanPay = depot != null && (depot.resources || 0) >= VEHICLE_COST
       const withVehicles = depotCanPay || pool.equipment.length > 0
       const composition = planDetachment({
@@ -470,7 +472,9 @@ export function spawnGroundGroups(
       if (!assault && idleGarrisonCount(draft, coalition, theatre) >= limits.maxIdleGarrisons) {
         continue
       }
-      if (!canRaiseGroundGroup(draft, coalition, theatre, structure.objectiveId, composition.length)) {
+      if (
+        !canRaiseGroundGroup(draft, coalition, theatre, structure.objectiveId, composition.length)
+      ) {
         break
       }
 
@@ -478,7 +482,9 @@ export function spawnGroundGroups(
       const depotResourcesBefore = depot?.resources
       const personnelBefore = pool.readyPersonnel
       const equipmentBefore = pool.equipment.length
-      const infantryField = fromBarrack ? authorizeInfantry(structure, pool, DETACHMENT_INFANTRY) : 0
+      const infantryField = fromBarrack
+        ? authorizeInfantry(structure, pool, DETACHMENT_INFANTRY)
+        : 0
       if (fromBarrack && infantryField === 0) continue
       const vehicleNames = authorizeVehicles(
         depotCanPay ? depot : undefined,
@@ -494,7 +500,9 @@ export function spawnGroundGroups(
       })
       const paidVehicles = new Set(detachmentVehicleNames(laidOut))
       const units = [
-        ...laidOut.filter((unit) => paidVehicles.has(unit.name) && vehicleNames.includes(unit.name)),
+        ...laidOut.filter(
+          (unit) => paidVehicles.has(unit.name) && vehicleNames.includes(unit.name)
+        ),
         ...laidOut.filter(
           (unit) => !paidVehicles.has(unit.name) && !/infantry|soldier/i.test(unit.name)
         ),

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- asymmetric matchers and mission tasks are untyped */
 import { schemas } from '@dcc/contracts'
 import { scenarios } from '@dcc/data'
 import { describe, expect, test, vi } from 'vitest'

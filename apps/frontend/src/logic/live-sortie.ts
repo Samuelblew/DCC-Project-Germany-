@@ -1,8 +1,9 @@
 import { produce } from 'immer'
-import { schemas } from '@dcc/contracts'
+import { CONVOY_GROUP_PREFIX, schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
 import { applyFastTick, applyLogicTick, type LiveSortieFreeze } from './campaign-tick'
+import { placeConvoyAt } from './systems/supply-convoys'
 import {
   applyLiveIadsDeaths,
   campaignDateFromMissionTime
@@ -26,9 +27,34 @@ function groundIdFromMissionName(name: string): string | null {
   return match?.[1] ?? null
 }
 
+function convoyIdFromMissionName(name: string, coalition: Coalition): string | null {
+  const prefix = `${CONVOY_GROUP_PREFIX}${coalition}-`
+  return name.startsWith(prefix) ? name.slice(prefix.length) : null
+}
+
+function missionConvoyGroups(
+  missionState: MissionState,
+  coalition: Coalition,
+  side: 'blue' | 'red'
+) {
+  const groups = new Map<string, { x: number; y: number }>()
+  for (const group of [
+    ...(missionState.groupPositions?.[side].ground ?? []),
+    ...(missionState.groupPositions?.[side].aircraft ?? [])
+  ]) {
+    const id = convoyIdFromMissionName(group.name, coalition)
+    if (id) groups.set(id, group)
+  }
+  return groups
+}
+
 function collectFreeze(campaign: Campaign, missionState: MissionState): LiveSortieFreeze {
   const callsigns = new Set<string>()
   const groundIds = new Set<string>()
+  const convoyIds = new Set<string>()
+  for (const [coalition, side] of coalitions) {
+    for (const id of missionConvoyGroups(missionState, coalition, side).keys()) convoyIds.add(id)
+  }
   for (const [, side] of coalitions) {
     for (const group of missionState.groupPositions?.[side].aircraft ?? []) {
       callsigns.add(group.name)
@@ -46,7 +72,7 @@ function collectFreeze(campaign: Campaign, missionState: MissionState): LiveSort
     }
   }
 
-  return { flightIds, groundIds }
+  return { flightIds, groundIds, convoyIds }
 }
 
 function overlayPositions(draft: Campaign, missionState: MissionState) {
@@ -77,6 +103,12 @@ function overlayPositions(draft: Campaign, missionState: MissionState) {
         group.name.startsWith(prefix)
       )
       if (missionGroup) ewr.position = { x: missionGroup.x, y: missionGroup.y }
+    }
+
+    const convoys = missionConvoyGroups(missionState, coalition, side)
+    for (const convoy of draft.coalitions[coalition].supplyConvoys ?? []) {
+      const missionGroup = convoys.get(convoy.id)
+      if (missionGroup) placeConvoyAt(convoy, missionGroup)
     }
 
     for (const navalGroup of draft.coalitions[coalition].navalGroups ?? []) {
@@ -129,6 +161,17 @@ export function applyLiveSortie(campaign: Campaign, missionState: MissionState):
 
 function positionsNeedOverlay(campaign: Campaign, missionState: MissionState) {
   for (const [coalition, side] of coalitions) {
+    const convoys = missionConvoyGroups(missionState, coalition, side)
+    for (const convoy of campaign.coalitions[coalition].supplyConvoys ?? []) {
+      const missionGroup = convoys.get(convoy.id)
+      if (
+        missionGroup &&
+        (convoy.position.x !== missionGroup.x || convoy.position.y !== missionGroup.y)
+      ) {
+        return true
+      }
+    }
+
     const aircraft = new Map(
       (missionState.groupPositions?.[side].aircraft ?? []).map((group) => [group.name, group])
     )

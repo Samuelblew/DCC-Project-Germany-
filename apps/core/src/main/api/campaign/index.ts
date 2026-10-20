@@ -24,6 +24,7 @@ import { getTheatre } from '../data/get-theatre'
 import { syncDcsPersistenceForAppRuntime } from '../../dcs-persistence'
 import { campaignsDir, stateFile } from '../../app-data'
 import { validateDcsInstallPath } from '../../dcs-install'
+import { detectInstalledMods } from '../../dcs-mods'
 
 const missionStateFileName = 'dcc_state.json'
 console.log('stateFile', stateFile)
@@ -387,7 +388,11 @@ const getSettings = pub.campaign.getSettings.handler(async () => {
   return {
     ...(state.settings ?? {}),
     detectedMissionExportPath: detectMissionExportDirectory(),
-    detectedDcsInstallPath: detectDcsInstallPath()
+    detectedDcsInstallPath: detectDcsInstallPath(),
+    installedMods: detectInstalledMods({
+      dcsInstallPath: state.settings?.dcsInstallPath,
+      missionExportPath: state.settings?.missionExportPath
+    })
   }
 })
 
@@ -477,13 +482,22 @@ export const loadMissionState = pub.campaign.loadMissionState.handler(async ({ e
 
 const bubbleCatalogueFileName = 'dcc_bubble.lua'
 
+/**
+ * Replace the file in one step, so the mission script never reads a half-written catalogue.
+ * Rename is atomic on one volume; if DCS holds the file open at that instant, fall back to a copy
+ * (bubble.lua keeps its last good catalogue when a read fails to parse).
+ */
 async function writeTextReplacing(filePath: string, contents: string) {
   const tmpPath = `${filePath}.${process.pid}.tmp`
   await fs.writeFile(tmpPath, contents, 'utf-8')
   try {
-    await fs.copyFile(tmpPath, filePath)
-  } finally {
-    await fs.unlink(tmpPath).catch(() => undefined)
+    await fs.rename(tmpPath, filePath)
+  } catch {
+    try {
+      await fs.copyFile(tmpPath, filePath)
+    } finally {
+      await fs.unlink(tmpPath).catch(() => undefined)
+    }
   }
 }
 

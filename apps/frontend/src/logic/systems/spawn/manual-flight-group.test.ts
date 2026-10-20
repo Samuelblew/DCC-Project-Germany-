@@ -119,6 +119,60 @@ describe('aircraft lists saved before Training existed', () => {
     const parsed = schemas.faction.parse({ ...faction, aircraftTypes: savedAircraftTypes })
 
     expect(parsed.aircraftTypes.Training).toEqual([])
-    expect(schemas.resolveTaskAircraftTypes(parsed.aircraftTypes, 'Training')).toContain('F-4E-45MC')
+    expect(schemas.resolveTaskAircraftTypes(parsed.aircraftTypes, 'Training')).toContain(
+      'F-4E-45MC'
+    )
+  })
+})
+
+describe('helicopter manual tasks (AH-6J & MH-6J)', () => {
+  test('plans CAS, Ground Attack, CSAR, Air Assault, and Transport for career helicopters', () => {
+    const campaign = createCampaign()
+    const fulda = theatre.airdromeDetails['Fulda']!
+    campaign.coalitions.player = createCoalition('usa-1977', 'Fulda', [
+      {
+        id: 'friendly-1',
+        objectiveId: 'Fulda',
+        targetObjectiveId: 'Vacha',
+        position: { x: fulda.x + 15_000, y: fulda.y + 15_000 },
+        state: 'combat',
+        units: [{ name: 'M1A2', count: 4 }]
+      }
+    ])
+    campaign.coalitions.player.objectiveIds = ['Fulda', 'Alsfeld']
+    campaign.coalitions.opponent.groundGroups = [
+      {
+        id: 'enemy-moving-1',
+        objectiveId: 'Vacha',
+        targetObjectiveId: 'Fulda',
+        position: { x: fulda.x + 25_000, y: fulda.y + 20_000 },
+        state: 'moving',
+        units: [{ name: 'BMP-2', count: 6 }]
+      }
+    ]
+
+    for (const task of ['CAS', 'Ground Attack', 'CSAR', 'Training'] as const) {
+      campaign.coalitions.player.flightGroups = []
+      const fgId = createManualFlightGroup(campaign, 'player', task, {
+        homeBases: new Set(['Fulda']),
+        aircraftType: 'AH-6J'
+      })
+      expect(fgId).not.toBeNull()
+      const fg = campaign.coalitions.player.flightGroups.find((g) => g.id === fgId)
+      expect(fg?.task).toBe(task)
+      expect(fg?.aircrafts[0]?.aircraftName).toBe('AH-6J')
+    }
+
+    for (const task of ['CAS', 'CSAR', 'Air Assault', 'Transport', 'Training'] as const) {
+      campaign.coalitions.player.flightGroups = []
+      const fgId = createManualFlightGroup(campaign, 'player', task, {
+        homeBases: new Set(['Fulda']),
+        aircraftType: 'MH-6J'
+      })
+      expect(fgId).not.toBeNull()
+      const fg = campaign.coalitions.player.flightGroups.find((g) => g.id === fgId)
+      expect(fg?.task).toBe(task)
+      expect(fg?.aircrafts[0]?.aircraftName).toBe('MH-6J')
+    }
   })
 })

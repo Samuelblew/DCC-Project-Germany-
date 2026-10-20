@@ -1,6 +1,9 @@
 import { config, schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
+import { hasAirframes } from '../../air-order-of-battle'
+import { missionPriorityLevel, NEUTRAL_PRIORITY } from '../../commander-priorities'
+import { isEnemyKnown } from '../../intel'
 import {
   buildStrikeMissionWaypoints,
   spawnPlannedFlightGroup
@@ -15,15 +18,25 @@ import {
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
 
+/** The commander's anti-shipping priority adds or removes a package; "never" stops them. */
+function antiShipLimit(draft: Campaign, coalition: Coalition) {
+  const level = missionPriorityLevel(draft, coalition, 'antiship')
+  if (level === 0) return 0
+  const base = config.packages['Antiship Strike'].maxActive[coalition]
+  return Math.max(1, base + Math.sign(level - NEUTRAL_PRIORITY))
+}
+
 export function spawnAntiShip(draft: Campaign, coalition: Coalition) {
   const context = resolveSpawnContext(draft, coalition)
   if (!context) return
-  const availableAircraftTypes = draft.coalitions[coalition].aircraftTypes['Antiship Strike']
+  const availableAircraftTypes = (
+    draft.coalitions[coalition].aircraftTypes['Antiship Strike'] ?? []
+  ).filter((type) => hasAirframes(draft, coalition, type, 2))
   if (!availableAircraftTypes?.length) return
   const active = draft.coalitions[coalition].flightGroups.filter(
     (group) => group.task === 'Antiship Strike'
   )
-  if (active.length >= config.packages['Antiship Strike'].maxActive[coalition]) return
+  if (active.length >= antiShipLimit(draft, coalition)) return
 
   const targetedIds = new Set(active.map((group) => group.target?.id).filter(Boolean))
   const targets = (draft.coalitions[context.enemyCoalition].navalGroups ?? [])
@@ -32,7 +45,8 @@ export function spawnAntiShip(draft: Campaign, coalition: Coalition) {
         group.role !== 'carrier' &&
         group.state !== 'sunk' &&
         group.damage < 1 &&
-        !targetedIds.has(group.id)
+        !targetedIds.has(group.id) &&
+        isEnemyKnown(draft, coalition, group.id)
     )
     .map((group) => ({ target: group, position: group.position }))
   const assignment = selectHomeBaseAndTarget({

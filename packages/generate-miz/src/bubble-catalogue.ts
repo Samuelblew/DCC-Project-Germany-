@@ -1,4 +1,10 @@
-import { config, CONVOY_GROUP_PREFIX, resolveImmersion, schemas } from '@dcc/contracts'
+import {
+  config,
+  CONVOY_GROUP_PREFIX,
+  resolveImmersion,
+  resolveSamCullingRadiusMeters,
+  schemas
+} from '@dcc/contracts'
 import {
   aircrafts,
   buildings,
@@ -29,7 +35,8 @@ type Theatre = z.infer<typeof schemas.theatre>
 type Coalition = 'player' | 'opponent'
 
 const GROUND_ENTER_METERS = 12_000
-const SAM_ENTER_CAP_METERS = 35_000
+/** A SAM enters once the player is within its reach plus this margin, so it is up before it can fire. */
+const SAM_REACH_MARGIN_METERS = 10_000
 const LEAVE_RATIO = 1.2
 const TAXI_LEAD_MS = 10 * 60 * 1000
 /** Search radars around the live player. A campaign option replaces this later. */
@@ -75,7 +82,7 @@ export type BubbleRoutePoint = {
   y: number
   alt: number
   speed: number
-  action: 'Turning Point' | 'Landing' | 'TakeOffParkingHot' | 'On Road'
+  action: 'Turning Point' | 'Landing' | 'TakeOffParkingHot' | 'On Road' | 'Off Road'
 }
 
 export type BubbleEngage = {
@@ -186,7 +193,10 @@ function flightFrequencyMhz(callsign: string, type: string, task: string) {
   return Math.round((min + (hash % steps) * 0.05) * 100) / 100
 }
 
-function towerFrequency(field?: { frequency?: number; frequencyList?: [number, number, number, number] }) {
+function towerFrequency(field?: {
+  frequency?: number
+  frequencyList?: [number, number, number, number]
+}) {
   const candidates = [field?.frequency, ...(field?.frequencyList ?? [])]
   return (
     candidates.find((frequency) => frequency != null && frequency >= 225 && frequency <= 399.975) ??
@@ -196,7 +206,7 @@ function towerFrequency(field?: { frequency?: number; frequencyList?: [number, n
 
 function flightRadio(type: string, frequency: number, atc: number) {
   const slot = getAircraftProfile(type)?.radios?.comms[0]?.missionRadio ?? 1
-  const radios = Array.from({ length: slot }, () => ({ channels: {} as Record<number, number> }))
+  const radios = Array.from({ length: slot }, () => ({ channels: {} }))
   const tuned = radios[slot - 1]
   if (!tuned) return undefined
   tuned.channels = {
@@ -208,11 +218,7 @@ function flightRadio(type: string, frequency: number, atc: number) {
   return radios
 }
 
-function aircraftPayload(
-  type: string,
-  task?: string,
-  explicit?: { num: number; CLSID: string }[]
-) {
+function aircraftPayload(type: string, task?: string, explicit?: { num: number; CLSID: string }[]) {
   const definition = aircraftByName.get(type)
   const loadout =
     definition?.loadouts?.find((candidate) => candidate.task === task) ??
@@ -259,20 +265,46 @@ function remainingRoute(
   altitude: number,
   speed: number
 ): BubbleRoutePoint[] {
+  // Continue from the leg the flight is on: the waypoint after the segment closest to it. The
+  // nearest waypoint alone could be the one already behind, and the AI turned back to it.
   const waypoints = flight.flightplan.waypoints
   let start = 0
   let nearest = Number.POSITIVE_INFINITY
-  waypoints.forEach((waypoint, index) => {
+  for (let index = 0; index < waypoints.length; index += 1) {
+    const to = waypoints[index]!.position
+    const from = index > 0 ? waypoints[index - 1]!.position : to
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const lengthSquared = dx * dx + dy * dy
+    const t =
+      lengthSquared === 0
+        ? 1
+        : Math.max(
+            0,
+            Math.min(
+              1,
+              ((flight.position.x - from.x) * dx + (flight.position.y - from.y) * dy) /
+                lengthSquared
+            )
+          )
     const distance = Math.hypot(
-      waypoint.position.x - flight.position.x,
-      waypoint.position.y - flight.position.y
+      from.x + dx * t - flight.position.x,
+      from.y + dy * t - flight.position.y
     )
     if (distance < nearest) {
       nearest = distance
       start = index
     }
-  })
-  if (nearest < 2_000 && start + 1 < waypoints.length) start += 1
+  }
+  if (
+    start + 1 < waypoints.length &&
+    Math.hypot(
+      waypoints[start]!.position.x - flight.position.x,
+      waypoints[start]!.position.y - flight.position.y
+    ) < 2_000
+  ) {
+    start += 1
+  }
 
   const ahead = waypoints.slice(start, start + 8).filter((waypoint) => waypoint.type !== 'TakeOff')
   return [
@@ -382,6 +414,37 @@ function rampRoute(
   ]
 }
 
+const GROUND_COLUMN_SPEED_MS = 10
+
+/**
+ * A column marching on a town, or falling back, keeps going in 3D: without a route it spawned
+ * standing still while the campaign tick was frozen for it, so an offensive stopped dead
+ * whenever the player came close.
+ */
+function groundColumnRoute(
+  theatre: Theatre,
+  group: Campaign['coalitions']['player']['groundGroups'][number]
+): BubbleRoutePoint[] | undefined {
+  const point = (position: { x: number; y: number }, onRoad: boolean): BubbleRoutePoint => ({
+    x: position.x,
+    y: position.y,
+    alt: 0,
+    speed: GROUND_COLUMN_SPEED_MS,
+    action: onRoad ? 'On Road' : 'Off Road'
+  })
+  if (group.state === 'withdrawing' && group.retreat?.route.length) {
+    return [point(group.position, false), ...group.retreat.route.map((p) => point(p, true))]
+  }
+  if (group.state !== 'moving' && group.state !== 'combat') return undefined
+  const targetId = group.targetObjectiveId ?? group.targetAirdromeName
+  if (!targetId) return undefined
+  const objective = theatre.objectives.find((candidate) => candidate.name === targetId)
+  const airdrome = theatre.airdromeDetails[targetId]
+  const target = objective?.position ?? (airdrome ? { x: airdrome.x, y: airdrome.y } : undefined)
+  if (!target) return undefined
+  return [point(group.position, false), point(target, true)]
+}
+
 function headingToward(from: { x: number; y: number }, to?: { x: number; y: number }) {
   if (!to) return 0
   const dx = to.x - from.x
@@ -444,10 +507,16 @@ function liveNavalUnits(group: NavalGroup) {
   return units.filter((unit) => unit.state !== 'sunk' && unit.damage < 1)
 }
 
-function enterRadius(kind: BubbleEntry['kind'], weaponRange?: number) {
+/**
+ * Ground columns enter at 12 km. A SAM enters at its own reach plus a margin, capped by the
+ * long-range SAM band (the same slider the corridor uses). A fixed 35 km cap left Patriot, SA-5,
+ * Hawk and SA-2 sites out of the mission until the player was well inside their envelope.
+ */
+function enterRadius(campaign: Campaign, kind: BubbleEntry['kind'], weaponRange?: number) {
   if (kind === 'ground') return GROUND_ENTER_METERS
-  const weapon = weaponRange && weaponRange > 0 ? weaponRange : GROUND_ENTER_METERS
-  return Math.min(Math.max(weapon, GROUND_ENTER_METERS), SAM_ENTER_CAP_METERS)
+  const weapon = weaponRange && weaponRange > 0 ? weaponRange + SAM_REACH_MARGIN_METERS : 0
+  const band = resolveSamCullingRadiusMeters(campaign.campaignParams?.cullingSamRadius)
+  return Math.min(Math.max(weapon, GROUND_ENTER_METERS), Math.max(band, GROUND_ENTER_METERS))
 }
 
 function bubbleSide(coalition: Coalition): 'blue' | 'red' {
@@ -545,7 +614,8 @@ export function buildBubbleCatalogue(
           heading: unit.heading ?? 0
         }
       })
-      const enter = enterRadius('ground')
+      const enter = enterRadius(campaign, 'ground')
+      const route = groundColumnRoute(theatre, group)
       entries.push({
         id: group.id,
         kind: 'ground',
@@ -555,6 +625,7 @@ export function buildBubbleCatalogue(
         y: group.position.y,
         enter,
         leave: Math.round(enter * LEAVE_RATIO),
+        ...(route ? { speed: GROUND_COLUMN_SPEED_MS, route } : {}),
         units: placed
       })
     }
@@ -585,7 +656,7 @@ export function buildBubbleCatalogue(
             heading: 0
           }
         })
-        const enter = enterRadius('sam', template.range)
+        const enter = enterRadius(campaign, 'sam', template.range)
         entries.push({
           id: sam.id,
           kind: 'sam',
@@ -856,7 +927,7 @@ export function buildBubbleCatalogue(
         ? GROUND_ENTER_METERS
         : radar
           ? RADAR_ENTER_METERS
-          : enterRadius('sam', site.range)
+          : enterRadius(campaign, 'sam', site.range)
       entries.push({
         id: site.id,
         kind: parked ? 'static' : radar || site.kind === 'support' ? 'ground' : 'sam',

@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 
 import { AircraftRoster } from './start-aircraft-roster'
 import {
+  aircraftCatalog,
   eraMenuOptions,
   eraOptions,
   factionIdsForEra,
@@ -43,6 +44,7 @@ type CampaignStepProps = {
   /** Career aircraft the acquisition rule allows for the player's faction. */
   careerAircraft: CareerAircraft[]
   careerAircraftName: string | undefined
+  installedMods?: readonly string[]
   escalationEnabled: boolean
   eraDurationDays: number
   onSelectCampaignMode: (mode: CampaignMode) => void
@@ -77,6 +79,7 @@ export function CampaignStep({
   acquisitionRule,
   careerAircraft,
   careerAircraftName,
+  installedMods,
   escalationEnabled,
   eraDurationDays,
   onSelectCampaignMode,
@@ -100,7 +103,7 @@ export function CampaignStep({
   const selectedOpponentFaction = factions.find(
     (faction) => faction.id === selectedOpponentFactionId
   )
-  const playerAircraft = getFactionAircraft(selectedPlayerFaction)
+  const playerAircraft = getFactionAircraft(selectedPlayerFaction, installedMods)
   const selectedCareerAircraft = careerAircraft.find(
     (aircraft) => aircraft.aircraftName === careerAircraftName
   )
@@ -219,22 +222,32 @@ export function CampaignStep({
                 ))}
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
-                {careerAircraft.map((aircraft) => (
-                  <button
-                    key={aircraft.aircraftName}
-                    type="button"
-                    className={cn(
-                      'flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs transition-all',
-                      careerAircraftName === aircraft.aircraftName
-                        ? 'border-synthwave-cyan bg-synthwave-cyan/10 text-white'
-                        : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan'
-                    )}
-                    onClick={() => onSelectCareerAircraft(aircraft.aircraftName)}
-                  >
-                    <Plane className="h-3.5 w-3.5" />
-                    {aircraft.displayName}
-                  </button>
-                ))}
+                {careerAircraft.map((aircraft) => {
+                  const isMod =
+                    aircraftCatalog.find((entry) => entry.name === aircraft.aircraftName)?.isMod ??
+                    false
+                  return (
+                    <button
+                      key={aircraft.aircraftName}
+                      type="button"
+                      className={cn(
+                        'flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs transition-all',
+                        careerAircraftName === aircraft.aircraftName
+                          ? 'border-synthwave-cyan bg-synthwave-cyan/10 text-white'
+                          : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan'
+                      )}
+                      onClick={() => onSelectCareerAircraft(aircraft.aircraftName)}
+                    >
+                      <Plane className="h-3.5 w-3.5" />
+                      {aircraft.displayName}
+                      {isMod ? (
+                        <span className="rounded border border-synthwave-pink/40 bg-synthwave-pink/10 px-1 py-0.5 text-[0.55rem] uppercase text-synthwave-pink">
+                          MOD
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })}
                 {careerAircraft.length === 0 ? (
                   <div className="text-xs text-synthwave-pink">
                     No career aircraft in your coalition. Pick another faction or switch to Arcade.
@@ -259,102 +272,98 @@ export function CampaignStep({
         {step === 'era' || escalationEnabled ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {eraMenuOptions.map((era) => {
-            const isEscalation = era.id === 'Escalation'
-            const isSelected = isEscalation
-              ? escalationEnabled
-              : !escalationEnabled && era.id === selectedEra
-            const eraDefaults = isEscalation
-              ? ESCALATION_FACTION_IDS.Korea
-              : factionIdsForEra(era.id, scenario.theatreName)
+              const isEscalation = era.id === 'Escalation'
+              const isSelected = isEscalation
+                ? escalationEnabled
+                : !escalationEnabled && era.id === selectedEra
+              const eraDefaults = isEscalation
+                ? ESCALATION_FACTION_IDS.Korea
+                : factionIdsForEra(era.id, scenario.theatreName)
 
-            return (
-              <div
-                key={era.id}
-                className={cn(
-                  'group flex flex-col rounded-md border text-left transition-all',
-                  isEscalation && isSelected && 'sm:col-span-2',
-                  'bg-synthwave-dark/78 shadow-[0_18px_45px_rgba(0,0,0,0.22)] backdrop-blur',
-                  isSelected
-                    ? 'border-synthwave-pink text-white shadow-[0_0_32px_rgba(217,68,58,0.24)]'
-                    : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan hover:bg-synthwave-purple/10'
-                )}
-              >
-                <button
-                  type="button"
-                  className="flex w-full flex-col p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-synthwave-cyan"
-                  onClick={() => {
-                    if (era.id === 'Escalation') {
-                      onToggleEscalation(true)
-                      return
-                    }
-                    onSelectEra(era.id)
-                  }}
+              return (
+                <div
+                  key={era.id}
+                  className={cn(
+                    'group flex flex-col rounded-md border text-left transition-all',
+                    isEscalation && isSelected && 'sm:col-span-2',
+                    'bg-synthwave-dark/78 shadow-[0_18px_45px_rgba(0,0,0,0.22)] backdrop-blur',
+                    isSelected
+                      ? 'border-synthwave-pink text-white shadow-[0_0_32px_rgba(217,68,58,0.24)]'
+                      : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan hover:bg-synthwave-purple/10'
+                  )}
                 >
-                  <div className="mb-2 flex w-full items-start justify-between gap-3">
-                    <div>
-                      <div className="retro-font text-lg tracking-wide">
-                        {era.label}
-                      </div>
-                      <div className="mt-1 flex items-center gap-1 text-xs text-synthwave-cyan/75">
-                        <Clock3 className="h-3.5 w-3.5" />
-                        {era.callsign}
-                      </div>
-                    </div>
-                    <span
-                      className={cn(
-                        'rounded border px-2 py-1 text-xs',
-                        isSelected
-                          ? 'border-synthwave-pink/70 text-synthwave-pink'
-                          : 'border-synthwave-purple/50 text-synthwave-light/55'
-                      )}
-                    >
-                      {isSelected ? 'SELECTED' : 'AVAILABLE'}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-5 text-synthwave-light/68">
-                    {era.description}
-                  </p>
-                </button>
-                <div className="flex flex-col gap-2 border-t border-synthwave-purple/25 px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <Plane className="h-3.5 w-3.5 text-synthwave-cyan/60" />
-                    <span className="text-[0.65rem] uppercase tracking-[0.18em] text-synthwave-light/40">
-                      {
-                        factions.find(
-                          (faction) =>
-                            faction.id ===
-                            (playerSide === 'red' ? eraDefaults.opponent : eraDefaults.player)
-                        )?.name
+                  <button
+                    type="button"
+                    className="flex w-full flex-col p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-synthwave-cyan"
+                    onClick={() => {
+                      if (era.id === 'Escalation') {
+                        onToggleEscalation(true)
+                        return
                       }
-                    </span>
+                      onSelectEra(era.id)
+                    }}
+                  >
+                    <div className="mb-2 flex w-full items-start justify-between gap-3">
+                      <div>
+                        <div className="retro-font text-lg tracking-wide">{era.label}</div>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-synthwave-cyan/75">
+                          <Clock3 className="h-3.5 w-3.5" />
+                          {era.callsign}
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          'rounded border px-2 py-1 text-xs',
+                          isSelected
+                            ? 'border-synthwave-pink/70 text-synthwave-pink'
+                            : 'border-synthwave-purple/50 text-synthwave-light/55'
+                        )}
+                      >
+                        {isSelected ? 'SELECTED' : 'AVAILABLE'}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-5 text-synthwave-light/68">{era.description}</p>
+                  </button>
+                  <div className="flex flex-col gap-2 border-t border-synthwave-purple/25 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Plane className="h-3.5 w-3.5 text-synthwave-cyan/60" />
+                      <span className="text-[0.65rem] uppercase tracking-[0.18em] text-synthwave-light/40">
+                        {
+                          factions.find(
+                            (faction) =>
+                              faction.id ===
+                              (playerSide === 'red' ? eraDefaults.opponent : eraDefaults.player)
+                          )?.name
+                        }
+                      </span>
+                    </div>
+                    {isEscalation && isSelected ? (
+                      <label
+                        className="flex flex-col gap-1"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.18em] text-synthwave-light/45">
+                          <span>Days per generation</span>
+                          <span className="retro-font text-synthwave-cyan">{eraDurationDays}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={1}
+                          max={30}
+                          value={eraDurationDays}
+                          onChange={(event) => onEraDurationDaysChange(Number(event.target.value))}
+                          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-synthwave-purple/50 accent-synthwave-pink"
+                        />
+                        <div className="text-[0.58rem] text-synthwave-light/40">
+                          Default {DEFAULT_ESCALATION_ERA_DAYS} days. Last generation stays until
+                          the scenario ends.
+                        </div>
+                      </label>
+                    ) : null}
                   </div>
-                  {isEscalation && isSelected ? (
-                    <label
-                      className="flex flex-col gap-1"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.18em] text-synthwave-light/45">
-                        <span>Days per generation</span>
-                        <span className="retro-font text-synthwave-cyan">{eraDurationDays}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={1}
-                        max={30}
-                        value={eraDurationDays}
-                        onChange={(event) => onEraDurationDaysChange(Number(event.target.value))}
-                        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-synthwave-purple/50 accent-synthwave-pink"
-                      />
-                      <div className="text-[0.58rem] text-synthwave-light/40">
-                        Default {DEFAULT_ESCALATION_ERA_DAYS} days. Last generation stays until the
-                        scenario ends.
-                      </div>
-                    </label>
-                  ) : null}
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">

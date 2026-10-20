@@ -38,6 +38,8 @@ export const scenario = z.object({
   deferredObjectiveIds: z.array(z.string()).optional(),
   goal: scenarioGoal.optional(),
   opponentGoal: scenarioGoal.optional(),
+  /** Campaign days before the war ends in a stalemate. Escalation campaigns use their eras instead. */
+  durationDays: z.number().positive().optional(),
   opponentBriefing: z.string().optional(),
   sideSelectable: z.boolean().optional(),
   start: z.record(coalition, startObjectives)

@@ -2,6 +2,7 @@ import { config, schemas } from '@dcc/contracts'
 import {
   aircrafts,
   findGermanyIadsSite,
+  getCareerAircraft,
   getSamSitePosition,
   isGermanyIadsSamDestroyed,
   scenarios,
@@ -10,6 +11,7 @@ import {
 import * as z from 'zod'
 
 import {
+  buildAttackMissionWaypoints,
   buildCasMissionWaypoints,
   buildDeadMissionWaypoints,
   buildSeadMissionWaypoints,
@@ -55,11 +57,11 @@ export type DirectedAttackPlan = {
 const tasksByKind: Record<DirectedAttackKind, FlightTask[]> = {
   sam: ['SEAD', 'DEAD', 'Pinpoint Strike'],
   ewr: ['SEAD', 'DEAD', 'Pinpoint Strike'],
-  ground: ['CAS', 'Pinpoint Strike'],
+  ground: ['CAS', 'Ground Attack', 'Pinpoint Strike'],
   naval: ['Antiship Strike', 'Pinpoint Strike'],
-  airdrome: ['Pinpoint Strike'],
-  town: ['Pinpoint Strike'],
-  structure: ['Pinpoint Strike']
+  airdrome: ['Pinpoint Strike', 'Ground Attack'],
+  town: ['Pinpoint Strike', 'Ground Attack'],
+  structure: ['Pinpoint Strike', 'Ground Attack']
 }
 
 function campaignTheatre(draft: Campaign): Theatre | null {
@@ -117,6 +119,21 @@ function resolveTargetPosition(
 }
 
 function pickAircraft(draft: Campaign, tasks: FlightTask[]) {
+  if (draft.career) {
+    const preferred = getCareerAircraft(draft.career.preferredAircraft)
+    if (preferred) {
+      const matchedTask = tasks.find((task) =>
+        preferred.loadouts.some((loadout) => loadout.tasks.includes(task))
+      )
+      if (matchedTask) {
+        return {
+          task: matchedTask,
+          aircraftType: preferred.aircraftName as z.infer<typeof schemas.dcs.aircraftName>
+        }
+      }
+    }
+  }
+
   for (const task of tasks) {
     const aircraftType = draft.coalitions.player.aircraftTypes[task]?.[0]
     if (aircraftType) {
@@ -138,9 +155,20 @@ function nearestHomeBase(
   const isHelicopter =
     Object.values(aircrafts).find((aircraft) => aircraft.name === aircraftType)?.isHelicopter ??
     false
-  const bases = isHelicopter
+  const readyCareerLocations = draft.career
+    ? new Set(
+        draft.career.airframes
+          .filter((airframe) => airframe.status === 'ready' && airframe.aircraftName === aircraftType)
+          .map((airframe) => airframe.location)
+      )
+    : null
+  const allBases = isHelicopter
     ? getCoalitionCasHomeBases(draft, theatre, 'player', aircraftType)
     : getCoalitionAirdromes(draft, theatre, 'player')
+  const bases =
+    readyCareerLocations && readyCareerLocations.size > 0
+      ? allBases.filter((base) => readyCareerLocations.has(base.name))
+      : allBases
 
   let best: AirdromeSelection | null = null
   let bestDistance = Number.POSITIVE_INFINITY
@@ -194,6 +222,7 @@ function waypointsFor(task: FlightTask, home: Position, target: Position) {
   if (task === 'SEAD') return buildSeadMissionWaypoints(home, target)
   if (task === 'DEAD') return buildDeadMissionWaypoints(home, target)
   if (task === 'CAS') return buildCasMissionWaypoints(home, target)
+  if (task === 'Ground Attack') return buildAttackMissionWaypoints(home, target)
   return buildStrikeMissionWaypoints(home, target, target)
 }
 

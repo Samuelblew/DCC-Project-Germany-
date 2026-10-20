@@ -7,6 +7,7 @@ import {
   commitAtoPackages,
   defaultAtoPlannerPolicy,
   planAtoPackages,
+  requestPackageSupport,
   type AtoPlannerPolicy
 } from './ato-planner'
 import { craterAirdrome, isAirdromeRecovering } from '../../airport-capture'
@@ -99,6 +100,8 @@ function createCampaign(
     timeMultiplier: 1,
     logs: [],
     scenarioId: 'test-scenario',
+    // Planner tests see everything; fog of war has its own cases below.
+    campaignParams: { fogOfWar: false },
     coalitions: {
       player: createCoalition('player', params.playerAircraft),
       opponent: createCoalition('opponent', params.opponentAircraft)
@@ -510,7 +513,9 @@ describe('ATO package planner', () => {
 
     expect(result.admitted.some((plan) => plan.kind === 'intercept')).toBe(false)
     expect(
-      result.rejected.some((entry) => entry.kind === 'intercept' && entry.reason === 'supply blocked')
+      result.rejected.some(
+        (entry) => entry.kind === 'intercept' && entry.reason === 'supply blocked'
+      )
     ).toBe(true)
   })
 
@@ -996,9 +1001,11 @@ describe('ATO package planner', () => {
       plannerPolicy({ maxNewPackagesPerLogicTick: 2 })
     )
 
-    expect(result.admitted.find((plan) => plan.kind === 'strike')?.flights.some((flight) => flight.task === 'DEAD')).toBe(
-      true
-    )
+    expect(
+      result.admitted
+        .find((plan) => plan.kind === 'strike')
+        ?.flights.some((flight) => flight.task === 'DEAD')
+    ).toBe(true)
     expect(result.admitted.some((plan) => plan.kind === 'dead')).toBe(false)
   })
 
@@ -1070,6 +1077,22 @@ describe('ATO package planner', () => {
 
     expect(cas?.variantId).toBe('bai')
     expect(cas?.targetId).toBe('flot-1')
+
+    // Under fog of war an unseen formation is not a BAI target; armed recon goes looking instead.
+    campaign.campaignParams = { fogOfWar: true }
+    const blind = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    expect(blind.admitted.find((plan) => plan.kind === 'cas')?.variantId).toBe('armed-recon')
+
+    campaign.coalitions.player.intel = {
+      'flot-1': {
+        kind: 'ground',
+        position: { x: 50_000, y: 0 },
+        seenAt: campaignTime,
+        source: 'aircraft'
+      }
+    }
+    const sighted = planAtoPackages(campaign, 'player', context, plannerPolicy())
+    expect(sighted.admitted.find((plan) => plan.kind === 'cas')?.variantId).toBe('bai')
   })
 
   test('uses a FARP as the home base for helicopter CAS', () => {
@@ -1287,7 +1310,9 @@ describe('ATO package planner', () => {
     campaign.coalitions.player.flightGroups = [
       {
         id: 'flight-1',
-        aircrafts: [{ id: 'aircraft-1', unitName: 'Enfield-1-1', aircraftName: 'F-16C_50' }],
+        aircrafts: [
+          { id: 'aircraft-1', unitName: 'Enfield-1-1', aircraftName: 'F-16C_50' as const }
+        ],
         task: 'DEAD',
         position: { x: 0, y: 0 },
         homeBase: 'Home',
@@ -1322,7 +1347,7 @@ describe('ATO package planner', () => {
 
     expect(cas?.variantId).toBe('on-call-cas')
     expect(cas?.priority).toBe(90)
-    expect(cas?.tot.getTime() - campaignTime.getTime()).toBe(10 * 60 * 1000)
+    expect(cas!.tot.getTime() - campaignTime.getTime()).toBe(10 * 60 * 1000)
   })
 
   test('a strike waits when a SAM covers the target and the SEAD pair is already out', () => {
@@ -1347,7 +1372,9 @@ describe('ATO package planner', () => {
     campaign.coalitions.player.flightGroups = [
       ...[1, 2].map((index) => ({
         id: `sead-${index}`,
-        aircrafts: [{ id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' }],
+        aircrafts: [
+          { id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' as const }
+        ],
         task: 'SEAD' as const,
         position: { x: 0, y: 0 },
         homeBase: 'Home',
@@ -1356,7 +1383,7 @@ describe('ATO package planner', () => {
       })),
       {
         id: 'dead-1',
-        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' }],
+        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' as const }],
         task: 'DEAD' as const,
         position: { x: 0, y: 0 },
         homeBase: 'Home',
@@ -1406,7 +1433,7 @@ describe('ATO package planner', () => {
       ...context.theatre,
       airdromeDetails: {
         ...context.theatre.airdromeDetails,
-        Reserve: { name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90 }
+        Reserve: { id: 99, name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90, standlist: {} }
       }
     }
 
@@ -1455,9 +1482,9 @@ describe('ATO package planner', () => {
     const result = planAtoPackages(campaign, 'player', createContext(), plannerPolicy())
 
     expect(result.admitted.some((plan) => plan.kind === 'ecm')).toBe(false)
-    expect(result.rejected.some((entry) => entry.kind === 'ecm' && entry.reason === 'no aircraft')).toBe(
-      true
-    )
+    expect(
+      result.rejected.some((entry) => entry.kind === 'ecm' && entry.reason === 'no aircraft')
+    ).toBe(true)
   })
 
   test('an ECM orbit is planned when the faction owns a jammer', () => {
@@ -1494,7 +1521,9 @@ describe('ATO package planner', () => {
     campaign.coalitions.player.flightGroups = [
       ...[1, 2].map((index) => ({
         id: `sead-${index}`,
-        aircrafts: [{ id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' }],
+        aircrafts: [
+          { id: `sead-ac-${index}`, unitName: `Dodge-${index}`, aircraftName: 'F-16C_50' as const }
+        ],
         task: 'SEAD' as const,
         position: { x: 0, y: 0 },
         homeBase: 'Home',
@@ -1503,7 +1532,7 @@ describe('ATO package planner', () => {
       })),
       {
         id: 'dead-1',
-        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' }],
+        aircrafts: [{ id: 'dead-ac-1', unitName: 'Dodge-3', aircraftName: 'F-16C_50' as const }],
         task: 'DEAD' as const,
         position: { x: 0, y: 0 },
         homeBase: 'Home',
@@ -1538,7 +1567,7 @@ describe('ATO package planner', () => {
       ...context.theatre,
       airdromeDetails: {
         ...context.theatre.airdromeDetails,
-        Reserve: { name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90 }
+        Reserve: { id: 99, name: 'Reserve', x: 30_000, y: 0, runwayAngle: 90, standlist: {} }
       }
     }
 
@@ -1591,9 +1620,9 @@ describe('ATO package planner', () => {
 
     expect(ambush?.flights[0]?.patrolAltitude).toBe(450)
     expect(ambush?.flights[0]?.patrolDurationMs).toBe(15 * 60 * 1000)
-    expect((ambush?.flights[0]?.patrolCenter.x ?? 0) > (barcap?.flights[0]?.patrolCenter.x ?? 0)).toBe(
-      true
-    )
+    expect(
+      (ambush?.flights[0]?.patrolCenter?.x ?? 0) > (barcap?.flights[0]?.patrolCenter?.x ?? 0)
+    ).toBe(true)
   })
 
   test('a strike cuts the road an enemy column is using', () => {
@@ -1763,5 +1792,48 @@ describe('ATO package planner', () => {
 
     expect(bomber?.flights[0]?.aircraftType).toBe('B-52H')
     expect(bomber?.targetType).toBe('Factory')
+  })
+
+  test('the player can add an AI escort to their strike package, once', () => {
+    const campaign = createCampaign({ playerAircraft: { CAP: ['F-4E-45MC'] } })
+    campaign.coalitions.player.flightGroups = [
+      {
+        id: 'strike-1',
+        name: 'Enfield-1',
+        callsign: 'Enfield-1',
+        task: 'Pinpoint Strike',
+        homeBase: 'Home',
+        position: { x: 0, y: 0 },
+        aircrafts: [{ id: 'a', unitName: 'Enfield-1-1', aircraftName: 'MiG-29A', client: true }],
+        tot: new Date(campaignTime.getTime() + 60 * 60_000),
+        flightplan: {
+          startTime: new Date(campaignTime.getTime() + 20 * 60_000),
+          waypoints: [
+            { name: 'Departure', position: { x: 0, y: 0 }, altitude: 3000, speed: 200 },
+            { name: 'Target', position: { x: 50_000, y: 0 }, altitude: 3000, speed: 200 }
+          ]
+        }
+      } as unknown as CoalitionData['flightGroups'][number]
+    ]
+    const context = createContext()
+
+    const escort = requestPackageSupport(campaign, 'player', 'strike-1', 'escort', context)
+    expect(escort.ok).toBe(true)
+    const pkg = campaign.coalitions.player.packages[0]
+    expect(pkg?.members.map((member) => member.role)).toEqual(['primary', 'cap'])
+    expect(campaign.coalitions.player.flightGroups[0]?.packageId).toBe(pkg?.id)
+    const escortGroup = campaign.coalitions.player.flightGroups.find(
+      (group) => group.id === pkg?.members[1]?.flightGroupId
+    )
+    expect(escortGroup?.task).toBe('CAP')
+
+    expect(requestPackageSupport(campaign, 'player', 'strike-1', 'escort', context)).toEqual({
+      ok: false,
+      reason: 'the package already has escort'
+    })
+    expect(requestPackageSupport(campaign, 'player', 'strike-1', 'sead', context)).toEqual({
+      ok: false,
+      reason: 'no aircraft ready for SEAD'
+    })
   })
 })

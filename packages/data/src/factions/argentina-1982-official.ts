@@ -24,7 +24,7 @@ const officialAircraft: z.infer<typeof schemas.faction>['aircraftTypes'] = {
   AFAC: [],
   Intercept: ['Mirage-F1CE', 'F-5E-3'],
   Training: [],
-    ECM: []
+  ECM: []
 }
 
 export const Argentina1982Official: z.infer<typeof schemas.faction> = {

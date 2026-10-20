@@ -19,10 +19,12 @@ describe('Fulda industry and oil', () => {
       expect(objective!.position.y).toBeLessThan(kiel.position.y)
       return objective!
     })
-    expect(Math.hypot(
-      platforms[0]!.position.x - platforms[1]!.position.x,
-      platforms[0]!.position.y - platforms[1]!.position.y
-    )).toBeGreaterThan(2_000)
+    expect(
+      Math.hypot(
+        platforms[0]!.position.x - platforms[1]!.position.x,
+        platforms[0]!.position.y - platforms[1]!.position.y
+      )
+    ).toBeGreaterThan(2_000)
 
     const linked = (theatre.connections ?? []).some(
       (connection) =>

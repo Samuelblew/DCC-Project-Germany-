@@ -289,7 +289,8 @@ export function updateFlightGroups(
   const pictureCoalition = coalition === 'player' ? 'opponent' : 'player'
   const ecmUp = draft.coalitions[coalition].flightGroups.some(
     (flight) =>
-      flight.task === 'ECM' && new Date(flight.flightplan.startTime).getTime() <= draft.time.getTime()
+      flight.task === 'ECM' &&
+      new Date(flight.flightplan.startTime).getTime() <= draft.time.getTime()
   )
   for (const ewr of draft.coalitions[pictureCoalition].ewrGroups ?? []) {
     ewr.jammed = ecmUp

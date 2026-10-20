@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { schemas } from '@dcc/contracts'
 import {
   DEFAULT_ESCALATION_ERA_DAYS,
@@ -73,8 +73,25 @@ export function ScenarioSelect() {
   const [careerAircraftName, setCareerAircraftName] = useState<string | undefined>(
     careerAircraft[0]?.aircraftName
   )
+  const [installedMods, setInstalledMods] = useState<string[] | undefined>(undefined)
   const [escalationEnabled, setEscalationEnabled] = useState(false)
   const [eraDurationDays, setEraDurationDays] = useState(DEFAULT_ESCALATION_ERA_DAYS)
+
+  useEffect(() => {
+    let active = true
+    coreClient.campaign
+      .getSettings()
+      .then((settings) => {
+        if (active && settings.installedMods) {
+          setInstalledMods(settings.installedMods)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [])
+
   const selectedScenario =
     scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? firstAvailableScenario
   const sideSelectable = selectedScenario?.sideSelectable !== false
@@ -87,7 +104,8 @@ export function ScenarioSelect() {
   )
   const acquirableCareerAircraft = getAcquirableCareerAircraft(
     acquisitionRule,
-    selectedPlayerFaction?.aircraftTypes ?? {}
+    selectedPlayerFaction?.aircraftTypes ?? {},
+    installedMods
   )
   const selectedCareerAircraft =
     acquirableCareerAircraft.find((aircraft) => aircraft.aircraftName === careerAircraftName) ??
@@ -346,6 +364,7 @@ export function ScenarioSelect() {
               acquisitionRule={acquisitionRule}
               careerAircraft={acquirableCareerAircraft}
               careerAircraftName={selectedCareerAircraft?.aircraftName}
+              installedMods={installedMods}
               escalationEnabled={escalationEnabled}
               eraDurationDays={eraDurationDays}
               onSelectCampaignMode={setCampaignMode}
@@ -376,6 +395,7 @@ export function ScenarioSelect() {
           key={`${factionEditor.mode}-${factionEditor.seedFaction.id}`}
           mode={factionEditor.mode}
           seedFaction={factionEditor.seedFaction}
+          installedMods={installedMods}
           onCancel={() => setFactionEditor(null)}
           onSave={saveFaction}
         />

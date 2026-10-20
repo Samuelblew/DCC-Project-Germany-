@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { factions, scenarios } from '@dcc/data'
+import { factions, getAcquirableCareerAircraft, scenarios } from '@dcc/data'
 
-import { getCampaignYearForFactions, getScenarioCampaignDefaults, factionIdsForEra } from './start-campaign-options'
+import {
+  getAvailableAircraftCatalog,
+  getCampaignYearForFactions,
+  getFactionAircraft,
+  getScenarioCampaignDefaults,
+  factionIdsForEra
+} from './start-campaign-options'
 
 describe('getScenarioCampaignDefaults', () => {
   test('selects the Falklands-era UK and Argentine factions for the Falklands campaign', () => {
@@ -65,5 +71,52 @@ describe('getCampaignYearForFactions', () => {
 
   test('falls back to the scenario year when neither faction defines a year', () => {
     expect(getCampaignYearForFactions([], 'custom-player', 'custom-opponent', 1982)).toBe(1982)
+  })
+})
+
+describe('optional mod aircraft filtering (AH-6J / MH-6J)', () => {
+  const usa2004 = factions.find((faction) => faction.id === 'usa-2004')!
+
+  test('includes AH-6J and MH-6J with MOD flag when the AH-6J mod is installed', () => {
+    const roster = getFactionAircraft(usa2004, ['AH-6J'])
+    const ah6j = roster.find((entry) => entry.name === 'AH-6J')
+    const mh6j = roster.find((entry) => entry.name === 'MH-6J')
+
+    expect(ah6j).toMatchObject({
+      name: 'AH-6J',
+      displayName: 'AH-6J Little Bird',
+      controllable: true,
+      isHelicopter: true,
+      isMod: true
+    })
+    expect(mh6j).toMatchObject({
+      name: 'MH-6J',
+      displayName: 'MH-6J Little Bird',
+      controllable: true,
+      isHelicopter: true,
+      isMod: true
+    })
+  })
+
+  test('hides AH-6J and MH-6J from roster, catalog, and career when the mod is not installed', () => {
+    const rosterWithoutMod = getFactionAircraft(usa2004, [])
+    expect(rosterWithoutMod.some((entry) => entry.name === 'AH-6J')).toBe(false)
+    expect(rosterWithoutMod.some((entry) => entry.name === 'MH-6J')).toBe(false)
+
+    const catalogWithoutMod = getAvailableAircraftCatalog([])
+    expect(catalogWithoutMod.some((entry) => entry.name === 'AH-6J')).toBe(false)
+    expect(catalogWithoutMod.some((entry) => entry.name === 'MH-6J')).toBe(false)
+
+    const careerWithoutMod = getAcquirableCareerAircraft('arcade', usa2004.aircraftTypes, [])
+    expect(careerWithoutMod.some((entry) => entry.aircraftName === 'AH-6J')).toBe(false)
+    expect(careerWithoutMod.some((entry) => entry.aircraftName === 'MH-6J')).toBe(false)
+
+    const careerWithMod = getAcquirableCareerAircraft(
+      'fidelity',
+      usa2004.aircraftTypes,
+      ['AH-6J']
+    )
+    expect(careerWithMod.some((entry) => entry.aircraftName === 'AH-6J')).toBe(true)
+    expect(careerWithMod.some((entry) => entry.aircraftName === 'MH-6J')).toBe(true)
   })
 })

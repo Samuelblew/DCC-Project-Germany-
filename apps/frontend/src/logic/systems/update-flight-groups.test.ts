@@ -426,7 +426,9 @@ describe('updateFlightGroups', () => {
 
     updateFlightGroups(campaign, 'player')
 
-    expect(campaign.coalitions.opponent.groundGroups[0]?.units.reduce((sum, unit) => sum + unit.count, 0)).toBe(8)
+    expect(
+      campaign.coalitions.opponent.groundGroups[0]?.units.reduce((sum, unit) => sum + unit.count, 0)
+    ).toBe(8)
     expect(campaign.logs.some((entry) => entry.message.includes('driven off'))).toBe(true)
   })
 

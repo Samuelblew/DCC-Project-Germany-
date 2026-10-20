@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- asymmetric matchers and mission tasks are untyped */
 import { schemas } from '@dcc/contracts'
 import { describe, expect, test } from 'vitest'
 import * as z from 'zod'

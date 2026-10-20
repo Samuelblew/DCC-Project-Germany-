@@ -3,6 +3,7 @@ import { getDeploymentSites } from '@dcc/campaign'
 import { aircrafts } from '@dcc/data'
 import * as z from 'zod'
 
+import { hasAirframes } from '../../air-order-of-battle'
 import {
   buildCsarMissionWaypoints,
   spawnPlannedFlightGroup
@@ -20,7 +21,9 @@ const aircraftMap = new Map(Object.values(aircrafts).map((aircraft) => [aircraft
 
 function selectRecoveryAircraft(campaign: Campaign, coalition: Coalition, task: Task) {
   return (campaign.coalitions[coalition].aircraftTypes[task] ?? []).find(
-    (name) => aircraftMap.get(name as AircraftName)?.isHelicopter
+    (name) =>
+      aircraftMap.get(name as AircraftName)?.isHelicopter &&
+      hasAirframes(campaign, coalition, name, 1)
   ) as AircraftName | undefined
 }
 

@@ -210,7 +210,13 @@ export function dispatchConvoy(params: {
     vehicles: byAir ? 1 : ROAD_CONVOY_VEHICLES,
     departedAt: new Date(draft.time.getTime())
   }
-  if (!byAir) {
+  if (byAir) {
+    // Lifts leaving the same hub together would start on the same spot in the air.
+    const airborneFromHub = convoys.filter(
+      (other) => other.kind === 'air' && other.from === source.id
+    ).length
+    advanceConvoy(convoy, 1_500 * (airborneFromHub + 1))
+  } else {
     const length = path
       .slice(1)
       .reduce((sum, point, index) => sum + calculateDistance(path[index]!, point), 0)
@@ -279,11 +285,18 @@ function deliver(draft: Campaign, coalition: Coalition, convoy: SupplyConvoy) {
 }
 
 /** Advances every convoy of a coalition by `seconds` of campaign time and unloads the arrivals. */
-export function moveConvoys(draft: Campaign, coalition: Coalition, seconds: number) {
+export function moveConvoys(
+  draft: Campaign,
+  coalition: Coalition,
+  seconds: number,
+  /** Convoys alive in a running DCS mission: DCS drives them, the campaign must not. */
+  frozenConvoyIds?: ReadonlySet<string>
+) {
   const convoys = draft.coalitions[coalition].supplyConvoys
   if (!convoys || convoys.length === 0 || seconds < 0) return
   const arrived = new Set<string>()
   for (const convoy of convoys) {
+    if (frozenConvoyIds?.has(convoy.id)) continue
     if (advanceConvoy(convoy, convoySpeed(convoy) * seconds)) {
       deliver(draft, coalition, convoy)
       arrived.add(convoy.id)

@@ -21,6 +21,7 @@ export const aircraft = z.object({
   maxWaypoints: z.number().optional(),
   isHelicopter: z.boolean().default(false).optional(),
   isMod: z.boolean().default(false).optional(),
+  modDirectory: z.string().optional(),
   isLarge: z.boolean().default(false).optional(),
   cruiseAltitude: z.number(),
   cruiseSpeed: z.number(),

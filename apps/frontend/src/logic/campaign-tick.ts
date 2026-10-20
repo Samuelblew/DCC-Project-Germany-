@@ -3,6 +3,12 @@ import { advanceFalklandsCampaign } from '@dcc/campaign'
 import { scenarios, theatres } from '@dcc/data'
 import * as z from 'zod'
 
+import { updateAirframes } from './systems/air-order-of-battle'
+import { updateForceHistory } from './systems/force-history'
+import { recordCampaignVictory } from './systems/logbook'
+import { updateIntel } from './systems/intel'
+import { updateWeather } from './systems/weather'
+import { updateCampaignDeadline, updateMorale } from './systems/morale'
 import { debugLog } from '@/lib/debug'
 import { logCampaignAction } from '@/logic/simulation-log'
 import { updateCareer } from '@/logic/career/career'
@@ -26,6 +32,8 @@ type Coalition = z.infer<typeof schemas.coalition>
 export type LiveSortieFreeze = {
   flightIds?: ReadonlySet<string>
   groundIds?: ReadonlySet<string>
+  /** Supply convoys alive in the mission (bubble or corridor); DCS moves them. */
+  convoyIds?: ReadonlySet<string>
 }
 
 const activeCoalitions: Coalition[] = ['player', 'opponent']
@@ -78,7 +86,10 @@ export function applyLogicTick(draft: Campaign, delta: number, freeze?: LiveSort
   if (isCampaignHalted(draft)) return
 
   forEachActiveCoalition((coalition) => updateResources(draft, coalition))
-  forEachActiveCoalition((coalition) => updateSupply(draft, coalition, delta))
+  forEachActiveCoalition((coalition) =>
+    updateAirframes(draft, coalition, Math.max(0, (delta * draft.timeMultiplier) / 1000))
+  )
+  forEachActiveCoalition((coalition) => updateSupply(draft, coalition, delta, freeze?.convoyIds))
   forEachActiveCoalition((coalition) =>
     updateGroundGroups(draft, coalition, delta, {
       move: false,
@@ -88,8 +99,14 @@ export function applyLogicTick(draft: Campaign, delta: number, freeze?: LiveSort
   resolveFieldEngagements(draft, delta, freeze?.groundIds)
   updateEscalation(draft)
   updateOperationProfile(draft)
+  updateWeather(draft)
+  forEachActiveCoalition((coalition) => updateIntel(draft, coalition))
   forEachActiveCoalition((coalition) => spawn(draft, coalition))
   updateCareerUpkeep(draft)
   updateFalklandsCampaign(draft)
   updateCampaignGoal(draft)
+  updateMorale(draft, Math.max(0, (delta * draft.timeMultiplier) / 1000))
+  updateCampaignDeadline(draft)
+  updateForceHistory(draft)
+  recordCampaignVictory(draft)
 }

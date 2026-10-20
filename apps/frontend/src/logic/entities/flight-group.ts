@@ -31,11 +31,16 @@ export class FlightGroup {
 
     let callsign = params.callsign
     if (callsign == null) {
+      let attempts = 0
       do {
         callsign = `${callsigns[Math.floor(Math.random() * callsigns.length)] ?? 'Enfield'}-${
           Math.floor(Math.random() * 9) + 1
         }`
-      } while (existingCallsigns.has(callsign))
+        attempts += 1
+      } while (existingCallsigns.has(callsign) && attempts < 200)
+      if (existingCallsigns.has(callsign)) {
+        callsign = `${callsign}-${existingCallsigns.size + 1}`
+      }
     }
 
     const newFlightGroupData: z.infer<typeof schemas.flightGroup> = {

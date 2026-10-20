@@ -61,6 +61,8 @@ export function findAdjacentHostileTarget(params: {
   deprioritizedNames?: ReadonlySet<string>
   /** Cut roads are not a hop until the cut expires. */
   closedHops?: ReadonlySet<string>
+  /** Hops the side is already attacking: columns converge on them instead of going in one by one. */
+  preferredNames?: ReadonlySet<string>
 }): AdjacentHostileTarget | undefined {
   const enemyObjectives = new Set(params.enemyObjectiveIds)
   const enemyAirdromes = new Set(params.enemyAirdromeNames)
@@ -75,7 +77,12 @@ export function findAdjacentHostileTarget(params: {
     hops.push({ type, name: neighbor.objectiveId })
   }
 
-  return hops.find((hop) => !deprioritized.has(hop.name)) ?? hops[0]
+  const preferred = params.preferredNames ?? new Set<string>()
+  return (
+    hops.find((hop) => preferred.has(hop.name) && !deprioritized.has(hop.name)) ??
+    hops.find((hop) => !deprioritized.has(hop.name)) ??
+    hops[0]
+  )
 }
 
 export type FlotStation = {

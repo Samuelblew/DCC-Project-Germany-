@@ -567,6 +567,53 @@ export function buildCsarMissionWaypoints(
   ]
 }
 
+export function buildAirAssaultMissionWaypoints(
+  homeBasePosition: Position,
+  targetPosition: Position
+): Waypoint[] {
+  const dx = targetPosition.x - homeBasePosition.x
+  const dy = targetPosition.y - homeBasePosition.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  const ux = distance > 0 ? dx / distance : 1
+  const uy = distance > 0 ? dy / distance : 0
+  const px = -uy
+  const py = ux
+  const ipDistance = Math.min(8_000, Math.max(3_000, distance * 0.15))
+
+  return [
+    {
+      name: 'IP',
+      position: {
+        x: targetPosition.x - ux * ipDistance,
+        y: targetPosition.y - uy * ipDistance
+      },
+      altitude: 150,
+      altitudeType: 'RADIO',
+      speed: 65,
+      type: 'Nav'
+    },
+    {
+      name: 'LZ',
+      position: targetPosition,
+      altitude: 15,
+      altitudeType: 'RADIO',
+      speed: 55,
+      type: 'Task'
+    },
+    {
+      name: 'Egress',
+      position: {
+        x: targetPosition.x - ux * ipDistance + px * 4_000,
+        y: targetPosition.y - uy * ipDistance + py * 4_000
+      },
+      altitude: 150,
+      altitudeType: 'RADIO',
+      speed: 65,
+      type: 'Nav'
+    }
+  ]
+}
+
 export function createAircrafts(aircraftType: AircraftName, count: number): Aircraft[] {
   const aircrafts: Aircraft[] = []
   for (let i = 0; i < count; i++) {

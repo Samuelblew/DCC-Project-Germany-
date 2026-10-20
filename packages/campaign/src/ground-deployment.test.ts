@@ -261,7 +261,13 @@ describe('owned land routes', () => {
     connections: [
       { from: 'A', to: 'B', mode: 'road', bidirectional: true, waypoints: [] },
       { from: 'B', to: 'C', mode: 'road', bidirectional: true, waypoints: [] },
-      { from: 'A', to: 'C', mode: 'road', bidirectional: true, waypoints: [{ x: 10_000, y: 4_000 }] }
+      {
+        from: 'A',
+        to: 'C',
+        mode: 'road',
+        bidirectional: true,
+        waypoints: [{ x: 10_000, y: 4_000 }]
+      }
     ]
   }
 

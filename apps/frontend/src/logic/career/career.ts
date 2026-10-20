@@ -506,7 +506,9 @@ export type SortiePlan = {
 }
 
 export function canFlyCareerFlight(career: Career, aircraft: CareerAircraft, group: FlightGroup) {
-  const taskSupported = aircraft.loadouts.some((loadout) => loadout.tasks.includes(group.task))
+  const taskSupported =
+    group.task === 'Training' ||
+    aircraft.loadouts.some((loadout) => loadout.tasks.includes(group.task))
   return (
     taskSupported && getReadyAirframes(career, group.homeBase, aircraft.aircraftName).length > 0
   )

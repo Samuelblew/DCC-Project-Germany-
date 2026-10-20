@@ -47,7 +47,14 @@ export type MissionDebrief = {
   targetOutcomes: Record<string, TargetOutcome>
   /** Career money, losses and damage from this mission. */
   careerLines?: string[]
+  /** Falcon-style rating of each player flight, and the morale it left both sides on. */
+  ratings?: Array<{ callsign: string; task: string; rating: number; reasons: string[] }>
+  morale?: { player: number; opponent: number }
+  /** Logbook points, medals and promotions from this mission. */
+  logbookLines?: string[]
 }
+
+const RATING_NAMES = ['', 'Poor', 'Marginal', 'Average', 'Good', 'Excellent']
 
 function formatTime(date: Date | string) {
   const d = new Date(date)
@@ -513,6 +520,40 @@ export function MissionDebriefScreen({
                     />
                   ))
                 )}
+                {debrief.ratings && debrief.ratings.length > 0 ? (
+                  <div className="rounded border border-[#d9443a]/30 bg-[#d9443a]/5 p-3">
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[#ef7f70]">
+                      Mission rating
+                    </div>
+                    <ul className="space-y-1 text-sm text-white/80">
+                      {debrief.ratings.map((rating) => (
+                        <li key={rating.callsign}>
+                          <span className="font-semibold text-white">{rating.callsign}</span> (
+                          {rating.task}): {RATING_NAMES[rating.rating]}{' '}
+                          <span className="text-white/45">· {rating.reasons.join(', ')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {debrief.morale ? (
+                      <div className="mt-2 text-xs text-white/50">
+                        Morale: ours {Math.round(debrief.morale.player)} · theirs{' '}
+                        {Math.round(debrief.morale.opponent)} (50 is even; higher fights harder)
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {debrief.logbookLines && debrief.logbookLines.length > 0 ? (
+                  <div className="rounded border border-amber-300/30 bg-amber-300/5 p-3">
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
+                      Logbook
+                    </div>
+                    <ul className="space-y-1 text-sm text-white/80">
+                      {debrief.logbookLines.map((line, index) => (
+                        <li key={index}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {debrief.careerLines && debrief.careerLines.length > 0 ? (
                   <div className="rounded border border-synthwave-cyan/30 bg-synthwave-cyan/5 p-3">
                     <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-synthwave-cyan">

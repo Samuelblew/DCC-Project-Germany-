@@ -1,6 +1,6 @@
+import { schemas } from '@dcc/contracts'
 import { describe, expect, test } from 'vitest'
 import type * as z from 'zod'
-import { schemas } from '@dcc/contracts'
 
 import { addStructures } from './add-structures'
 
@@ -19,7 +19,9 @@ describe('oil platform statics', () => {
     } as unknown as Mission
     const theatre = {
       name: 'Cold War Germany',
-      objectives: [{ name: 'Schwedeneck A', type: 'Installation', position: { x: 42132, y: -675831 } }],
+      objectives: [
+        { name: 'Schwedeneck A', type: 'Installation', position: { x: 42132, y: -675831 } }
+      ],
       targets: {
         'Schwedeneck A': [
           {

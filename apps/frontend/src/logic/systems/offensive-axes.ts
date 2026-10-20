@@ -105,5 +105,32 @@ export function mayOpenOffensiveAxis(
   }
   const preferred = preferredAssaultTargets(draft, coalition, theatre)
   if (preferred.length === 0) return true
-  return preferred.includes(targetName)
+  if (preferred.includes(targetName)) return true
+  // The preferred hops are a priority, not the only door. If no free formation of this side
+  // borders one of them (their neighbours hold only their last garrison), the rest of the army
+  // waited forever for an attack nobody could start, and the front never moved.
+  return !canReachPreferredHop(draft, coalition, theatre, preferred)
+}
+
+/** Whether some idle formation sits next to one of the preferred hops and could march on it. */
+function canReachPreferredHop(
+  draft: Campaign,
+  coalition: Coalition,
+  theatre: Theatre,
+  preferred: string[]
+) {
+  const closed = activeRoadCutKeys(draft)
+  const wanted = new Set(preferred)
+  const groups = draft.coalitions[coalition].groundGroups
+  return groups.some((group) => {
+    if (group.state !== 'idle' || !group.objectiveId) return false
+    const sharesTown = groups.some(
+      (other) =>
+        other.id !== group.id && other.objectiveId === group.objectiveId && other.state === 'idle'
+    )
+    if (!sharesTown) return false
+    return landNeighbors(theatre, group.objectiveId, closed).some((neighbor) =>
+      wanted.has(neighbor.objectiveId)
+    )
+  })
 }

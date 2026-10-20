@@ -77,8 +77,8 @@ export function PathSettingsFields({
           </div>
         ) : null}
         <p className="text-xs text-gray-500">
-          Folder where generated mission files are saved (for example your DCS Saved Games
-          Missions folder).
+          Folder where generated mission files are saved (for example your DCS Saved Games Missions
+          folder).
         </p>
       </div>
 

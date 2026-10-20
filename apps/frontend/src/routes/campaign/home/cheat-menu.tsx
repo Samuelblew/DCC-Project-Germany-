@@ -55,6 +55,10 @@ export function CheatMenu() {
   const [open, setOpen] = useState(false)
   const cheats = useSelector(activeStore, (state) => state.context.campaignParams?.dcsCheats)
   const labels = cheats?.labels ?? 'none'
+  const revealEnemy = useSelector(
+    activeStore,
+    (state) => state.context.campaignParams?.fogOfWar === false
+  )
   const armed =
     cheats?.unlimitedWeapons === true ||
     cheats?.unlimitedFuel === true ||
@@ -136,6 +140,21 @@ export function CheatMenu() {
                 {labelCaption[labels]}
               </span>
             </button>
+            <label className="mt-1 flex items-center justify-between gap-3 border-t border-synthwave-pink/20 px-1.5 pt-2 pb-1.5 hover:bg-synthwave-pink/10">
+              <span>
+                <span className="block text-[11px] text-synthwave-light">Reveal enemy</span>
+                <span className="block text-[10px] text-secondary">
+                  No fog of war: every enemy unit on the map and open to the planners
+                </span>
+              </span>
+              <Switch
+                size="sm"
+                checked={revealEnemy}
+                onCheckedChange={(checked) =>
+                  activeStore.trigger.setFogOfWar({ fogOfWar: !checked })
+                }
+              />
+            </label>
           </div>
         </Popover.Content>
       </Popover.Portal>

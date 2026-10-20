@@ -4,9 +4,11 @@ import { aircrafts } from '@dcc/data'
 import * as z from 'zod'
 
 import {
+  buildAirAssaultMissionWaypoints,
   buildAttackMissionWaypoints,
   buildCasMissionWaypoints,
   buildCapMissionWaypoints,
+  buildCsarMissionWaypoints,
   buildDeadMissionWaypoints,
   buildFighterSweepMissionWaypoints,
   buildSeadMissionWaypoints,
@@ -27,6 +29,7 @@ import {
   selectHomeBaseAndTarget,
   type AirdromeSelection
 } from './packages/common'
+import { isEnemyKnown } from '../intel'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -45,7 +48,7 @@ type ManualSpawnPlan =
       patrolCenter: Position
     }
   | {
-      task: 'Pinpoint Strike' | 'DEAD' | 'CAS' | 'SEAD'
+      task: 'Pinpoint Strike' | 'DEAD' | 'CAS' | 'SEAD' | 'Ground Attack'
       aircraftType: AircraftName
       homeBase: string
       homeBasePosition: Position
@@ -56,6 +59,33 @@ type ManualSpawnPlan =
         objectiveId: string
         position?: Position
         buildings?: z.infer<typeof schemas.structureBuilding>[]
+      }
+      targetPosition: Position
+    }
+  | {
+      task: 'CSAR'
+      aircraftType: AircraftName
+      homeBase: string
+      homeBasePosition: Position
+      runwayAngle?: number
+      pickupPosition: Position
+      dropOffPosition: Position
+      target: {
+        id: string
+        type: string
+        objectiveId: string
+      }
+    }
+  | {
+      task: 'Air Assault'
+      aircraftType: AircraftName
+      homeBase: string
+      homeBasePosition: Position
+      runwayAngle?: number
+      target: {
+        id: string
+        type: string
+        objectiveId: string
       }
       targetPosition: Position
     }
@@ -162,17 +192,22 @@ function getNearestSupplySource(
   draft: Campaign,
   coalition: Coalition,
   theatre: z.infer<typeof schemas.theatre>,
-  targetPosition: Position
+  targetPosition: Position,
+  allowedBases?: ReadonlySet<string>,
+  excludeId?: string
 ): SupplyNode | null {
   let nearest: SupplyNode | null = null
   let nearestDistance = Number.POSITIVE_INFINITY
   const supplyNodes = draft.coalitions[coalition].supplyNodes
-  if (!supplyNodes) return null
 
   for (const airdromeName of draft.coalitions[coalition].airdromeNames) {
-    const supply = supplyNodes[airdromeName]
+    if (airdromeName === excludeId) continue
+    if (allowedBases && !allowedBases.has(airdromeName)) continue
+    const supply = supplyNodes?.[airdromeName]
     const airdrome = theatre.airdromeDetails[airdromeName]
-    if (!supply || !airdrome || supply.current <= supply.max * 0.5) continue
+    if (!airdrome) continue
+    const minRatio = allowedBases ? 0.1 : 0.4
+    if (supply && supply.current < supply.max * minRatio) continue
 
     const position = { x: airdrome.x, y: airdrome.y }
     const distance = calculateDistance(position, targetPosition)
@@ -182,7 +217,13 @@ function getNearestSupplySource(
         id: airdromeName,
         type: 'airdrome',
         position,
-        supply,
+        supply: supply ?? {
+          current: 5000,
+          max: 10000,
+          consumptionRate: 50,
+          productionRate: 0,
+          status: 'adequate'
+        },
         runwayAngle: airdrome.runwayAngle
       }
     }
@@ -216,32 +257,44 @@ function getGroundConflicts(
     .filter((group) => group.state === 'combat')
     .map(toConflict)
     .filter(isConflict)
-  if (fighting.length > 0) return fighting
 
   const advancing = allGroups
     .filter((group) => group.state === 'moving' && group.targetObjectiveId != null)
     .map(toConflict)
     .filter(isConflict)
-  if (advancing.length > 0) return advancing
 
   const friendlyObjectivePositions = draft.coalitions[coalition].objectiveIds
     .map((objectiveId) => getObjectivePosition(theatre, objectiveId))
     .filter((position): position is Position => position != null)
-  if (friendlyObjectivePositions.length === 0) return []
 
-  return draft.coalitions[enemyCoalition].groundGroups
-    .map((group) => ({
-      conflict: toConflict(group),
-      distance: Math.min(
-        ...friendlyObjectivePositions.map((position) => calculateDistance(position, group.position))
-      )
-    }))
-    .filter(
-      (entry): entry is { conflict: GroundConflict; distance: number } => entry.conflict != null
-    )
-    .sort((left, right) => left.distance - right.distance)
-    .slice(0, 5)
-    .map((entry) => entry.conflict)
+  const nearestEnemy =
+    friendlyObjectivePositions.length === 0
+      ? []
+      : draft.coalitions[enemyCoalition].groundGroups
+          .map((group) => ({
+            conflict: toConflict(group),
+            distance: Math.min(
+              ...friendlyObjectivePositions.map((position) =>
+                calculateDistance(position, group.position)
+              )
+            )
+          }))
+          .filter(
+            (entry): entry is { conflict: GroundConflict; distance: number } =>
+              entry.conflict != null
+          )
+          .sort((left, right) => left.distance - right.distance)
+          .slice(0, 5)
+          .map((entry) => entry.conflict)
+
+  const seen = new Set<string>()
+  const combined: GroundConflict[] = []
+  for (const conflict of [...fighting, ...advancing, ...nearestEnemy]) {
+    if (seen.has(conflict.id)) continue
+    seen.add(conflict.id)
+    combined.push(conflict)
+  }
+  return combined
 }
 
 function getSweepPosition(flightGroup: z.infer<typeof schemas.flightGroup>): Position | null {
@@ -277,6 +330,8 @@ function createManualSpawnPlan(
 
   const { theatre, enemyCoalition } = context
   const homeBases = getCoalitionAirdromes(draft, theatre, coalition).filter(allowBase)
+  const getHomeBasesFor = (aircraftType: AircraftName) =>
+    getCoalitionCasHomeBases(draft, theatre, coalition, aircraftType).filter(allowBase)
   const flightGroups = draft.coalitions[coalition].flightGroups
 
   if (task === 'CAP') {
@@ -317,6 +372,7 @@ function createManualSpawnPlan(
       draft.coalitions[coalition].aircraftTypes['Pinpoint Strike']
     )
     if (!aircraftType) return null
+    const strikeHomeBases = getHomeBasesFor(aircraftType)
 
     const targetedObjectiveIds = new Set(
       flightGroups
@@ -324,30 +380,41 @@ function createManualSpawnPlan(
         .map((g) => g.target?.objectiveId)
         .filter((id): id is string => id != null)
     )
-    const targets = draft.coalitions[enemyCoalition].structures
-      .filter((structure) => !targetedObjectiveIds.has(structure.objectiveId))
-      .map((structure) => {
-        const position = getObjectivePosition(theatre, structure.objectiveId)
-        return position
-          ? {
-              target: {
-                id: structure.id,
-                type: structure.type,
-                objectiveId: structure.objectiveId,
-                position: structure.position,
-                buildings: structure.buildings
-              },
-              position
-            }
-          : null
-      })
-      .filter((target): target is NonNullable<typeof target> => target != null)
+    const toStructureTargets = (structures: typeof draft.coalitions[typeof enemyCoalition]['structures']) =>
+      structures
+        .map((structure) => {
+          const position = structure.position ?? getObjectivePosition(theatre, structure.objectiveId)
+          return position
+            ? {
+                target: {
+                  id: structure.id,
+                  type: structure.type,
+                  objectiveId: structure.objectiveId,
+                  position: structure.position,
+                  buildings: structure.buildings
+                },
+                position
+              }
+            : null
+        })
+        .filter((target): target is NonNullable<typeof target> => target != null)
 
-    const assignment = selectHomeBaseAndTarget({
-      homeBases,
-      targets,
-      maxDistance: config.packages['Pinpoint Strike'].maxDistance
-    })
+    const untargetedStructures = draft.coalitions[enemyCoalition].structures.filter(
+      (structure) => !targetedObjectiveIds.has(structure.objectiveId)
+    )
+    const assignment =
+      selectHomeBaseAndTarget({
+        homeBases: strikeHomeBases,
+        targets: toStructureTargets(untargetedStructures),
+        maxDistance: config.packages['Pinpoint Strike'].maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: strikeHomeBases,
+        targets: toStructureTargets(draft.coalitions[enemyCoalition].structures),
+        maxDistance: config.packages['Pinpoint Strike'].maxDistance,
+        preference: 'nearest'
+      })
     if (!assignment) return null
 
     return {
@@ -368,6 +435,7 @@ function createManualSpawnPlan(
         : draft.coalitions[coalition].aircraftTypes.SEAD
     const aircraftType = pickRandomAircraftType(aircraftTypes)
     if (!aircraftType) return null
+    const seadHomeBases = getHomeBasesFor(aircraftType)
 
     const targetedEmitterIds = new Set(
       flightGroups
@@ -375,15 +443,24 @@ function createManualSpawnPlan(
         .map((g) => g.target?.id)
         .filter((id): id is string => id != null)
     )
-    const targets = getIadsEmitterTargets(draft, enemyCoalition, theatre, task).filter(
+    const allEmitters = getIadsEmitterTargets(draft, enemyCoalition, theatre, task)
+    const untargetedEmitters = allEmitters.filter(
       (emitter) => !targetedEmitterIds.has(emitter.target.id)
     )
 
-    const assignment = selectHomeBaseAndTarget({
-      homeBases,
-      targets,
-      maxDistance: config.packages[task].maxDistance
-    })
+    const assignment =
+      selectHomeBaseAndTarget({
+        homeBases: seadHomeBases,
+        targets: untargetedEmitters,
+        maxDistance: config.packages[task].maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: seadHomeBases,
+        targets: allEmitters,
+        maxDistance: config.packages[task].maxDistance,
+        preference: 'nearest'
+      })
     if (!assignment) return null
 
     return {
@@ -397,48 +474,200 @@ function createManualSpawnPlan(
     }
   }
 
-  if (task === 'CAS') {
-    const aircraftType = pickRandomAircraftType(draft.coalitions[coalition].aircraftTypes.CAS)
+  if (task === 'CAS' || task === 'Ground Attack') {
+    const taskAircraftTypes =
+      task === 'Ground Attack'
+        ? draft.coalitions[coalition].aircraftTypes['Ground Attack']?.length > 0
+          ? draft.coalitions[coalition].aircraftTypes['Ground Attack']
+          : draft.coalitions[coalition].aircraftTypes.CAS
+        : draft.coalitions[coalition].aircraftTypes.CAS
+    const aircraftType = pickRandomAircraftType(taskAircraftTypes)
     if (!aircraftType) return null
-    const casHomeBases = getCoalitionCasHomeBases(draft, theatre, coalition, aircraftType).filter(
-      allowBase
-    )
+    const attackHomeBases = getHomeBasesFor(aircraftType)
+    const maxDistance = config.packages[task].maxDistance
 
     const targetedGroundGroupIds = new Set(
       flightGroups
-        .filter((g) => g.task === 'CAS')
+        .filter((g) => g.task === task)
         .map((g) => g.target?.id)
         .filter((id): id is string => id != null)
     )
-    const targets = draft.coalitions[enemyCoalition].groundGroups
-      .filter(
-        (group) =>
-          evaluateCombatViability(group).casEligible &&
-          group.state === 'idle' &&
-          group.objectiveId != null &&
-          !targetedGroundGroupIds.has(group.id)
-      )
-      .map((group) => {
-        const objectiveId = group.objectiveId
-        const position = objectiveId ? group.position : null
-        return objectiveId && position
-          ? {
-              target: {
-                id: group.id,
-                type: 'Ground Group',
-                objectiveId
-              },
-              position
-            }
-          : null
-      })
-      .filter((target): target is NonNullable<typeof target> => target != null)
+    const eligibleGroups = draft.coalitions[enemyCoalition].groundGroups.filter(
+      (group) =>
+        evaluateCombatViability(group).casEligible &&
+        (group.objectiveId ?? group.targetObjectiveId) != null
+    )
+    const toGroundTargets = (groups: typeof eligibleGroups) =>
+      groups
+        .map((group) => {
+          const objectiveId = group.objectiveId ?? group.targetObjectiveId
+          return objectiveId
+            ? {
+                target: {
+                  id: group.id,
+                  type: 'Ground Group',
+                  objectiveId
+                },
+                position: group.position
+              }
+            : null
+        })
+        .filter((target): target is NonNullable<typeof target> => target != null)
 
-    const assignment = selectHomeBaseAndTarget({
-      homeBases: casHomeBases,
-      targets,
-      maxDistance: config.packages.CAS.maxDistance
-    })
+    const untargetedKnown = eligibleGroups.filter(
+      (group) => !targetedGroundGroupIds.has(group.id) && isEnemyKnown(draft, coalition, group.id)
+    )
+    const untargetedAll = eligibleGroups.filter((group) => !targetedGroundGroupIds.has(group.id))
+
+    const assignment =
+      selectHomeBaseAndTarget({
+        homeBases: attackHomeBases,
+        targets: toGroundTargets(untargetedKnown),
+        maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: attackHomeBases,
+        targets: toGroundTargets(untargetedAll),
+        maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: attackHomeBases,
+        targets: toGroundTargets(eligibleGroups),
+        maxDistance,
+        preference: 'nearest'
+      })
+    if (!assignment) return null
+
+    return {
+      task,
+      aircraftType,
+      homeBase: assignment.homeBase.name,
+      homeBasePosition: assignment.homeBase.position,
+      runwayAngle: assignment.homeBase.runwayAngle,
+      target: assignment.target,
+      targetPosition: assignment.targetPosition
+    }
+  }
+
+  if (task === 'CSAR') {
+    const csarTypes =
+      draft.coalitions[coalition].aircraftTypes.CSAR?.length > 0
+        ? draft.coalitions[coalition].aircraftTypes.CSAR
+        : draft.coalitions[coalition].aircraftTypes.RescueHelo
+    const aircraftType = pickRandomAircraftType(csarTypes)
+    if (!aircraftType) return null
+    const csarHomeBases = getHomeBasesFor(aircraftType)
+    const maxDistance = config.packages.CAS.maxDistance
+
+    const targetedPilotIds = new Set(
+      flightGroups
+        .filter((g) => g.task === 'CSAR')
+        .map((g) => g.target?.id)
+        .filter((id): id is string => id != null)
+    )
+    const downedPilots = draft.coalitions[coalition].downedPilots ?? []
+    const untargetedPilots = downedPilots.filter((pilot) => !targetedPilotIds.has(pilot.id))
+    const pilotCandidates = (untargetedPilots.length > 0 ? untargetedPilots : downedPilots).map(
+      (pilot) => ({
+        target: {
+          id: pilot.id,
+          type: 'Downed Pilot',
+          objectiveId: pilot.name
+        },
+        position: pilot.position
+      })
+    )
+
+    const conflictCandidates = getGroundConflicts(draft, coalition, enemyCoalition, theatre).map(
+      (conflict) => ({
+        target: {
+          id: conflict.id,
+          type: 'CSAR Search Area',
+          objectiveId: conflict.objectiveId
+        },
+        position: conflict.position
+      })
+    )
+
+    const assignment =
+      selectHomeBaseAndTarget({
+        homeBases: csarHomeBases,
+        targets: pilotCandidates,
+        maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: csarHomeBases,
+        targets: conflictCandidates,
+        maxDistance,
+        preference: 'nearest'
+      })
+    if (!assignment) return null
+
+    const hospitals = draft.coalitions[coalition].structures.filter((s) => s.type === 'Hospital')
+    const nearestHospital = hospitals.reduce<(typeof hospitals)[number] | null>(
+      (best, hospital) =>
+        best == null ||
+        calculateDistance(assignment.targetPosition, hospital.position) <
+          calculateDistance(assignment.targetPosition, best.position)
+          ? hospital
+          : best,
+      null
+    )
+
+    return {
+      task,
+      aircraftType,
+      homeBase: assignment.homeBase.name,
+      homeBasePosition: assignment.homeBase.position,
+      runwayAngle: assignment.homeBase.runwayAngle,
+      pickupPosition: assignment.targetPosition,
+      dropOffPosition: nearestHospital?.position ?? assignment.homeBase.position,
+      target: assignment.target
+    }
+  }
+
+  if (task === 'Air Assault') {
+    const aircraftType = pickRandomAircraftType(
+      draft.coalitions[coalition].aircraftTypes['Air Assault']
+    )
+    if (!aircraftType) return null
+    const assaultHomeBases = getHomeBasesFor(aircraftType)
+    const maxDistance = config.packages['Air Assault'].maxDistance
+
+    const targetedIds = new Set(
+      flightGroups
+        .filter((g) => g.task === 'Air Assault')
+        .map((g) => g.target?.id)
+        .filter((id): id is string => id != null)
+    )
+    const conflicts = getGroundConflicts(draft, coalition, enemyCoalition, theatre)
+    const toAssaultTargets = (items: typeof conflicts) =>
+      items.map((conflict) => ({
+        target: {
+          id: conflict.id,
+          type: 'Air Assault LZ',
+          objectiveId: conflict.objectiveId
+        },
+        position: conflict.position
+      }))
+
+    const untargetedConflicts = conflicts.filter((conflict) => !targetedIds.has(conflict.id))
+    const assignment =
+      selectHomeBaseAndTarget({
+        homeBases: assaultHomeBases,
+        targets: toAssaultTargets(untargetedConflicts),
+        maxDistance,
+        preference: 'nearest'
+      }) ??
+      selectHomeBaseAndTarget({
+        homeBases: assaultHomeBases,
+        targets: toAssaultTargets(conflicts),
+        maxDistance,
+        preference: 'nearest'
+      })
     if (!assignment) return null
 
     return {
@@ -496,8 +725,10 @@ function createManualSpawnPlan(
     const aircraftType = pickControllableAircraftType(
       schemas.resolveTaskAircraftTypes(draft.coalitions[coalition].aircraftTypes, 'Training')
     )
-    const homeBase = homeBases[Math.floor(Math.random() * homeBases.length)]
-    if (!aircraftType || !homeBase) return null
+    if (!aircraftType) return null
+    const trainingHomeBases = getHomeBasesFor(aircraftType)
+    const homeBase = trainingHomeBases[Math.floor(Math.random() * trainingHomeBases.length)]
+    if (!homeBase) return null
 
     const enemyAirdromes = getCoalitionAirdromes(draft, theatre, enemyCoalition)
     const nearestEnemy = enemyAirdromes.reduce<AirdromeSelection | null>(
@@ -529,26 +760,61 @@ function createManualSpawnPlan(
 
   if (task === 'Transport') {
     const transportAircraft = draft.coalitions[coalition].aircraftTypes.Transport
-    const targetNode = getNodesNeedingResupply(draft, coalition, theatre)[0]
-    if (!targetNode) return null
+    const resupplyNodes = getNodesNeedingResupply(draft, coalition, theatre)
+    const fallbackDestinationNodes: SupplyNode[] = draft.coalitions[coalition].objectiveIds
+      .map((objectiveId) => {
+        const objective = theatre.objectives.find((o) => o.name === objectiveId)
+        if (!objective) return null
+        const supply = draft.coalitions[coalition].supplyNodes?.[objectiveId] ?? {
+          current: 4000,
+          max: 5000,
+          consumptionRate: 50,
+          productionRate: 0,
+          status: 'adequate' as const
+        }
+        return {
+          id: objectiveId,
+          type: 'objective' as const,
+          position: objective.position,
+          supply,
+          urgency: 0.2
+        }
+      })
+      .filter((node): node is NonNullable<typeof node> => node != null)
 
-    const source = getNearestSupplySource(draft, coalition, theatre, targetNode.position)
-    if (!source) return null
+    const candidateTargets = [...resupplyNodes, ...fallbackDestinationNodes]
+    let matched: { source: SupplyNode; targetNode: SupplyNode } | null = null
+    for (const candidate of candidateTargets) {
+      const source = getNearestSupplySource(
+        draft,
+        coalition,
+        theatre,
+        candidate.position,
+        constraints.homeBases,
+        candidate.id
+      )
+      if (source && source.id !== candidate.id) {
+        matched = { source, targetNode: candidate }
+        break
+      }
+    }
+    if (!matched) return null
+    const { source, targetNode } = matched
 
     const preferredType = targetNode.supply.status === 'critical' ? 'CH-47D' : 'C-130'
-    const aircraftType = transportAircraft.includes(preferredType)
-      ? (preferredType as AircraftName)
-      : pickRandomAircraftType(transportAircraft)
+    const aircraftType =
+      constraints.aircraftType ??
+      (transportAircraft.includes(preferredType)
+        ? (preferredType as AircraftName)
+        : pickRandomAircraftType(transportAircraft))
     if (!aircraftType) return null
 
     const cargoCapacity =
       aircraftType === 'C-130'
         ? config.packages.Transport.c130CargoCapacity
         : config.packages.Transport.ch47CargoCapacity
-    const cargoAmount = Math.min(
-      cargoCapacity,
-      Math.max(0, targetNode.supply.max - targetNode.supply.current)
-    )
+    const needed = Math.max(0, targetNode.supply.max - targetNode.supply.current)
+    const cargoAmount = Math.min(cargoCapacity, needed > 0 ? needed : cargoCapacity)
     if (cargoAmount <= 0) return null
 
     return {
@@ -657,6 +923,47 @@ export function createManualFlightGroup(
     }).flightGroupId
   }
 
+  if (plan.task === 'CSAR') {
+    const missionWaypoints = buildCsarMissionWaypoints(plan.pickupPosition, plan.dropOffPosition)
+    return spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: plan.task,
+      aircraftType: plan.aircraftType,
+      aircraftCount: config.packages.CSAR.aircraftsPerGroup,
+      homeBase: plan.homeBase,
+      homeBasePosition: plan.homeBasePosition,
+      destination: plan.pickupPosition,
+      missionWaypoints,
+      startTime,
+      runwayAngle: plan.runwayAngle,
+      target: plan.target,
+      spawnSource: 'manual'
+    }).flightGroupId
+  }
+
+  if (plan.task === 'Air Assault') {
+    const missionWaypoints = buildAirAssaultMissionWaypoints(
+      plan.homeBasePosition,
+      plan.targetPosition
+    )
+    return spawnPlannedFlightGroup({
+      draft,
+      coalition,
+      task: plan.task,
+      aircraftType: plan.aircraftType,
+      aircraftCount: config.packages['Air Assault'].aircraftsPerGroup,
+      homeBase: plan.homeBase,
+      homeBasePosition: plan.homeBasePosition,
+      destination: plan.targetPosition,
+      missionWaypoints,
+      startTime,
+      runwayAngle: plan.runwayAngle,
+      target: plan.target,
+      spawnSource: 'manual'
+    }).flightGroupId
+  }
+
   if (plan.task === 'Transport') {
     const missionWaypoints = buildTransportMissionWaypoints(
       plan.homeBasePosition,
@@ -678,7 +985,8 @@ export function createManualFlightGroup(
         id: plan.destinationNode,
         type: 'Supply Node',
         objectiveId: plan.destinationNode
-      }
+      },
+      spawnSource: 'manual'
     }).flightGroupId
   }
 
@@ -715,6 +1023,7 @@ export function createManualFlightGroup(
     missionWaypoints,
     startTime,
     runwayAngle: plan.runwayAngle,
-    target: plan.target
+    target: plan.target,
+    spawnSource: 'manual'
   }).flightGroupId
 }

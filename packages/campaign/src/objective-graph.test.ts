@@ -2,7 +2,14 @@ import { describe, expect, test } from 'vitest'
 import { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
-import { findAdjacentHostileTarget, findFlotStations, flotPatrolPosition, flotTouchesObjective, landNeighbors, theatreHasLandGraph } from './objective-graph'
+import {
+  findAdjacentHostileTarget,
+  findFlotStations,
+  flotPatrolPosition,
+  flotTouchesObjective,
+  landNeighbors,
+  theatreHasLandGraph
+} from './objective-graph'
 
 type Theatre = z.infer<typeof schemas.theatre>
 
@@ -35,10 +42,11 @@ const theatre: Theatre = {
 describe('objective graph', () => {
   test('lists land neighbors both ways', () => {
     expect(theatreHasLandGraph(theatre)).toBe(true)
-    expect(landNeighbors(theatre, 'Vacha').map((entry) => entry.objectiveId).sort()).toEqual([
-      'Eisenach',
-      'Geisa'
-    ])
+    expect(
+      landNeighbors(theatre, 'Vacha')
+        .map((entry) => entry.objectiveId)
+        .sort()
+    ).toEqual(['Eisenach', 'Geisa'])
   })
 
   test('a column only attacks the adjacent hostile town', () => {

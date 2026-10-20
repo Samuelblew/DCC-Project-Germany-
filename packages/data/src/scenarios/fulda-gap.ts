@@ -63,7 +63,13 @@ const depotTowns = new Set([
 function industry(
   sites: Array<{
     objectiveId: string
-    type: 'Factory' | 'Factory 2' | 'Power Plant' | 'Fuel Storage' | 'Command Center' | 'Oil Platform'
+    type:
+      | 'Factory'
+      | 'Factory 2'
+      | 'Power Plant'
+      | 'Fuel Storage'
+      | 'Command Center'
+      | 'Oil Platform'
   }>
 ) {
   return sites
@@ -121,6 +127,8 @@ export const FuldaGap: z.infer<typeof schemas.scenario> = {
   },
   briefing:
     'NATO holds western Germany, from the Baltic bases to Frankfurt, Fulda and Fritzlar. The Warsaw Pact holds the east, including Tegel, Gatow and Tempelhof.\n\nThe ground front is the border towns, each within march range of the next, from Lubeck and Helmstedt down through the Fulda Gap toward Leipzig. The army holds for the first two hours while the air war hits airfields and command. After eight hours the bombers go for factories, power plants and the Schwedeneck oil platforms in the Bay of Kiel. A base replaces a sortie over hours, not seconds. Take Leipzig before the Pact pushes those towns west.',
+  // Like the BMS Rolling Fire campaign: thirty days to reach the goal, then a stalemate.
+  durationDays: 30,
   goal: {
     coalition: 'player',
     objectiveIds: ['Leipzig Mockau']

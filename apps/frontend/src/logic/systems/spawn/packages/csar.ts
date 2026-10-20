@@ -2,6 +2,7 @@ import { config, schemas } from '@dcc/contracts'
 import { aircrafts } from '@dcc/data'
 import * as z from 'zod'
 
+import { hasAirframes } from '../../air-order-of-battle'
 import { CsarFlightGroup } from '@/logic/entities/csar-flight-group'
 import { calculateDistance } from '@/logic/utils/calculate-distance'
 
@@ -49,7 +50,11 @@ function nearestDropOff(
 
 function selectCsarAircraft(campaign: Campaign, coalition: Coalition): AircraftName | null {
   const available = campaign.coalitions[coalition].aircraftTypes.CSAR ?? []
-  const selected = available.find((name) => aircraftMap.get(name as AircraftName)?.isHelicopter)
+  const selected = available.find(
+    (name) =>
+      aircraftMap.get(name as AircraftName)?.isHelicopter &&
+      hasAirframes(campaign, coalition, name, 1)
+  )
   return selected ? (selected as AircraftName) : null
 }
 

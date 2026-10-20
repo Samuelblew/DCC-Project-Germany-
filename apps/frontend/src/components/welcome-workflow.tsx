@@ -1,11 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  AlertTriangle,
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
-  PlaneTakeoff
-} from 'lucide-react'
+import { AlertTriangle, BookOpen, ChevronLeft, ChevronRight, PlaneTakeoff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PathSettingsFields } from '@/components/path-settings-fields'
 import { WelcomeHero } from '@/components/welcome-hero'
@@ -159,9 +153,9 @@ export function WelcomeWorkflow({ open, onComplete }: WelcomeWorkflowProps) {
                     <div>
                       <p className="font-semibold text-white">Start a new campaign</p>
                       <p className="mt-1">
-                        From the start screen, choose <span className="text-synthwave-cyan">New
-                        Campaign</span>, select a scenario, then create the campaign to open the
-                        operations map.
+                        From the start screen, choose{' '}
+                        <span className="text-synthwave-cyan">New Campaign</span>, select a
+                        scenario, then create the campaign to open the operations map.
                       </p>
                     </div>
                   </div>
@@ -195,7 +189,9 @@ export function WelcomeWorkflow({ open, onComplete }: WelcomeWorkflowProps) {
                   breaking changes between releases.
                 </p>
                 <ul className="mt-5 list-disc space-y-2 pl-5 text-sm leading-6 text-synthwave-light/75">
-                  <li>Caucasus, Syria, and Persian Gulf scenarios are available for campaign start.</li>
+                  <li>
+                    Caucasus, Syria, and Persian Gulf scenarios are available for campaign start.
+                  </li>
                   <li>Some systems (weather, ATC, broader aircraft sets) are not modeled yet.</li>
                   <li>Mission generation and campaign logic may change as we iterate.</li>
                 </ul>

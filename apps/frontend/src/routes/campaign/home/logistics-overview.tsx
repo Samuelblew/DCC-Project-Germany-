@@ -1,4 +1,5 @@
 import { AlertTriangle, Fuel, PackageCheck, Route, Wrench } from 'lucide-react'
+import { AirOrderOfBattle } from './air-order-of-battle'
 import { useSelector } from '@xstate/store/react'
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
@@ -196,6 +197,7 @@ export function LogisticsOverview() {
           ))}
         </div>
       )}
+      <AirOrderOfBattle />
     </section>
   )
 }

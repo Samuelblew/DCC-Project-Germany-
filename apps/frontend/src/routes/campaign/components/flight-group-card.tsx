@@ -183,9 +183,7 @@ export function FlightGroupCard({
                 {getAircraftDisplayName(selectedAircraftType)}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent
-              className="border-[#e8b730]/25 bg-[#161412]/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur"
-            >
+            <SelectContent className="border-[#e8b730]/25 bg-[#161412]/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur">
               {aircraftTypeOptions.map((aircraftType) => (
                 <SelectItem
                   key={aircraftType}

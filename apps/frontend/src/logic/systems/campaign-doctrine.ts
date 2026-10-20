@@ -26,7 +26,10 @@ export function strategicTargetsOpen(draft: Campaign) {
   return doctrinePhase(draft) === 'strategic'
 }
 
-export function strikeStructuresForDoctrine<T extends { type: string }>(draft: Campaign, structures: T[]) {
+export function strikeStructuresForDoctrine<T extends { type: string }>(
+  draft: Campaign,
+  structures: T[]
+) {
   const phase = doctrinePhase(draft)
   if (phase === 'air') {
     return structures.filter((structure) => structure.type === 'Command Center')

@@ -43,7 +43,46 @@ export const campaignEscalation = z.object({
     .default([])
 })
 
-const campaignStatus = z.enum(['active', 'won', 'lost'])
+/** `stalemate`: the deadline passed with neither side holding its goal. */
+const campaignStatus = z.enum(['active', 'won', 'lost', 'stalemate'])
+
+/** Mission families the player can weight, as on the Falcon BMS Priorities screen. */
+export const missionPriorityKind = z.enum([
+  'oca',
+  'sead',
+  'interdiction',
+  'strategic',
+  'antiship',
+  'dca'
+])
+/** Target families the player can weight. */
+export const targetPriorityKind = z.enum([
+  'airDefense',
+  'airfields',
+  'command',
+  'groundForces',
+  'logistics',
+  'industry'
+])
+/** 0 never plan it, 3 as HQ would, 5 top priority. */
+const priorityLevel = z.number().int().min(0).max(5)
+
+export const commanderPriorities = z.object({
+  /** Set by HQ: the player's weights are kept but not applied. */
+  hq: z.boolean(),
+  missions: z.partialRecord(missionPriorityKind, priorityLevel).optional(),
+  targets: z.partialRecord(targetPriorityKind, priorityLevel).optional()
+})
+
+/** Rating of one player-flown flight, 1 (poor) to 5 (excellent), as the Falcon BMS debrief does. */
+export const missionRating = z.object({
+  at: z.date(),
+  flightGroupId: z.string(),
+  callsign: z.string(),
+  task: z.string(),
+  rating: z.number().int().min(1).max(5),
+  reasons: z.array(z.string())
+})
 
 const campaignGoal = z.object({
   coalition,
@@ -178,6 +217,86 @@ export const campaignEwrGroup = z.object({
   destroyed: z.boolean().optional()
 })
 
+/** What a side last saw of an enemy unit: where, when, and from which sensor. */
+export const intelContact = z.object({
+  kind: z.enum(['ground', 'naval', 'convoy', 'air']),
+  position,
+  seenAt: z.date(),
+  source: z.enum(['ground', 'radar', 'aircraft', 'naval'])
+})
+
+export const weatherPattern = z.enum(['clear', 'scattered', 'broken', 'overcast', 'rain'])
+
+/** Campaign weather: a pattern that changes every few hours, drawn towards the climate. */
+export const campaignWeather = z.object({
+  pattern: weatherPattern,
+  /** DCS cloud preset for the pattern; none when clear. */
+  preset: z.string().optional(),
+  /** Cloud base, metres above sea level. */
+  cloudBase: z.number(),
+  /** Surface wind: speed in m/s, direction it blows from in degrees. */
+  windSpeed: z.number(),
+  windDirection: z.number(),
+  /** Altimeter setting, mmHg. */
+  qnh: z.number(),
+  /** Visibility in metres. */
+  visibility: z.number(),
+  /** The pattern expected next, and when it arrives. */
+  forecast: weatherPattern,
+  nextChangeAt: z.date()
+})
+
+const killTally = z.object({
+  air: z.number().int().min(0).default(0),
+  ground: z.number().int().min(0).default(0),
+  static: z.number().int().min(0).default(0),
+  naval: z.number().int().min(0).default(0),
+  friendly: z.number().int().min(0).default(0)
+})
+
+/** One sortie the player flew, as the Falcon BMS logbook keeps it. */
+export const logbookSortie = z.object({
+  at: z.date(),
+  callsign: z.string(),
+  task: z.string(),
+  aircraft: z.string(),
+  rating: z.number().int().min(1).max(5),
+  points: z.number(),
+  kills: killTally,
+  outcome: z.enum(['returned', 'ejected', 'killed', 'lost'])
+})
+
+/** The player's logbook for this campaign: points, rank, medals and the sortie record. */
+export const logbook = z.object({
+  points: z.number().default(0),
+  missions: z.number().int().min(0).default(0),
+  kills: killTally.default({ air: 0, ground: 0, static: 0, naval: 0, friendly: 0 }),
+  ejections: z.number().int().min(0).default(0),
+  deaths: z.number().int().min(0).default(0),
+  medals: z.array(z.object({ id: z.string(), at: z.date(), reason: z.string() })).default([]),
+  /** Newest last; the oldest drop off past a hundred. */
+  sorties: z.array(logbookSortie).default([])
+})
+
+const sideStrength = z.object({
+  /** Vehicles and soldiers alive in ground groups. */
+  ground: z.number(),
+  /** Airframes in the order of battle. */
+  air: z.number(),
+  /** Towns and airfields held. */
+  territory: z.number(),
+  /** SAM sites able to fire. */
+  airDefense: z.number(),
+  morale: z.number()
+})
+
+/** One sample of both sides' strength for the Intel screen's graphs. */
+export const forceSnapshot = z.object({
+  at: z.date(),
+  player: sideStrength,
+  opponent: sideStrength
+})
+
 const campaignCoalition = z.object({
   id: z.string(),
   countryName: z.string().optional(),
@@ -197,12 +316,30 @@ const campaignCoalition = z.object({
   aircraftTurnaroundUntil: z.record(z.string(), z.number()).optional(),
   supplyNodes: z.record(z.string(), supply).optional(),
   supplyConvoys: z.array(supplyConvoy).optional(),
+  /**
+   * Air order of battle: airframes owned per aircraft type, flying ones included. Losses take them
+   * away and reinforcements trickle back up to the capacity, as Falcon BMS squadrons do.
+   */
+  airframes: z
+    .record(
+      z.string(),
+      z.object({
+        total: z.number().min(0),
+        capacity: z.number().min(0),
+        lost: z.number().min(0),
+        /** Progress towards the next replacement airframe, 0 to 1. */
+        reinforcement: z.number().min(0)
+      })
+    )
+    .optional(),
   replacementPools: z.record(z.string(), replacementPool).optional(),
   casualtyPoints: z.array(casualtyPoint).optional(),
   extractionRequests: z.array(extractionRequest).optional(),
   capturedPersonnel: z.number().int().nonnegative().optional(),
   capturedEquipment: z.array(storedEquipment).optional(),
   navalGroups: z.array(navalGroup).optional(),
+  /** Fog of war: enemy units this side has seen, keyed by the enemy entity id. */
+  intel: z.record(z.string(), intelContact).optional(),
   /** Epoch ms before this town may raise another company. Key is the objective id. */
   groundReplacementUntil: z.record(z.string(), z.number()).optional()
 })
@@ -375,6 +512,18 @@ export const campaign = z.preprocess(
     timeTarget: z.date().optional(),
     status: campaignStatus.optional(),
     goal: campaignGoal.optional(),
+    /** The player's Priorities screen; only the player's own air tasking follows it. */
+    priorities: commanderPriorities.optional(),
+    /** The war ends in a stalemate at this campaign time if no goal was reached. */
+    deadline: z.date().optional(),
+    /** 0 to 100 per side, 50 neutral. Mission ratings and captures move it; it drifts back to 50. */
+    morale: z.object({ player: z.number(), opponent: z.number() }).optional(),
+    /** Latest ratings of the player's flights, newest last. */
+    missionRatings: z.array(missionRating).optional(),
+    logbook: logbook.optional(),
+    weather: campaignWeather.optional(),
+    /** Force levels sampled every few campaign hours, oldest first. */
+    forceHistory: z.array(forceSnapshot).optional(),
     operationProfile: operationProfile.optional(),
     groundBattleLocks: z.array(groundBattleLock).optional(),
     /** A road between two towns stays closed until this epoch ms. */
@@ -424,6 +573,8 @@ export const campaign = z.preprocess(
           .optional(),
         /** Multiplier on AI air traffic; see resolveAirActivity. */
         airActivity: z.number().optional(),
+        /** Enemy units show and are targeted only once seen. Defaults on. */
+        fogOfWar: z.boolean().optional(),
         /** DCS skill for every enemy AI unit; unset keeps the generator's per-unit defaults. */
         enemySkill: z.enum(['Average', 'Good', 'High', 'Excellent', 'Random']).optional(),
         ewr: z.boolean().optional(),

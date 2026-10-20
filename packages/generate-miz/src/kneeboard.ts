@@ -218,7 +218,7 @@ export function buildKneeboardWaypointRows(
   })
 }
 
-function escapeXml(value: unknown): string {
+function escapeXml(value: string | number | null | undefined): string {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -936,6 +936,7 @@ export async function createKneeboardImages(params: {
   if (clientFlightGroups.length > 0 && !resolveTheatrePmtilesPath(params.theatre.name)) {
     if (!warnedMissingKneeboardMap.has(params.theatre.name)) {
       warnedMissingKneeboardMap.add(params.theatre.name)
+      // eslint-disable-next-line no-console -- one-time setup hint for the developer
       console.warn(
         `[dcc] ${params.theatre.name} map tiles were not found. Kneeboard route maps will not show geographic detail. Run \`bun run cache:map\` in apps/frontend or set the theatre PMTiles environment variable.`
       )

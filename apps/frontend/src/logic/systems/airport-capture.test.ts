@@ -3,7 +3,12 @@ import { schemas } from '@dcc/contracts'
 import { theatres } from '@dcc/data'
 import type * as z from 'zod'
 
-import { craterAirdrome, getNearbyObjectiveIds, isAirdromeRecovering, isAirdromeVulnerable } from './airport-capture'
+import {
+  craterAirdrome,
+  getNearbyObjectiveIds,
+  isAirdromeRecovering,
+  isAirdromeVulnerable
+} from './airport-capture'
 import { spawnGroundGroups } from './spawn/ground-groups'
 import { updateGroundGroups } from './update-ground-groups'
 

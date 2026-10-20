@@ -116,75 +116,29 @@ export function AircraftRoster({
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.2 }}
         >
-          {aircraft.map((entry) => (
-            <div
-              key={entry.name}
-              className="relative rounded border border-synthwave-purple/30 bg-synthwave-dark/55 p-3"
-            >
-              <div className="absolute inset-y-0 left-0 w-0.5 bg-synthwave-cyan/65" />
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-white">{entry.displayName}</div>
-                  {entry.displayName !== entry.name ? (
-                    <div className="mt-0.5 truncate font-mono text-[0.6rem] text-synthwave-light/35">
-                      {entry.name}
-                    </div>
-                  ) : null}
-                </div>
-                <span
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[0.55rem] uppercase tracking-wider',
-                    entry.controllable
-                      ? 'border-synthwave-pink/50 text-synthwave-pink'
-                      : 'border-synthwave-cyan/30 text-synthwave-cyan/65'
-                  )}
-                >
-                  {entry.controllable ? (
-                    <Gamepad2 className="h-2.5 w-2.5" />
-                  ) : (
-                    <Bot className="h-2.5 w-2.5" />
-                  )}
-                  {entry.controllable ? 'Player' : 'AI'}
+          {aircraft
+            .filter((entry) => !entry.isMod)
+            .map((entry) => (
+              <AircraftRosterCard key={entry.name} entry={entry} />
+            ))}
+          {aircraft.some((entry) => entry.isMod) ? (
+            <>
+              <div className="mt-2 flex items-center gap-2 px-1 pt-1">
+                <span className="rounded border border-synthwave-pink/50 bg-synthwave-pink/15 px-1.5 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.2em] text-synthwave-pink">
+                  MODS
+                </span>
+                <div className="h-px flex-1 bg-synthwave-pink/30" />
+                <span className="text-[0.6rem] uppercase tracking-wider text-synthwave-pink/80">
+                  {aircraft.filter((entry) => entry.isMod).length} INSTALLED
                 </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                <span className="rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/50">
-                  {entry.isHelicopter ? 'HELICOPTER' : 'FIXED WING'}
-                </span>
-                {entry.isMod ? (
-                  <span className="rounded border border-synthwave-pink/40 bg-synthwave-pink/10 px-1.5 py-0.5 text-[0.58rem] text-synthwave-pink">
-                    MOD
-                  </span>
-                ) : null}
-                {entry.roles.slice(0, 2).map((role) => (
-                  <span
-                    key={role}
-                    className="rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/50"
-                  >
-                    {role.toUpperCase()}
-                  </span>
+              {aircraft
+                .filter((entry) => entry.isMod)
+                .map((entry) => (
+                  <AircraftRosterCard key={entry.name} entry={entry} />
                 ))}
-                {entry.roles.length > 2 ? (
-                  <span className="group/roles relative inline-flex cursor-default rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-cyan/60">
-                    +{entry.roles.length - 2}
-                    <span
-                      role="tooltip"
-                      className="pointer-events-none absolute top-full left-0 z-30 mt-1.5 flex w-max max-w-52 flex-wrap gap-1 rounded border border-synthwave-purple/50 bg-black/95 px-2 py-1.5 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.55)] transition-opacity group-hover/roles:opacity-100"
-                    >
-                      {entry.roles.slice(2).map((role) => (
-                        <span
-                          key={role}
-                          className="rounded bg-synthwave-purple/25 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/80"
-                        >
-                          {role.toUpperCase()}
-                        </span>
-                      ))}
-                    </span>
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ))}
+            </>
+          ) : null}
         </motion.div>
       </div>
 
@@ -283,5 +237,84 @@ export function AircraftRoster({
         </Button>
       </div>
     </aside>
+  )
+}
+
+function AircraftRosterCard({ entry }: { entry: FactionAircraft }) {
+  return (
+    <div
+      className={cn(
+        'relative rounded border bg-synthwave-dark/55 p-3',
+        entry.isMod ? 'border-synthwave-pink/35' : 'border-synthwave-purple/30'
+      )}
+    >
+      <div
+        className={cn(
+          'absolute inset-y-0 left-0 w-0.5',
+          entry.isMod ? 'bg-synthwave-pink/75' : 'bg-synthwave-cyan/65'
+        )}
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-white">{entry.displayName}</div>
+          {entry.displayName !== entry.name ? (
+            <div className="mt-0.5 truncate font-mono text-[0.6rem] text-synthwave-light/35">
+              {entry.name}
+            </div>
+          ) : null}
+        </div>
+        <span
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[0.55rem] uppercase tracking-wider',
+            entry.controllable
+              ? 'border-synthwave-pink/50 text-synthwave-pink'
+              : 'border-synthwave-cyan/30 text-synthwave-cyan/65'
+          )}
+        >
+          {entry.controllable ? (
+            <Gamepad2 className="h-2.5 w-2.5" />
+          ) : (
+            <Bot className="h-2.5 w-2.5" />
+          )}
+          {entry.controllable ? 'Player' : 'AI'}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/50">
+          {entry.isHelicopter ? 'HELICOPTER' : 'FIXED WING'}
+        </span>
+        {entry.isMod ? (
+          <span className="rounded border border-synthwave-pink/40 bg-synthwave-pink/10 px-1.5 py-0.5 text-[0.58rem] text-synthwave-pink">
+            MOD
+          </span>
+        ) : null}
+        {entry.roles.slice(0, 2).map((role) => (
+          <span
+            key={role}
+            className="rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/50"
+          >
+            {role.toUpperCase()}
+          </span>
+        ))}
+        {entry.roles.length > 2 ? (
+          <span className="group/roles relative inline-flex cursor-default rounded bg-synthwave-purple/18 px-1.5 py-0.5 text-[0.58rem] text-synthwave-cyan/60">
+            +{entry.roles.length - 2}
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute top-full left-0 z-30 mt-1.5 flex w-max max-w-52 flex-wrap gap-1 rounded border border-synthwave-purple/50 bg-black/95 px-2 py-1.5 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.55)] transition-opacity group-hover/roles:opacity-100"
+            >
+              {entry.roles.slice(2).map((role) => (
+                <span
+                  key={role}
+                  className="rounded bg-synthwave-purple/25 px-1.5 py-0.5 text-[0.58rem] text-synthwave-light/80"
+                >
+                  {role.toUpperCase()}
+                </span>
+              ))}
+            </span>
+          </span>
+        ) : null}
+      </div>
+    </div>
   )
 }

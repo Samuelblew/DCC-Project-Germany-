@@ -1,7 +1,9 @@
 import type { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
-type GroundUnitTypes = z.infer<typeof schemas.campaign.campaign>['coalitions']['player']['groundUnitTypes']
+type GroundUnitTypes = z.infer<
+  typeof schemas.campaign.campaign
+>['coalitions']['player']['groundUnitTypes']
 type Position = { x: number; y: number }
 
 export const DETACHMENT_INFANTRY = 8
@@ -89,7 +91,8 @@ export function planDetachment(params: {
   withInfantry: boolean
 }): PlannedUnit[] {
   const have = owned(params.groundUnitTypes)
-  const infantryName = params.groundUnitTypes.Infantry?.find((name) => name.length > 0) ?? 'Infantry AK'
+  const infantryName =
+    params.groundUnitTypes.Infantry?.find((name) => name.length > 0) ?? 'Infantry AK'
   const names: string[] = []
 
   if (params.withVehicles) {
@@ -100,7 +103,9 @@ export function planDetachment(params: {
   }
 
   const airDefense = pick(
-    params.withVehicles ? COMPANY_AIR_DEFENSE : COMPANY_AIR_DEFENSE.filter((name) => FOOT_AIR_DEFENSE.has(name)),
+    params.withVehicles
+      ? COMPANY_AIR_DEFENSE
+      : COMPANY_AIR_DEFENSE.filter((name) => FOOT_AIR_DEFENSE.has(name)),
     have
   )
   if (airDefense && !names.includes(airDefense)) names.push(airDefense)

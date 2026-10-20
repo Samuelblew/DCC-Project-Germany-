@@ -104,7 +104,8 @@ const initialState: z.infer<typeof schemas.campaign.campaign> = {
         'Antiship Strike': [],
         CASEVAC: [],
         'Troop Extraction': [],
-        Training: []
+        Training: [],
+        ECM: []
       },
       structures: [],
       samGroups: [],
@@ -148,7 +149,8 @@ const initialState: z.infer<typeof schemas.campaign.campaign> = {
         'Antiship Strike': [],
         CASEVAC: [],
         'Troop Extraction': [],
-        Training: []
+        Training: [],
+        ECM: []
       },
       structures: [],
       samGroups: [],
@@ -203,11 +205,48 @@ function getTaskCompatibleAircraftTypes(
 function repairMissingDeadAircraftTypes(campaign: Campaign): Campaign {
   return produce(campaign, (draft) => {
     for (const coalition of [draft.coalitions.player, draft.coalitions.opponent]) {
-      if ((coalition.aircraftTypes.DEAD ?? []).length > 0) continue
+      if ((coalition.aircraftTypes.DEAD ?? []).length === 0) {
+        const deadAircraftTypes = getTaskCompatibleAircraftTypes(coalition.aircraftTypes, 'DEAD')
+        if (deadAircraftTypes.length > 0) {
+          coalition.aircraftTypes.DEAD = deadAircraftTypes
+        }
+      }
 
-      const deadAircraftTypes = getTaskCompatibleAircraftTypes(coalition.aircraftTypes, 'DEAD')
-      if (deadAircraftTypes.length > 0) {
-        coalition.aircraftTypes.DEAD = deadAircraftTypes
+      const existingTypes = new Set<string>([
+        ...Object.values(coalition.aircraftTypes).flat(),
+        ...coalition.flightGroups.flatMap((group) =>
+          group.aircrafts.map((aircraft) => aircraft.aircraftName)
+        ),
+        ...(coalition === draft.coalitions.player && draft.career
+          ? [
+              draft.career.preferredAircraft,
+              ...(draft.career.airframes ?? []).map((entry) => entry.aircraftName)
+            ]
+          : [])
+      ])
+      if (existingTypes.has('AH-64D_BLK_II')) {
+        for (const task of ['CAS', 'Ground Attack', 'Pinpoint Strike', 'DEAD', 'CSAR'] as const) {
+          const list = coalition.aircraftTypes[task] ?? []
+          if (!list.includes('AH-64D_BLK_II')) {
+            coalition.aircraftTypes[task] = [...list, 'AH-64D_BLK_II']
+          }
+        }
+      }
+      if (existingTypes.has('AH-6J')) {
+        for (const task of ['CAS', 'Ground Attack', 'Pinpoint Strike', 'DEAD', 'CSAR'] as const) {
+          const list = coalition.aircraftTypes[task] ?? []
+          if (!list.includes('AH-6J')) {
+            coalition.aircraftTypes[task] = [...list, 'AH-6J']
+          }
+        }
+      }
+      if (existingTypes.has('MH-6J')) {
+        for (const task of ['Transport', 'Air Assault', 'CSAR', 'CAS'] as const) {
+          const list = coalition.aircraftTypes[task] ?? []
+          if (!list.includes('MH-6J')) {
+            coalition.aircraftTypes[task] = [...list, 'MH-6J']
+          }
+        }
       }
     }
   })
@@ -626,6 +665,17 @@ export const activeStore = createStore({
         draft.campaignParams ??= {}
         draft.campaignParams.immersion = { ...draft.campaignParams.immersion, ...settings }
       }),
+    setPriorities: (context, { priorities }: { priorities: NonNullable<Campaign['priorities']> }) =>
+      produce(context, (draft) => {
+        draft.priorities = priorities
+      }),
+    /** A package support request, already applied to a copy of the campaign. */
+    packageSupportAdded: (_, { campaign }: { campaign: Campaign }) => campaign,
+    setFogOfWar: (context, { fogOfWar }: { fogOfWar: boolean }) =>
+      produce(context, (draft) => {
+        draft.campaignParams ??= {}
+        draft.campaignParams.fogOfWar = fogOfWar
+      }),
     setAirActivity: (context, { airActivity }: { airActivity: number }) =>
       produce(context, (draft) => {
         if (!draft.campaignParams) {
@@ -826,7 +876,8 @@ export const activeStore = createStore({
 
     createDirectedAttack: (context, { target }: { target: DirectedAttackTarget }) =>
       produce(context, (draft) => {
-        createDirectedAttack(draft, target)
+        const flightGroupId = createDirectedAttack(draft, target)
+        if (flightGroupId && draft.career) claimCareerMission(draft, flightGroupId)
       }),
 
     setPlayerParkingStand: (
@@ -944,6 +995,9 @@ const activeCampaignSaveRequestEventTypes = new Set<string>([
   'setIads',
   'setEnemySkill',
   'setAirActivity',
+  'setPriorities',
+  'setFogOfWar',
+  'packageSupportAdded',
   'setImmersion',
   'setExactTarget',
   'setCasJtac',
@@ -954,6 +1008,7 @@ const activeCampaignSaveRequestEventTypes = new Set<string>([
   'clearLogs',
   'clearFlightGroupClientSelections',
   'createManualPlayerFlightGroup',
+  'createDirectedAttack',
   'setFlightGroupClientCount',
   'setPlayerParkingStand',
   'setFlightGroupAircraftType',

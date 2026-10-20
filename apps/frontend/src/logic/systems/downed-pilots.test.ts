@@ -58,6 +58,8 @@ function createMissionState(overrides: Partial<MissionState> = {}): MissionState
     lostUnits: [],
     landedUnits: [],
     cargoDeliveries: {},
+    troopExtractions: [],
+    casevacPickups: [],
     ...overrides
   }
 }

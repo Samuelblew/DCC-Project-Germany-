@@ -83,7 +83,11 @@ const Marker = memo(function Marker({
       }}
     >
       <div
-        className={cn('pointer-events-auto', isInactive && 'opacity-40 grayscale')}
+        className={cn(
+          'pointer-events-auto',
+          isInactive && 'opacity-40 grayscale',
+          item.lastSeenAt && 'opacity-50'
+        )}
         onPointerDown={(e) => {
           e.stopPropagation()
           onClick()

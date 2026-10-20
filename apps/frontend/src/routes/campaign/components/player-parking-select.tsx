@@ -57,16 +57,20 @@ export function PlayerParkingSelect({
   const theatreName = scenarios.find((entry) => entry.id === scenarioId)?.theatreName
   const theatre = theatres.find((entry) => entry.name === theatreName)
   const airdrome = group ? theatre?.airdromeDetails[group.homeBase] : undefined
-  const stands = parkingStands(airdrome?.standlist ?? {}, aircraftName ?? group?.aircrafts[0]?.aircraftName)
+  const stands = parkingStands(
+    airdrome?.standlist ?? {},
+    aircraftName ?? group?.aircrafts[0]?.aircraftName
+  )
   const choices = [...stands.shelters, ...stands.ramp]
   const currentTime = new Date(campaignMinute * 60_000)
   if (!group || !airdrome || choices.length === 0 || hasFlightGroupTakenOff(group, currentTime)) {
     return null
   }
 
-  const selected = group.parkingStandId && choices.some((stand) => stand.id === group.parkingStandId)
-    ? group.parkingStandId
-    : ''
+  const selected =
+    group.parkingStandId && choices.some((stand) => stand.id === group.parkingStandId)
+      ? group.parkingStandId
+      : ''
 
   return (
     <label
@@ -74,7 +78,9 @@ export function PlayerParkingSelect({
       title="Parking number on this airfield, the same id DCS uses. Automatic avoids stands next to parked helicopters. Wingmen take the next free spots."
       onClick={(event) => event.stopPropagation()}
     >
-      <span className="shrink-0 text-[10px] uppercase tracking-wide text-secondary/70">Parking</span>
+      <span className="shrink-0 text-[10px] uppercase tracking-wide text-secondary/70">
+        Parking
+      </span>
       <select
         aria-label="Parking spot"
         className="h-8 min-w-0 flex-1 rounded-md border border-synthwave-pink/30 bg-black/40 px-2 text-xs text-synthwave-light"

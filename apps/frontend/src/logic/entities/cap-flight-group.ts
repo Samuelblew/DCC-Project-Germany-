@@ -1,5 +1,6 @@
 import { schemas, config } from '@dcc/contracts'
 import * as z from 'zod'
+import { recordAirframeLoss } from '../systems/air-order-of-battle'
 import { FlightGroup } from './flight-group'
 import { calculateDistance } from '../utils/calculate-distance'
 import { buildCapMissionWaypoints, spawnPlannedFlightGroup } from './flight-group-spawn'
@@ -111,6 +112,7 @@ export class CapFlightGroup extends FlightGroup {
               `CAP aircraft ${capAircraft.unitName} shot down enemy ${shotDownAircraft?.unitName}`
             )
             if (shotDownAircraft) {
+              recordAirframeLoss(draft, enemyCoalition, shotDownAircraft)
               maybeCreateDownedPilotFromAircraftLoss(draft, enemyCoalition, {
                 name: shotDownAircraft.unitName,
                 position: enemyFg.position
@@ -138,6 +140,7 @@ export class CapFlightGroup extends FlightGroup {
               `CAP aircraft ${lostAircraft?.unitName} shot down by enemy ${enemyAircraft.unitName}`
             )
             if (lostAircraft) {
+              recordAirframeLoss(draft, coalition, lostAircraft)
               maybeCreateDownedPilotFromAircraftLoss(draft, coalition, {
                 name: lostAircraft.unitName,
                 position: this._data.position

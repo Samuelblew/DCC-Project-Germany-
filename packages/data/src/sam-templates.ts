@@ -57,7 +57,8 @@ export const samTemplates: Record<
       'GAZ-66'
     ],
     fireInterval: 60,
-    range: 35_500
+    // S-200: about 240 km. It used to read 35.5 km, copied from the SA-6 entry.
+    range: 240_000
   },
   'SA-6': {
     units: [

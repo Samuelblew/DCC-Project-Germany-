@@ -22,7 +22,9 @@ export const StructureType = [
   'Hospital',
   'Farp',
   'Command Center',
-  'Prison'
+  'Prison',
+  // Scenarios place oil platforms themselves; the greedy pass skips this type.
+  'Oil Platform'
 ] as const
 
 export type StructureType = (typeof StructureType)[number]

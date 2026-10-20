@@ -59,8 +59,7 @@ export function updateOperationProfile(draft: Campaign) {
   const opponentHeld = ownedGraphCount(draft, 'opponent', nodes)
   const delta = playerHeld - opponentHeld
   const previousInitiative = draft.operationProfile?.initiativeCoalition ?? 'opponent'
-  const initiativeCoalition =
-    delta > 0 ? 'player' : delta < 0 ? 'opponent' : previousInitiative
+  const initiativeCoalition = delta > 0 ? 'player' : delta < 0 ? 'opponent' : previousInitiative
   const airSuperiority =
     Math.abs(delta) >= AIR_SUPERIORITY_GRAPH_DELTA &&
     generation !== 'Korea' &&

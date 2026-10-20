@@ -62,8 +62,7 @@ function SelectContent({
         <SelectPrimitive.Viewport
           className={cn(
             'synthwave-scrollbar max-h-[min(24rem,var(--radix-select-content-available-height))] overflow-y-auto p-1',
-            position === 'popper' &&
-              'w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1',
+            position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1',
             viewportClassName
           )}
         >

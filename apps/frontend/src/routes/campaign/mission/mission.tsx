@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from '@xstate/store/react'
+import { produce } from 'immer'
 import { useQuery } from '@tanstack/react-query'
 import { samTemplates } from '@dcc/data'
-import { ArrowLeft, ChevronDown, Clock, CloudSun, Plane, Sun, Target, Wind, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Clock, CloudSun, Plane, Target, X } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import type { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
@@ -31,9 +32,12 @@ import { MissionDebriefScreen, type MissionDebrief, type TargetOutcome } from '.
 import { applyLiveSortie } from '@/logic/live-sortie'
 import { applyMissionStateUpdate } from './mission-state-update'
 import { ImmersionOptions } from '../components/immersion-options'
+import { PackageSupport } from './package-support'
+import { WeatherBriefing } from './weather-briefing'
 import { applyCareerMission } from '@/logic/career/apply-career-mission'
+import { applyMissionRatings, rateClientFlight } from '@/logic/systems/morale'
+import { recordLogbookSorties } from '@/logic/systems/logbook'
 
-const KNOTS_PER_MS = 1.94384
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type FlightGroup = Campaign['coalitions']['player']['flightGroups'][number]
 type MissionState = z.infer<typeof schemas.missionState>
@@ -179,12 +183,6 @@ function formatTime(date: Date | string) {
   }).format(d)
 }
 
-function formatWindDirection(degrees: number) {
-  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'] as const
-  const index = Math.round(degrees / 45) % directions.length
-  return `${degrees.toFixed(0)}° ${directions[index]}`
-}
-
 type ZodIssue = {
   path?: Array<string | number>
   message?: string
@@ -310,6 +308,7 @@ export function Mission() {
   const scenarioId = useSelector(activeStore, (state) => state.context.scenarioId)
   const campaignEra = useSelector(activeStore, (state) => state.context.era)
   const campaignTime = useSelector(activeStore, (state) => state.context.time)
+  const campaignWeather = useSelector(activeStore, (state) => state.context.weather)
   const timeMultiplier = useSelector(activeStore, (state) => state.context.timeMultiplier)
   const hotStart = useSelector(activeStore, (state) => state.context.campaignParams?.hotStart)
   const aiWingmanSpawn = useSelector(
@@ -386,7 +385,6 @@ export function Mission() {
     [playerFlightGroups]
   )
 
-  const weather = theatreQuery.data?.info.weather
   const scenario = scenarioQuery.data
   const displayedEra = campaignEra ?? scenario?.era
   const displayedEraLabel = displayedEra ? formatEra(displayedEra) : null
@@ -479,7 +477,24 @@ export function Mission() {
         ? targetOutcomes[careerSortie.flightGroupId]?.complete === true
         : false
     })
-    const updatedCampaign = resetFlightGroupClientSelections(career.campaign)
+    const ratings = debriefClientFlightGroups.map((group) =>
+      rateClientFlight({
+        group,
+        missionState,
+        taskCompleted: targetOutcomes[group.id]?.complete === true,
+        at: career.campaign.time
+      })
+    )
+    let logbookLines: string[] = []
+    const ratedCampaign = produce(career.campaign, (draft) => {
+      applyMissionRatings(draft, ratings)
+      logbookLines = recordLogbookSorties(
+        draft,
+        debriefClientFlightGroups.map((group, index) => ({ group, rating: ratings[index]! })),
+        missionState
+      )
+    })
+    const updatedCampaign = resetFlightGroupClientSelections(ratedCampaign)
     activeStore.send({ type: 'loadCampaign', campaign: updatedCampaign })
     await coreClient.campaign.saveActiveCampaign(updatedCampaign)
     setDebrief({
@@ -487,7 +502,10 @@ export function Mission() {
       missionState,
       clientFlightGroups: debriefClientFlightGroups,
       targetOutcomes,
-      careerLines: career.lines
+      careerLines: career.lines,
+      ratings,
+      morale: updatedCampaign.morale,
+      logbookLines
     })
   }
 
@@ -1078,20 +1096,26 @@ export function Mission() {
                     showAllAircraft ? undefined : playerAircraftTypes[group.task]
                   )
 
+                  const airborne = hasFlightGroupTakenOff(group, currentTime)
                   return (
-                    <FlightGroupCard
-                      key={group.id}
-                      group={group}
-                      isAirborne={hasFlightGroupTakenOff(group, currentTime)}
-                      showAircraftType
-                      aircraftTypeDisabled={isGenerated || isGenerating}
-                      aircraftTypeOptions={aircraftOptions}
-                      showAllAircraftTypes={showAllAircraft}
-                      onAircraftTypeChange={(aircraftType) =>
-                        handleAircraftTypeChange(group.id, aircraftType)
-                      }
-                      onShowAllAircraftTypesChange={setShowAllAircraft}
-                    />
+                    <div key={group.id} className="flex flex-col gap-1">
+                      <FlightGroupCard
+                        group={group}
+                        isAirborne={airborne}
+                        showAircraftType
+                        aircraftTypeDisabled={isGenerated || isGenerating}
+                        aircraftTypeOptions={aircraftOptions}
+                        showAllAircraftTypes={showAllAircraft}
+                        onAircraftTypeChange={(aircraftType) =>
+                          handleAircraftTypeChange(group.id, aircraftType)
+                        }
+                        onShowAllAircraftTypesChange={setShowAllAircraft}
+                      />
+                      <PackageSupport
+                        flightGroupId={group.id}
+                        disabled={airborne || isGenerated || isGenerating}
+                      />
+                    </div>
                   )
                 })}
               </div>
@@ -1124,41 +1148,12 @@ export function Mission() {
                   <CloudSun className="h-5 w-5 text-[#9c6a33]" />
                   <span className="text-sm font-semibold text-white">Weather</span>
                 </div>
-                {weather ? (
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-2 text-sm text-white/50">
-                        <Sun className="h-4 w-4" /> Temp
-                      </span>
-                      <span className="text-sm text-white">
-                        {weather.temperature.mean.toFixed(0)}°C
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-2 text-sm text-white/50">
-                        <Wind className="h-4 w-4" /> Wind
-                      </span>
-                      <span className="text-sm text-white">
-                        {(weather.wind.speed * KNOTS_PER_MS).toFixed(0)} kt
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-white/50">Direction</span>
-                      <span className="text-sm text-white">
-                        {formatWindDirection(weather.wind.direction)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-white/50">Clouds</span>
-                      <span className="text-sm text-white">
-                        {Math.round(
-                          (weather.cloudCover.baseCloudCover + weather.cloudCover.seasonEffect) *
-                            100
-                        )}
-                        %
-                      </span>
-                    </div>
-                  </div>
+                {theatreQuery.data ? (
+                  <WeatherBriefing
+                    theatre={theatreQuery.data}
+                    weather={campaignWeather}
+                    time={currentTime}
+                  />
                 ) : (
                   <div className="text-sm text-white/40">Loading...</div>
                 )}

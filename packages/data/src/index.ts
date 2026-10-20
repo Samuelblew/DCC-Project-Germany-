@@ -1,5 +1,10 @@
 export * from './aircraft-profiles'
 export * as aircrafts from './aircrafts'
+export {
+  filterAircraftTypesForInstalledMods,
+  isAircraftModInstalled,
+  optionalModAircrafts
+} from './aircrafts/mods'
 export * from './buildings'
 export * from './callsigns'
 export * from './career'
@@ -15,3 +20,4 @@ export * from './structures'
 export * from './templates'
 export * from './theatres'
 export * from './theatres/germany-cold-war/iads'
+export * from './weather'

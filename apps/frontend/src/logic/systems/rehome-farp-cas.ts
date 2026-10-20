@@ -61,7 +61,6 @@ export function rehomeCasForAircraftChange(
   const previousAircraftType = group.aircrafts[0]?.aircraftName
   const previousAircraft = previousAircraftType ? aircraftMap.get(previousAircraftType) : undefined
   if (
-    group.task !== 'CAS' ||
     aircraft?.isHelicopter == null ||
     previousAircraft?.isHelicopter == null ||
     aircraft.isHelicopter === previousAircraft.isHelicopter
@@ -75,17 +74,25 @@ export function rehomeCasForAircraftChange(
   const missionWaypoints = getMissionWaypoints(group)
   const targetPosition =
     missionWaypoints.find((waypoint) => waypoint.name === 'Target')?.position ??
-    missionWaypoints.find((waypoint) => waypoint.type === 'Task')?.position
+    missionWaypoints.find((waypoint) => waypoint.type === 'Task')?.position ??
+    missionWaypoints[0]?.position
   if (!targetPosition) return false
 
   const airdromes = getCoalitionAirdromes(campaign, theatre, coalition)
   const currentAirdrome = airdromes.find((candidate) => candidate.name === group.homeBase)
-  const homeBase = aircraft.isHelicopter
-    ? (findNearestReachableHomeBase(
-        [...airdromes, ...getCoalitionFarps(campaign, coalition)],
-        targetPosition
-      ) ?? currentAirdrome)
-    : (currentAirdrome ?? findNearestReachableHomeBase(airdromes, targetPosition))
+  const homeBase =
+    group.task === 'CAS' && aircraft.isHelicopter
+      ? (findNearestReachableHomeBase(
+          [...airdromes, ...getCoalitionFarps(campaign, coalition)],
+          targetPosition
+        ) ?? currentAirdrome)
+      : (currentAirdrome ??
+        findNearestReachableHomeBase(
+          aircraft.isHelicopter
+            ? [...airdromes, ...getCoalitionFarps(campaign, coalition)]
+            : airdromes,
+          targetPosition
+        ))
   if (!homeBase) return false
 
   const previousFlightplan = group.flightplan

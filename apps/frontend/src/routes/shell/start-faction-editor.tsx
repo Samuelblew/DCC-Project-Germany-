@@ -14,11 +14,12 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
-import { aircraftCatalog, type Faction } from './start-campaign-options'
+import { getAvailableAircraftCatalog, type Faction } from './start-campaign-options'
 
 type FactionEditorProps = {
   mode: 'create' | 'customize'
   seedFaction: Faction
+  installedMods?: readonly string[]
   onCancel: () => void
   onSave: (faction: Faction) => void
 }
@@ -35,7 +36,13 @@ function isCustomFaction(faction: Faction) {
   return faction.id.startsWith('custom-')
 }
 
-export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEditorProps) {
+export function FactionEditor({
+  mode,
+  seedFaction,
+  installedMods,
+  onCancel,
+  onSave
+}: FactionEditorProps) {
   const [name, setName] = useState(
     mode === 'create'
       ? `${seedFaction.countryName} Task Force`
@@ -56,13 +63,13 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
   )
   const visibleAircraft = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
-    return aircraftCatalog.filter((aircraft) => {
+    return getAvailableAircraftCatalog(installedMods).filter((aircraft) => {
       const hasFactionTask = aircraft.availableTasks.some((task) => factionTaskNames.has(task))
       if (!hasFactionTask) return false
       if (!query) return true
       return `${aircraft.display_name} ${aircraft.name}`.toLocaleLowerCase().includes(query)
     })
-  }, [search])
+  }, [installedMods, search])
 
   const toggleAircraft = (aircraftName: string, availableTasks: readonly string[]) => {
     const shouldAdd = !selectedAircraft.has(aircraftName)
@@ -206,98 +213,42 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
             <div className="synthwave-scrollbar min-h-0 flex-1 overflow-y-auto pr-2 [scrollbar-gutter:stable]">
               <TooltipPrimitive.Provider delayDuration={180} skipDelayDuration={80}>
                 <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {visibleAircraft.map((aircraft) => {
-                    const selected = selectedAircraft.has(aircraft.name)
-                    const tasks = aircraft.availableTasks.filter((task) =>
-                      factionTaskNames.has(task)
-                    )
-                    return (
-                      <button
+                  {visibleAircraft
+                    .filter((aircraft) => !aircraft.isMod)
+                    .map((aircraft) => (
+                      <FactionEditorAircraftCard
                         key={aircraft.name}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => toggleAircraft(aircraft.name, aircraft.availableTasks)}
-                        className={cn(
-                          'group rounded-md border p-3 text-left transition-all',
-                          selected
-                            ? 'border-synthwave-pink/70 bg-synthwave-pink/8 shadow-[inset_3px_0_0_var(--synthwave-pink)]'
-                            : 'border-synthwave-purple/30 bg-synthwave-dark/45 hover:border-synthwave-cyan/65 hover:bg-synthwave-cyan/5'
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-white">
-                              {aircraft.display_name}
-                            </div>
-                            <div className="mt-0.5 truncate font-mono text-[0.6rem] text-synthwave-light/35">
-                              {aircraft.name}
-                            </div>
-                          </div>
-                          <span
-                            className={cn(
-                              'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
-                              selected
-                                ? 'border-synthwave-pink bg-synthwave-pink text-white'
-                                : 'border-synthwave-purple/50 text-transparent group-hover:border-synthwave-cyan/65'
-                            )}
-                          >
-                            ✓
-                          </span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          <span className="inline-flex items-center gap-1 rounded bg-synthwave-purple/16 px-1.5 py-0.5 text-[0.55rem] text-synthwave-light/55">
-                            {aircraft.controllable ? (
-                              <Gamepad2 className="h-2.5 w-2.5" />
-                            ) : (
-                              <Bot className="h-2.5 w-2.5" />
-                            )}
-                            {aircraft.controllable ? 'PLAYER' : 'AI'}
-                          </span>
-                          <TooltipPrimitive.Root>
-                            <TooltipPrimitive.Trigger asChild>
-                              <span
-                                aria-label={`${tasks.length} roles: ${tasks.join(', ')}`}
-                                className="inline-flex items-center gap-1 rounded bg-synthwave-purple/16 px-1.5 py-0.5 text-[0.55rem] text-synthwave-light/55 transition-colors hover:bg-synthwave-cyan/12 hover:text-synthwave-cyan"
-                              >
-                                <Plane className="h-2.5 w-2.5" />
-                                {tasks.length} ROLES
-                              </span>
-                            </TooltipPrimitive.Trigger>
-                            <TooltipPrimitive.Portal>
-                              <TooltipPrimitive.Content
-                                side="top"
-                                align="end"
-                                sideOffset={8}
-                                collisionPadding={12}
-                                className="z-[6000] max-w-80 rounded-md border border-synthwave-cyan/45 bg-[#161412]/98 p-3 text-synthwave-light shadow-[0_12px_36px_rgba(0,0,0,0.65),0_0_24px_rgba(232,183,48,0.12)] outline-none data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95"
-                              >
-                                <div className="mb-2 flex items-center justify-between gap-4 border-b border-synthwave-purple/30 pb-2">
-                                  <span className="text-[0.6rem] uppercase tracking-[0.2em] text-synthwave-cyan">
-                                    Mission roles
-                                  </span>
-                                  <span className="max-w-40 truncate font-mono text-[0.58rem] text-synthwave-light/40">
-                                    {aircraft.name}
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {tasks.map((task) => (
-                                    <span
-                                      key={task}
-                                      className="rounded border border-synthwave-purple/35 bg-synthwave-purple/18 px-2 py-1 text-[0.62rem] uppercase tracking-wide text-synthwave-light/80"
-                                    >
-                                      {task}
-                                    </span>
-                                  ))}
-                                </div>
-                                <TooltipPrimitive.Arrow className="fill-[#161412]" />
-                              </TooltipPrimitive.Content>
-                            </TooltipPrimitive.Portal>
-                          </TooltipPrimitive.Root>
-                        </div>
-                      </button>
-                    )
-                  })}
+                        aircraft={aircraft}
+                        selected={selectedAircraft.has(aircraft.name)}
+                        onToggle={() => toggleAircraft(aircraft.name, aircraft.availableTasks)}
+                      />
+                    ))}
                 </div>
+                {visibleAircraft.some((aircraft) => aircraft.isMod) ? (
+                  <div className="mt-4">
+                    <div className="mb-2.5 flex items-center gap-2 px-1">
+                      <span className="rounded border border-synthwave-pink/50 bg-synthwave-pink/15 px-1.5 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.2em] text-synthwave-pink">
+                        MODS
+                      </span>
+                      <div className="h-px flex-1 bg-synthwave-pink/30" />
+                      <span className="text-[0.6rem] uppercase tracking-wider text-synthwave-pink/80">
+                        {visibleAircraft.filter((aircraft) => aircraft.isMod).length} AVAILABLE
+                      </span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      {visibleAircraft
+                        .filter((aircraft) => aircraft.isMod)
+                        .map((aircraft) => (
+                          <FactionEditorAircraftCard
+                            key={aircraft.name}
+                            aircraft={aircraft}
+                            selected={selectedAircraft.has(aircraft.name)}
+                            onToggle={() => toggleAircraft(aircraft.name, aircraft.availableTasks)}
+                          />
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
               </TooltipPrimitive.Provider>
             </div>
           </section>
@@ -324,5 +275,106 @@ export function FactionEditor({ mode, seedFaction, onCancel, onSave }: FactionEd
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function FactionEditorAircraftCard({
+  aircraft,
+  selected,
+  onToggle
+}: {
+  aircraft: ReturnType<typeof getAvailableAircraftCatalog>[number]
+  selected: boolean
+  onToggle: () => void
+}) {
+  const tasks = aircraft.availableTasks.filter((task) => factionTaskNames.has(task))
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onToggle}
+      className={cn(
+        'group rounded-md border p-3 text-left transition-all',
+        selected
+          ? 'border-synthwave-pink/70 bg-synthwave-pink/8 shadow-[inset_3px_0_0_var(--synthwave-pink)]'
+          : aircraft.isMod
+            ? 'border-synthwave-pink/30 bg-synthwave-dark/45 hover:border-synthwave-cyan/65 hover:bg-synthwave-cyan/5'
+            : 'border-synthwave-purple/30 bg-synthwave-dark/45 hover:border-synthwave-cyan/65 hover:bg-synthwave-cyan/5'
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-white">{aircraft.display_name}</div>
+          <div className="mt-0.5 truncate font-mono text-[0.6rem] text-synthwave-light/35">
+            {aircraft.name}
+          </div>
+        </div>
+        <span
+          className={cn(
+            'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
+            selected
+              ? 'border-synthwave-pink bg-synthwave-pink text-white'
+              : 'border-synthwave-purple/50 text-transparent group-hover:border-synthwave-cyan/65'
+          )}
+        >
+          ✓
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="inline-flex items-center gap-1 rounded bg-synthwave-purple/16 px-1.5 py-0.5 text-[0.55rem] text-synthwave-light/55">
+          {aircraft.controllable ? (
+            <Gamepad2 className="h-2.5 w-2.5" />
+          ) : (
+            <Bot className="h-2.5 w-2.5" />
+          )}
+          {aircraft.controllable ? 'PLAYER' : 'AI'}
+        </span>
+        {aircraft.isMod ? (
+          <span className="rounded border border-synthwave-pink/40 bg-synthwave-pink/10 px-1.5 py-0.5 text-[0.55rem] text-synthwave-pink">
+            MOD
+          </span>
+        ) : null}
+        <TooltipPrimitive.Root>
+          <TooltipPrimitive.Trigger asChild>
+            <span
+              aria-label={`${tasks.length} roles: ${tasks.join(', ')}`}
+              className="inline-flex items-center gap-1 rounded bg-synthwave-purple/16 px-1.5 py-0.5 text-[0.55rem] text-synthwave-light/55 transition-colors hover:bg-synthwave-cyan/12 hover:text-synthwave-cyan"
+            >
+              <Plane className="h-2.5 w-2.5" />
+              {tasks.length} ROLES
+            </span>
+          </TooltipPrimitive.Trigger>
+          <TooltipPrimitive.Portal>
+            <TooltipPrimitive.Content
+              side="top"
+              align="end"
+              sideOffset={8}
+              collisionPadding={12}
+              className="z-[6000] max-w-80 rounded-md border border-synthwave-cyan/45 bg-[#161412]/98 p-3 text-synthwave-light shadow-[0_12px_36px_rgba(0,0,0,0.65),0_0_24px_rgba(232,183,48,0.12)] outline-none data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95"
+            >
+              <div className="mb-2 flex items-center justify-between gap-4 border-b border-synthwave-purple/30 pb-2">
+                <span className="text-[0.6rem] uppercase tracking-[0.2em] text-synthwave-cyan">
+                  Mission roles
+                </span>
+                <span className="max-w-40 truncate font-mono text-[0.58rem] text-synthwave-light/40">
+                  {aircraft.name}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {tasks.map((task) => (
+                  <span
+                    key={task}
+                    className="rounded border border-synthwave-purple/35 bg-synthwave-purple/18 px-2 py-1 text-[0.62rem] uppercase tracking-wide text-synthwave-light/80"
+                  >
+                    {task}
+                  </span>
+                ))}
+              </div>
+              <TooltipPrimitive.Arrow className="fill-[#161412]" />
+            </TooltipPrimitive.Content>
+          </TooltipPrimitive.Portal>
+        </TooltipPrimitive.Root>
+      </div>
+    </button>
   )
 }

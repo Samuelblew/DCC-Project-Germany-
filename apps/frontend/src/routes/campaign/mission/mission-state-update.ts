@@ -20,6 +20,7 @@ import {
 } from '@dcc/data'
 import * as z from 'zod'
 
+import { recordAirframeLoss } from '@/logic/systems/air-order-of-battle'
 import { FlightGroup } from '@/logic/entities/flight-group'
 import { logCombatAction } from '@/logic/simulation-log'
 import { updatePackages } from '@/logic/systems/update-packages'
@@ -144,16 +145,13 @@ function syncGermanySamLosses(
 export function applyLiveIadsDeaths(campaign: Campaign, missionState: MissionState): Campaign {
   if (missionState.missionId !== campaign.id) return campaign
   const scenario = scenarios.find((entry) => entry.id === campaign.scenarioId)
-  const theatre = scenario ? theatres.find((entry) => entry.name === scenario.theatreName) : undefined
+  const theatre = scenario
+    ? theatres.find((entry) => entry.name === scenario.theatreName)
+    : undefined
   if (!theatre) return campaign
 
   return produce(campaign, (draft) => {
-    syncGermanySamLosses(
-      draft,
-      theatre,
-      missionState.lostUnits ?? [],
-      missionState.groupPositions
-    )
+    syncGermanySamLosses(draft, theatre, missionState.lostUnits ?? [], missionState.groupPositions)
   })
 }
 
@@ -515,6 +513,13 @@ function applyToCoalition(
       }
     }
 
+    // Shot down (not landed) aircraft leave the coalition's order of battle.
+    for (const aircraftState of aircraftStateNames) {
+      if (!aircraftState.names.some((name) => lostUnitNames.has(name))) continue
+      const aircraft = flightGroup.aircrafts.find((entry) => entry.id === aircraftState.aircraftId)
+      if (aircraft && !flightGroup.careerMission) recordAirframeLoss(draft, coalition, aircraft)
+    }
+
     if (terminalAircraftIds.size > 0) {
       flightGroup.aircrafts = flightGroup.aircrafts.filter(
         (aircraft) => !terminalAircraftIds.has(aircraft.id)
@@ -677,12 +682,7 @@ export function applyMissionStateUpdate(campaign: Campaign, missionState: Missio
       cullingManifest?.groundGroups.opponent,
       protectedGroundGroupIds
     )
-    applyOmittedGroundDeaths(
-      draft,
-      'player',
-      cullingManifest?.groundGroups.player,
-      lostUnitNames
-    )
+    applyOmittedGroundDeaths(draft, 'player', cullingManifest?.groundGroups.player, lostUnitNames)
     applyOmittedGroundDeaths(
       draft,
       'opponent',

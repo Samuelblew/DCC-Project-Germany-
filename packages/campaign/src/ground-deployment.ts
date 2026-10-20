@@ -441,6 +441,8 @@ function recoveryObjectiveIds(theatre: Theatre, coalitionObjectiveIds: string[])
 
 /** Objectives this close to a broken formation are where it is fighting, not a place to recover. */
 const FALLBACK_EXCLUSION_RADIUS = 5_000
+/** With a road graph, how far a cut-off formation may still slip across country to a friendly town. */
+const CROSS_COUNTRY_FALLBACK_METERS = 30_000
 
 function findNearestFallbackObjective(
   theatre: Theatre,
@@ -499,15 +501,24 @@ export function beginGroundGroupRetreat(params: {
     return 'withdrawing'
   }
 
-  // Only the South Atlantic has an authored road network. Elsewhere a broken formation falls back
-  // in a straight line to the nearest owned objective away from the fight, instead of surrendering.
-  if ((params.theatre.connections ?? []).length === 0) {
+  // No road out through friendly towns. Without a road graph the formation falls back in a straight
+  // line to the nearest owned objective; with one (Germany, South Atlantic) it may still slip across
+  // country to a friendly town close by. Only a formation with nothing friendly near is trapped.
+  {
     const fallback = findNearestFallbackObjective(
       params.theatre,
       ownedObjectiveIds,
       params.group.position
     )
-    if (fallback) {
+    const hasRoads = (params.theatre.connections ?? []).length > 0
+    const reachable =
+      fallback &&
+      (!hasRoads ||
+        Math.hypot(
+          fallback.position.x - params.group.position.x,
+          fallback.position.y - params.group.position.y
+        ) <= CROSS_COUNTRY_FALLBACK_METERS)
+    if (fallback && reachable) {
       params.group.state = 'withdrawing'
       params.group.retreat = {
         destinationObjectiveId: fallback.name,

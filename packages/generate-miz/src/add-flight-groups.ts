@@ -187,6 +187,7 @@ const FLIGHT_RADIO_PRESET_INDEX: Readonly<Record<string, number>> = {
   'A-10C': 2,
   'A-10C_2': 2,
   'AH-64D_BLK_II': 2,
+  'AH-6J': 2,
   AV8BNA: 1,
   'CH-47Fbl1': 2,
   'F-14A-135-GR': 2,
@@ -200,6 +201,7 @@ const FLIGHT_RADIO_PRESET_INDEX: Readonly<Record<string, number>> = {
   'FA-18C_hornet': 1,
   'JF-17': 1,
   'M-2000C': 2,
+  'MH-6J': 2,
   'Mi-24P': 1,
   'Mi-8MT': 1,
   'Mirage-F1CE': 2,
@@ -1555,9 +1557,7 @@ export function addFlightGroups(
     const coalitionKey = key as CoalitionKey
     const flightGroups = value.flightGroups?.filter(
       (fg) =>
-        (!liveBubble ||
-          fg.task === 'AWACS' ||
-          fg.aircrafts.some((aircraft) => aircraft.client)) &&
+        (!liveBubble || fg.task === 'AWACS' || fg.aircrafts.some((aircraft) => aircraft.client)) &&
         (culledFlightIds == null ||
           culledFlightIds.has(fg.id) ||
           (liveBubble && fg.task === 'AWACS')) &&

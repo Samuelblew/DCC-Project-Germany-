@@ -20,6 +20,8 @@ import { spawnGroundGroups } from '@/logic/systems/spawn/ground-groups'
 import { resolveFieldEngagements, updateGroundGroups } from '@/logic/systems/update-ground-groups'
 import { updateResources } from '@/logic/systems/update-resources'
 import { updateSupply } from '@/logic/systems/update-supply'
+import { updateOperationProfile } from '@/logic/systems/update-operation-profile'
+import { updateMorale } from '@/logic/systems/morale'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -156,6 +158,7 @@ type RunResult = {
   objectives: Record<Coalition, number>
   groups: Record<Coalition, { total: number; idle: number }>
   peakGroups: number
+  morale: { player: number; opponent: number }
   /** Mean fill of the non-hub supply nodes (towns) at the end. */
   townSupply: Record<Coalition, number>
   /** Supply convoys on the road: average over the run and the most at once. */
@@ -217,6 +220,9 @@ function simulate(
       updateGroundGroups(campaign, coalition, LOGIC_TICK_MS, { move: false })
     }
     resolveFieldEngagements(campaign, LOGIC_TICK_MS)
+    // Same order as the campaign logic tick: posture first, it steers where columns are raised.
+    updateOperationProfile(campaign)
+    updateMorale(campaign, (LOGIC_TICK_MS * campaign.timeMultiplier) / 1000)
     for (const coalition of COALITIONS) spawnGroundGroups(campaign, coalition)
     updateCampaignGoal(campaign)
 
@@ -284,6 +290,10 @@ function simulate(
     },
     groups: { player: groupStats('player'), opponent: groupStats('opponent') },
     peakGroups,
+    morale: {
+      player: Math.round(campaign.morale?.player ?? 50),
+      opponent: Math.round(campaign.morale?.opponent ?? 50)
+    },
     townSupply: {
       player: townSupplyFill(campaign, 'player'),
       opponent: townSupplyFill(campaign, 'opponent')
@@ -344,7 +354,8 @@ function main() {
     'groups P(idle)/O(idle)',
     'peak',
     'town supply P/O',
-    'convoys avg/peak'
+    'convoys avg/peak',
+    'morale P/O'
   ]
   const rows = results.map((result, index) => [
     String(options.seed + index),
@@ -357,7 +368,8 @@ function main() {
     `${result.groups.player.total}(${result.groups.player.idle})/${result.groups.opponent.total}(${result.groups.opponent.idle})`,
     String(result.peakGroups),
     `${Math.round(result.townSupply.player * 100)}%/${Math.round(result.townSupply.opponent * 100)}%`,
-    `${result.convoys.average.toFixed(1)}/${result.convoys.peak}`
+    `${result.convoys.average.toFixed(1)}/${result.convoys.peak}`,
+    `${result.morale.player}/${result.morale.opponent}`
   ])
   const widths = header.map((title, column) =>
     Math.max(title.length, ...rows.map((row) => row[column]!.length))

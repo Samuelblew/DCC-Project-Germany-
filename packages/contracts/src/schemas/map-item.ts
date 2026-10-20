@@ -14,7 +14,9 @@ const mapItem = z.object({
   position: z.object({
     lng: z.number(),
     lat: z.number()
-  })
+  }),
+  /** Fog of war: an enemy unit drawn at its last known position, seen at this time. */
+  lastSeenAt: z.date().optional()
 })
 
 export const AirdromeMapItem = mapItem.extend({

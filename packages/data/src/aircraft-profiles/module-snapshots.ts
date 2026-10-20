@@ -158,6 +158,157 @@ export const moduleSnapshots: Record<string, ModuleSnapshot> = {
     ],
     radios: []
   },
+  'AH-64D_BLK_II': {
+    fidelity: 'full',
+    sources: [
+      'CoreMods/aircraft/AH-64D/AH-64D.lua',
+      'CoreMods/aircraft/AH-64D/UnitPayloads/AH-64D_BLK_II.lua',
+      '78 bundled missions'
+    ],
+    clsids: [
+      'M261_MK151',
+      '{***}',
+      '{88D18A5E-99C8-4B04-B40B-1C02F2018B6E}',
+      '{AN_APG_78}',
+      '{EFT_230GAL}',
+      '{IAFS_ComboPak_100}',
+      '{M261_INBOARD_DE_M151_C_M257}',
+      '{M261_INBOARD_DE_M151_C_M274}',
+      '{M261_M151_M433}',
+      '{M261_M229}',
+      '{M261_M257}',
+      '{M261_M274}',
+      '{M261_M282}',
+      '{M261_OUTBOARD_AB_M151_E_M257}',
+      '{M261_OUTBOARD_AB_M151_E_M274}',
+      '{M299_1xAGM_114K_3xAGM_114L_PRT}',
+      '{M299_1xAGM_114K_3xAGM_114L_STRBRD}',
+      '{M299_1xAGM_114K_OUTBOARD_PORT}',
+      '{M299_1xAGM_114K_OUTBOARD_STARBOARD}',
+      '{M299_1xAGM_114L_OUTBOARD_PORT}',
+      '{M299_1xAGM_114L_OUTBOARD_STARBOARD}',
+      '{M299_2xAGM_114K_2xAGM_114L}',
+      '{M299_2xAGM_114K}',
+      '{M299_2xAGM_114L}',
+      '{M299_3xAGM_114K_1xAGM_114L_PRT}',
+      '{M299_3xAGM_114K_1xAGM_114L_STRBRD}',
+      '{M299_3xAGM_114K_OUTBOARD_PORT}',
+      '{M299_3xAGM_114K_OUTBOARD_STARBOARD}',
+      '{M299_3xAGM_114L_OUTBOARD_PORT}',
+      '{M299_3xAGM_114L_OUTBOARD_STARBOARD}',
+      '{M299_4xAGM_114L}',
+      '{M299_EMPTY}'
+    ],
+    observedStations: {
+      '{88D18A5E-99C8-4B04-B40B-1C02F2018B6E}': [1, 2, 3, 4],
+      '{AN_APG_78}': [6],
+      '{EFT_230GAL}': [2, 3],
+      '{IAFS_ComboPak_100}': [5],
+      '{M261_INBOARD_DE_M151_C_M257}': [2, 3],
+      '{M261_INBOARD_DE_M151_C_M274}': [2, 3],
+      '{M261_M151_M433}': [1, 2, 3, 4],
+      '{M261_M229}': [1, 2, 3, 4],
+      '{M261_M257}': [1, 4],
+      '{M261_M274}': [1, 4],
+      '{M261_M282}': [1, 4],
+      '{M261_OUTBOARD_AB_M151_E_M257}': [1, 4],
+      '{M261_OUTBOARD_AB_M151_E_M274}': [1, 4],
+      '{M299_1xAGM_114K_3xAGM_114L_PRT}': [2],
+      '{M299_1xAGM_114K_3xAGM_114L_STRBRD}': [3],
+      '{M299_1xAGM_114K_OUTBOARD_PORT}': [1, 2],
+      '{M299_1xAGM_114K_OUTBOARD_STARBOARD}': [3, 4],
+      '{M299_1xAGM_114L_OUTBOARD_PORT}': [2],
+      '{M299_2xAGM_114K_2xAGM_114L}': [1, 2, 3, 4],
+      '{M299_2xAGM_114K}': [1, 2, 3, 4],
+      '{M299_2xAGM_114L}': [1, 2, 3],
+      '{M299_3xAGM_114K_1xAGM_114L_PRT}': [2],
+      '{M299_3xAGM_114K_1xAGM_114L_STRBRD}': [3],
+      '{M299_3xAGM_114K_OUTBOARD_PORT}': [2],
+      '{M299_3xAGM_114K_OUTBOARD_STARBOARD}': [3],
+      '{M299_3xAGM_114L_OUTBOARD_PORT}': [1],
+      '{M299_3xAGM_114L_OUTBOARD_STARBOARD}': [4],
+      '{M299_4xAGM_114L}': [1, 2, 3, 4],
+      '{M299_EMPTY}': [2, 3],
+      M261_MK151: [1, 2, 3, 4]
+    },
+    failures: [
+      'AN_APR39_FAILURE_SENSOR_NOSE_LEFT',
+      'AN_APR39_FAILURE_SENSOR_NOSE_RIGHT',
+      'AN_APR39_FAILURE_SENSOR_TAIL_LEFT',
+      'AN_APR39_FAILURE_SENSOR_TAIL_RIGHT',
+      'AN_APR39_FAILURE_TOTAL',
+      'APU_Fire',
+      'ARN_149_ANT_DAMAGE',
+      'ARN_149_TOTAL_FAILURE',
+      'CPG_KILLED_FAILURE',
+      'FAILURE_CHAFF_DISPENSER',
+      'FAILURE_CHAFF_DISPENSER_DETACH',
+      'FAILURE_FLARE_DISPENSER_BOTH',
+      'FAILURE_FLARE_DISPENSER_LEFT',
+      'FAILURE_FLARE_DISPENSER_RIGHT',
+      'FAILURE_TOTAL',
+      'LeftEngine_Fire',
+      'PLT_KILLED_FAILURE',
+      'RALT_FAILURE_ANTENNA',
+      'RALT_FAILURE_RT',
+      'RALT_FAILURE_TOTAL',
+      'RightEngine_Fire',
+      'UHF_RADIO_FAILURE_TOTAL',
+      'VHF_AM_RADIO_FAILURE_TOTAL',
+      'failure_Mechanics',
+      'oxy_FAILURE_TOTAL'
+    ],
+    radios: [
+      {
+        name: 'ARC-186',
+        bands: [[108, 151.975]],
+        channels: 10
+      },
+      {
+        name: 'ARC-164',
+        bands: [[225, 399.975]],
+        channels: 10
+      },
+      {
+        name: 'FM 1: ARC-201D',
+        bands: [[30, 87.975]],
+        channels: 10
+      },
+      {
+        name: 'FM 2: ARC-201D',
+        bands: [[30, 87.975]],
+        channels: 10
+      }
+    ]
+  },
+  'AH-6J': {
+    fidelity: 'full',
+    sources: ['Mods/aircraft/AH-6J/UnitPayloads/AH-6J.lua', '24 bundled missions'],
+    clsids: [
+      '<CLEAN>',
+      'AH6_AGM_114K_L',
+      'AH6_AGM_114K_R',
+      '{AH-6_DOORS}',
+      '{AH-6_FN_HMP400}',
+      '{AH6_M134L}',
+      '{AH6_M134R}',
+      '{M260_M151}',
+      '{M261_M229}'
+    ],
+    observedStations: {
+      '{AH-6_DOORS}': [1, 2],
+      '{AH-6_FN_HMP400}': [9, 12],
+      '{AH6_M134L}': [10],
+      '{AH6_M134R}': [11],
+      '{M260_M151}': [9, 11, 12],
+      '{M261_M229}': [9, 11, 12],
+      '<CLEAN>': [9, 10, 11, 12],
+      AH6_AGM_114K_L: [9],
+      AH6_AGM_114K_R: [12]
+    },
+    failures: [],
+    radios: []
+  },
   'F-15C': {
     fidelity: 'flamingCliffs',
     sources: ['MissionEditor/data/scripts/UnitPayloads/F-15C.lua', '99 bundled missions'],
@@ -499,6 +650,32 @@ export const moduleSnapshots: Record<string, ModuleSnapshot> = {
       '{HVARx2}': [1, 2, 3, 4, 7, 8, 9, 10],
       '{PTB_120_F86F35}': [1, 4, 7, 10],
       '{PTB_200_F86F35}': [1, 10]
+    },
+    failures: [],
+    radios: []
+  },
+  'MH-6J': {
+    fidelity: 'full',
+    sources: ['Mods/aircraft/AH-6J/UnitPayloads/MH-6J.lua', '1 bundled missions'],
+    clsids: [
+      '<CLEAN>',
+      '{AH-6_DOORS}',
+      '{AH-6_Door}',
+      '{AH6_GOLIATH}',
+      '{AH6_SMOKE_BLUE}',
+      '{AH6_SMOKE_GREEN}',
+      '{AH6_SMOKE_RED}',
+      '{AH6_SMOKE_YELLOW}'
+    ],
+    observedStations: {
+      '{AH-6_Door}': [9, 10, 11, 12],
+      '{AH-6_DOORS}': [1, 2],
+      '{AH6_GOLIATH}': [3],
+      '{AH6_SMOKE_BLUE}': [8],
+      '{AH6_SMOKE_GREEN}': [7],
+      '{AH6_SMOKE_RED}': [6],
+      '{AH6_SMOKE_YELLOW}': [5],
+      '<CLEAN>': [9, 10, 11, 12]
     },
     failures: [],
     radios: []

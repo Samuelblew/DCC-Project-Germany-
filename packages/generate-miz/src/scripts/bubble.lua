@@ -147,60 +147,71 @@ local function setFlightRules(entry)
     end)
 end
 
+-- Airbase:getParking() spot types (Term_Type): 16 runway, 40 helicopter only, 68 hardened
+-- shelter, 72 open airplane only, 100 small shelter, 104 open for both.
+local PLANE_SPOTS = { [68] = true, [72] = true, [100] = true, [104] = true }
+local HELICOPTER_SPOTS = { [40] = true, [104] = true }
+local CLAIM_SECONDS = 180
+
+DCC.bubble.claimedSpots = DCC.bubble.claimedSpots or {}
+
+-- A spawn takes a moment to show up as occupied in getParking(true), so spots handed out are
+-- remembered for a while; two flights at one base used to land on the same spot.
+local function spotClaimed(baseName, termIndex)
+    local claims = DCC.bubble.claimedSpots[baseName]
+    local at = claims and claims[termIndex]
+    return at ~= nil and timer.getTime() - at < CLAIM_SECONDS
+end
+
+local function claimSpot(baseName, termIndex)
+    DCC.bubble.claimedSpots[baseName] = DCC.bubble.claimedSpots[baseName] or {}
+    DCC.bubble.claimedSpots[baseName][termIndex] = timer.getTime()
+end
+
+-- Returns false when the field has no free spot that fits: the flight then waits for a later
+-- pass instead of being dropped on the airfield reference point, which sits on the runway.
 local function assignRamp(entry, units, points)
     local base = Airbase and Airbase.getByName and entry.airdrome and Airbase.getByName(entry.airdrome)
-    local spots = nil
-    if base and base.getParking then
-        local ok, found = pcall(function()
-            return base:getParking(true)
-        end)
-        if ok and type(found) == 'table' then
-            spots = found
-        end
+    if not base or not base.getParking then
+        return false
     end
+    local ok, spots = pcall(function()
+        return base:getParking(true)
+    end)
+    if not ok or type(spots) ~= 'table' then
+        return false
+    end
+    local fits = entry.category == 'helicopter' and HELICOPTER_SPOTS or PLANE_SPOTS
     local free = {}
-    if type(spots) == 'table' then
-        for _, spot in pairs(spots) do
-            if type(spot) == 'table' and spot.vTerminal then
-                free[#free + 1] = spot
-            end
+    for _, spot in pairs(spots) do
+        if type(spot) == 'table' and spot.vTerminalPos and spot.Term_Index
+            and fits[spot.Term_Type] and not spotClaimed(entry.airdrome, spot.Term_Index) then
+            free[#free + 1] = spot
         end
     end
-    if #free > 0 then
-        for index, unit in ipairs(units) do
-            local spot = free[index] or free[1]
-            if spot.vTerminal then
-                unit.x = spot.vTerminal.x
-                unit.y = spot.vTerminal.z or spot.vTerminal.y
-            end
-            if spot.Term_Index then
-                unit.parking = tostring(spot.Term_Index)
-            end
-            unit.alt = 0
-            unit.speed = 0
-        end
-        if base.getID and points[1] and points[1].type == 'TakeOffParkingHot' then
-            local ok, id = pcall(function()
-                return base:getID()
-            end)
-            if ok then
-                points[1].airdromeId = id
-            end
-            if units[1] then
-                points[1].x = units[1].x
-                points[1].y = units[1].y
-            end
-        end
-        return
+    if #free < #units then
+        return false
     end
-    for _, unit in ipairs(units) do
+    for index, unit in ipairs(units) do
+        local spot = free[index]
+        unit.x = spot.vTerminalPos.x
+        unit.y = spot.vTerminalPos.z
+        unit.parking = spot.Term_Index
         unit.alt = 0
         unit.speed = 0
+        claimSpot(entry.airdrome, spot.Term_Index)
     end
     if points[1] and points[1].type == 'TakeOffParkingHot' then
-        points[1].type = 'TakeOffGroundHot'
-        points[1].action = 'From Ground Area Hot'
+        local idOk, id = pcall(function()
+            return base:getID()
+        end)
+        if idOk then
+            points[1].airdromeId = id
+        end
+        points[1].x = units[1].x
+        points[1].y = units[1].y
     end
+    return true
 end
 
 local function spawnStatic(entry)
@@ -328,8 +339,8 @@ local function spawn(entry)
                 end
             end
         end
-        if ramp then
-            assignRamp(entry, units, points)
+        if ramp and not assignRamp(entry, units, points) then
+            return false
         end
         local tasks = flightTasks(entry)
         local taskPoint = points[1]
@@ -388,6 +399,9 @@ local function spawn(entry)
     return ok
 end
 
+-- A flight is busy when it holds an enemy aircraft on its sensors within this range.
+local ENGAGED_METERS = 60000
+
 local function engaged(group)
     if not group or not group.getUnits then
         return false
@@ -397,14 +411,24 @@ local function engaged(group)
         return false
     end
     for _, unit in pairs(units) do
-        if unit and unit.getController then
-            local controller = unit:getController()
-            if controller and controller.getTarget then
-                local ok, target = pcall(function()
-                    return controller:getTarget()
-                end)
-                if ok and target then
-                    return true
+        if unit and unit.isExist and unit:isExist() and unit.getController then
+            local ok, targets = pcall(function()
+                return unit:getController():getDetectedTargets()
+            end)
+            local own = unit:getPoint()
+            local side = unit:getCoalition()
+            if ok and type(targets) == 'table' and own then
+                for _, target in pairs(targets) do
+                    local object = target and target.object
+                    local hostile = object and object.isExist and object:isExist()
+                        and object.getCoalition and object:getCoalition() ~= side
+                        and object.inAir and object:inAir()
+                    if hostile then
+                        local point = object:getPoint()
+                        if point and math.sqrt((point.x - own.x) ^ 2 + (point.z - own.z) ^ 2) <= ENGAGED_METERS then
+                            return true
+                        end
+                    end
                 end
             end
         end
@@ -590,7 +614,8 @@ local function pass()
             local distance = bubbleDistance(entry, px, pz, ex, ey, watchers)
             if alive and distance > entry.leave then
                 local group = Group.getByName(entry.groupName)
-                if entry.kind ~= 'aircraft' or not engaged(group) then
+                -- A flight in a fight stays, but not forever: past twice the leave radius it goes.
+                if entry.kind ~= 'aircraft' or distance > entry.leave * 2 or not engaged(group) then
                     release(entry)
                 end
             elseif not alive and distance <= entry.enter then

@@ -34,7 +34,8 @@ function createAircraftTypes(): CoalitionData['aircraftTypes'] {
     AFAC: [],
     CASEVAC: [],
     'Troop Extraction': [],
-    Training: []
+    Training: [],
+    ECM: []
   }
 }
 
@@ -254,6 +255,44 @@ describe('active store client flight timing sync', () => {
     expect(activeStore.getSnapshot().context.coalitions.player.aircraftTypes.DEAD).toEqual([
       'Su-17M4'
     ])
+  })
+
+  test('backfills helicopter tasks when loading a career campaign with AH-64D_BLK_II', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.player.id = 'usa-1977'
+    campaign.career = {
+      preferredAircraft: 'AH-64D_BLK_II',
+      acquisitionRule: 'arcade',
+      money: 40,
+      airframes: [
+        {
+          id: 'airframe-1',
+          tailNumber: '01',
+          aircraftName: 'AH-64D_BLK_II',
+          condition: 'new',
+          integrity: 1,
+          hiddenDefects: [],
+          location: 'Home',
+          status: 'ready',
+          acquiredAt: campaignTime
+        }
+      ],
+      pilots: [],
+      inventory: {},
+      presets: [],
+      radios: {},
+      ledger: [],
+      nextTailNumber: 2
+    }
+
+    activeStore.send({ type: 'loadCampaign', campaign })
+
+    const playerTypes = activeStore.getSnapshot().context.coalitions.player.aircraftTypes
+    expect(playerTypes.CAS).toContain('AH-64D_BLK_II')
+    expect(playerTypes['Ground Attack']).toContain('AH-64D_BLK_II')
+    expect(playerTypes['Pinpoint Strike']).toContain('AH-64D_BLK_II')
+    expect(playerTypes.DEAD).toContain('AH-64D_BLK_II')
+    expect(playerTypes.CSAR).toContain('AH-64D_BLK_II')
   })
 
   test('shifts ToT and package members when syncing client flight starts', () => {

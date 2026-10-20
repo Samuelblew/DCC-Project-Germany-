@@ -25,6 +25,7 @@ import {
 } from '@dcc/frontend/mission-generator'
 import {
   createInitialEscalation,
+  filterAircraftTypesForInstalledMods,
   getAcquirableCareerAircraft,
   isFactionCareerAircraft,
   applyEscalationAircraftTypes,
@@ -36,6 +37,7 @@ import {
 import { assignGroundGroups } from './assign-ground-groups'
 import { mirrorScenarioSides } from './mirror-scenario-sides'
 import { campaignsDir, stateFile } from '../../app-data'
+import { detectInstalledMods } from '../../dcs-mods'
 
 type Coalition = z.infer<typeof schemas.coalition>
 type Campaign = z.infer<typeof schemas.campaign.campaign>
@@ -135,6 +137,28 @@ function applyFrontlineVariation(params: {
   if (counterCapture) {
     transferObjective(params.assignments, initiative, other, counterCapture)
   }
+}
+
+async function readAppSettings(): Promise<{
+  dcsInstallPath?: string
+  missionExportPath?: string
+}> {
+  const file = await readFile(stateFile)
+  if (file.isOk()) {
+    const parsed = parseJson(file.value)
+    if (parsed.isOk() && parsed.value && typeof parsed.value === 'object') {
+      const settings = (parsed.value as { settings?: Record<string, unknown> }).settings
+      if (settings && typeof settings === 'object') {
+        return {
+          dcsInstallPath:
+            typeof settings.dcsInstallPath === 'string' ? settings.dcsInstallPath : undefined,
+          missionExportPath:
+            typeof settings.missionExportPath === 'string' ? settings.missionExportPath : undefined
+        }
+      }
+    }
+  }
+  return {}
 }
 
 async function setActiveCampaignId(id: string) {
@@ -298,9 +322,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   const factions = getFactions()
   const escalationIds = input.escalation ? escalationFactionIds('Korea', playerSide) : undefined
   const playerFaction =
-    (escalationIds
-      ? factions.find((faction) => faction.id === escalationIds.player)
-      : undefined) ??
+    (escalationIds ? factions.find((faction) => faction.id === escalationIds.player) : undefined) ??
     input.playerFaction ??
     factions.find((faction) => faction.id === input.playerFactionId)
   const opponentFaction =
@@ -641,6 +663,20 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     applyEscalationAircraftTypes(defaultState, 'Korea')
   }
 
+  const appSettings = await readAppSettings()
+  const installedMods = detectInstalledMods({
+    dcsInstallPath: appSettings.dcsInstallPath,
+    missionExportPath: appSettings.missionExportPath
+  })
+  defaultState.coalitions.player.aircraftTypes = filterAircraftTypesForInstalledMods(
+    defaultState.coalitions.player.aircraftTypes,
+    installedMods
+  )
+  defaultState.coalitions.opponent.aircraftTypes = filterAircraftTypesForInstalledMods(
+    defaultState.coalitions.opponent.aircraftTypes,
+    installedMods
+  )
+
   for (const coalition of ['player', 'opponent'] as const) {
     for (const group of defaultState.coalitions[coalition].groundGroups) {
       expandGroundGroupUnits(group)
@@ -661,7 +697,11 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   if (input.mode === 'career') {
     const acquisitionRule = input.careerAcquisitionRule ?? 'fidelity'
     const player = defaultState.coalitions.player
-    const acquirable = getAcquirableCareerAircraft(acquisitionRule, player.aircraftTypes)
+    const acquirable = getAcquirableCareerAircraft(
+      acquisitionRule,
+      player.aircraftTypes,
+      installedMods
+    )
     const careerAircraft = input.careerAircraft
       ? acquirable.find((entry) => entry.aircraftName === input.careerAircraft)
       : acquirable[0]

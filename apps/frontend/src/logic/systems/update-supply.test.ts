@@ -112,41 +112,57 @@ describe('virtual logistics network', () => {
     expect(supply?.fuel?.current).toBeGreaterThan(2_000)
   })
 
-  test('scales production and route transfer by fast-forwarded campaign time', () => {
+  test('the hub loads a convoy; the node only gains supply when it arrives', () => {
     const campaign = createCampaign()
-    campaign.timeMultiplier = 300
-    campaign.coalitions.player.supplyNodes!.Kobuleti.current = 5_000
-    campaign.coalitions.player.supplyNodes!['Enguri Dam'].current = 100
-
-    const slow = createCampaign()
-    slow.coalitions.player.supplyNodes!.Kobuleti.current = 5_000
-    slow.coalitions.player.supplyNodes!['Enguri Dam'].current = 100
+    campaign.timeMultiplier = 600
 
     updateSupply(campaign, 'player', 1_000)
-    updateSupply(slow, 'player', 1_000)
 
-    const fastForward = campaign.coalitions.player.supplyNodes?.['Enguri Dam'].current ?? 0
-    const normal = slow.coalitions.player.supplyNodes?.['Enguri Dam'].current ?? 0
-    expect(fastForward).toBeGreaterThan(normal)
-    expect(fastForward).toBeLessThan(1_000)
-    expect(campaign.coalitions.player.supplyNodes?.Kobuleti.current ?? 0).toBeGreaterThan(4_000)
-  })
+    const convoys = campaign.coalitions.player.supplyConvoys ?? []
+    expect(convoys).toHaveLength(1)
+    expect(convoys[0]).toMatchObject({ kind: 'road', from: 'Kobuleti', to: 'Enguri Dam' })
+    expect(convoys[0]!.cargo.supply).toBeGreaterThan(50)
+    // It forms up on the road outside the airfield, not on the runway.
+    expect(
+      Math.hypot(convoys[0]!.position.x - kobuleti.x, convoys[0]!.position.y - kobuleti.y)
+    ).toBeGreaterThan(2_000)
+    expect(campaign.coalitions.player.supplyNodes?.['Enguri Dam']?.current).toBe(100)
 
-  test('moves supply from a hub to a low owned node over a virtual route', () => {
-    const campaign = createCampaign()
-
-    updateSupply(campaign, 'player')
+    for (
+      let tick = 0;
+      tick < 200 && (campaign.coalitions.player.supplyConvoys ?? []).length > 0;
+      tick += 1
+    ) {
+      updateSupply(campaign, 'player', 1_000)
+    }
 
     const destination = campaign.coalitions.player.supplyNodes?.['Enguri Dam']
     expect(destination?.current).toBeGreaterThan(100)
     expect(destination?.fuel?.current).toBeGreaterThan(45)
-    expect(destination?.logistics?.routes[0]).toMatchObject({
-      from: 'Kobuleti',
-      to: 'Enguri Dam'
-    })
   })
 
-  test('enemy ground interdiction reduces route throughput', () => {
+  test('a convoy driven by a running DCS mission is not moved by the campaign', () => {
+    const campaign = createCampaign()
+    campaign.timeMultiplier = 600
+    updateSupply(campaign, 'player', 1_000)
+    const convoy = campaign.coalitions.player.supplyConvoys![0]!
+    const before = { ...convoy.position }
+
+    updateSupply(campaign, 'player', 1_000, new Set([convoy.id]))
+
+    expect(campaign.coalitions.player.supplyConvoys![0]!.position).toEqual(before)
+  })
+
+  test('one convoy per route per dispatch interval', () => {
+    const campaign = createCampaign()
+
+    updateSupply(campaign, 'player', 1_000)
+    updateSupply(campaign, 'player', 1_000)
+
+    expect(campaign.coalitions.player.supplyConvoys).toHaveLength(1)
+  })
+
+  test('enemy ground interdiction sends a smaller lift by air', () => {
     const clearRoute = createCampaign()
     const interdictedRoute = createCampaign()
     interdictedRoute.coalitions.opponent.groundGroups.push({
@@ -162,15 +178,10 @@ describe('virtual logistics network', () => {
     updateSupply(clearRoute, 'player')
     updateSupply(interdictedRoute, 'player')
 
-    const clearCurrent = clearRoute.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
-    const interdictedCurrent =
-      interdictedRoute.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
-    const routeDisruption =
-      interdictedRoute.coalitions.player.supplyNodes?.['Enguri Dam']?.logistics?.routes[0]
-        ?.disruption
-
-    expect(interdictedCurrent).toBeLessThan(clearCurrent)
-    expect(routeDisruption).toBeGreaterThan(0.5)
+    const clear = clearRoute.coalitions.player.supplyConvoys![0]!
+    const interdicted = interdictedRoute.coalitions.player.supplyConvoys![0]!
+    expect(interdicted.kind).toBe('air')
+    expect(interdicted.cargo.supply).toBeLessThan(clear.cargo.supply)
   })
 
   test('a destroyed depot raises interdiction and starves the objective', () => {
@@ -189,9 +200,8 @@ describe('virtual logistics network', () => {
     updateSupply(clearRoute, 'player')
     updateSupply(smashedDepot, 'player')
 
-    const clearCurrent = clearRoute.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
-    const smashedCurrent =
-      smashedDepot.coalitions.player.supplyNodes?.['Enguri Dam']?.current ?? 0
+    const clearCurrent = clearRoute.coalitions.player.supplyConvoys![0]!.cargo.supply
+    const smashedCurrent = smashedDepot.coalitions.player.supplyConvoys![0]!.cargo.supply
 
     expect(
       smashedDepot.coalitions.player.supplyNodes?.['Enguri Dam']?.logistics?.interdiction
