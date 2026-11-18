@@ -5,7 +5,7 @@ import {
   getCareerAircraft,
   MS_PER_ESCALATION_DAY,
   nextEscalationStage,
-  pruneGermanyIadsDeadUnitsForEraChange,
+  pruneIadsDeadUnitsForEraChange,
   scenarios,
   theatres,
   type EscalationStage
@@ -136,11 +136,7 @@ export function updateEscalation(draft: Campaign) {
     const next = nextEscalationStage(stage)
     if (!next) break
 
-    draft.germanyIadsDeadUnits = pruneGermanyIadsDeadUnitsForEraChange(
-      draft.germanyIadsDeadUnits,
-      stage,
-      next
-    )
+    draft.iadsDeadUnits = pruneIadsDeadUnitsForEraChange(draft.iadsDeadUnits, stage, next)
     applyEscalationAircraftTypes(draft, next)
     stage = next
     stageStartedAt = new Date(draft.time)

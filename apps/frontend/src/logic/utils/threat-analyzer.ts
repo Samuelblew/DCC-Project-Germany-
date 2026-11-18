@@ -1,12 +1,12 @@
 import { schemas } from '@dcc/contracts'
 import {
   campaignIadsEra,
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  getGermanyIadsSites,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
+  getAuthoredIadsSites,
   getSamSitePosition,
-  isGermanyIadsSamDestroyed,
-  isGermanyIadsTheatre,
+  isAuthoredIadsSamDestroyed,
+  hasAuthoredIads,
   isSamOperational,
   samTemplates
 } from '@dcc/data'
@@ -52,19 +52,19 @@ export function findThreateningSams(
 ): ThreateningSam[] {
   const threateningSams: ThreateningSam[] = []
 
-  if (isGermanyIadsTheatre(theatre.name)) {
+  if (hasAuthoredIads(theatre.name)) {
     const owners =
       campaign == null
         ? []
-        : germanyIadsOwnersFromObjectives(
+        : iadsOwnersFromObjectives(
             theatre.objectives,
             campaign.coalitions.player.objectiveIds,
             campaign.coalitions.opponent.objectiveIds
           )
-    for (const site of getGermanyIadsSites(campaignIadsEra(campaign ?? {}))) {
+    for (const site of getAuthoredIadsSites(theatre.name, campaignIadsEra(campaign ?? {}))) {
       if (site.kind !== 'sam' || site.range == null) continue
-      if (isGermanyIadsSamDestroyed(site, campaign?.germanyIadsDeadUnits)) continue
-      if (coalition && germanyIadsControllingCoalition(site, owners) !== coalition) continue
+      if (isAuthoredIadsSamDestroyed(site, campaign?.iadsDeadUnits)) continue
+      if (coalition && iadsControllingCoalition(site, owners) !== coalition) continue
       const samPosition = { x: site.x, y: site.y }
       const distance = calculateDistance(targetPosition, samPosition)
       if (distance > site.range) continue

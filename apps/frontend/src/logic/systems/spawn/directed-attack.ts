@@ -1,10 +1,10 @@
 import { config, schemas } from '@dcc/contracts'
 import {
   aircrafts,
-  findGermanyIadsSite,
+  findAuthoredIadsSite,
   getCareerAircraft,
   getSamSitePosition,
-  isGermanyIadsSamDestroyed,
+  isAuthoredIadsSamDestroyed,
   scenarios,
   theatres
 } from '@dcc/data'
@@ -97,9 +97,9 @@ function resolveTargetPosition(
   }
 
   if (target.kind === 'sam' || target.kind === 'ewr' || target.kind === 'structure') {
-    const site = findGermanyIadsSite(target.id)
+    const site = findAuthoredIadsSite(target.id)
     if (site) {
-      if (isGermanyIadsSamDestroyed(site, draft.germanyIadsDeadUnits)) return null
+      if (isAuthoredIadsSamDestroyed(site, draft.iadsDeadUnits)) return null
       return { x: site.x, y: site.y }
     }
   }
@@ -158,7 +158,9 @@ function nearestHomeBase(
   const readyCareerLocations = draft.career
     ? new Set(
         draft.career.airframes
-          .filter((airframe) => airframe.status === 'ready' && airframe.aircraftName === aircraftType)
+          .filter(
+            (airframe) => airframe.status === 'ready' && airframe.aircraftName === aircraftType
+          )
           .map((airframe) => airframe.location)
       )
     : null

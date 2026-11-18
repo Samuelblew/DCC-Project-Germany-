@@ -128,17 +128,12 @@ export const ah6jProfile: AircraftProfile = {
         12: AGM114K_R
       }
     ),
-    stations(
-      'csar-hmp400-m134',
-      '2x FN HMP400 .50 cal, 2x M134 Minigun',
-      ['CAS', 'CSAR'],
-      {
-        9: FN_HMP400,
-        10: M134_L,
-        11: M134_R,
-        12: FN_HMP400
-      }
-    ),
+    stations('csar-hmp400-m134', '2x FN HMP400 .50 cal, 2x M134 Minigun', ['CAS', 'CSAR'], {
+      9: FN_HMP400,
+      10: M134_L,
+      11: M134_R,
+      12: FN_HMP400
+    }),
     stations(
       'attack-m261-heavy',
       '2x M261 Hydra (19), 2x M134 Minigun',

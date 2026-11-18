@@ -13,6 +13,8 @@ export type MissionIadsConfig = {
   name: string
   samPrefix: string
   ewrPrefix: string
+  /** Radars without the prefix (authored IADS keeps template unit names). */
+  ewrUnitNames: string[]
   alwaysOnSamTypes: string[]
   commandCenters: string[]
   powerSources: string[]
@@ -132,12 +134,27 @@ function collectAliveStructureUnitNames(
 export function buildIadsConfig(
   mission: Mission,
   campaign: Campaign,
-  theatre?: Parameters<typeof gciPictureAnchors>[1]
+  theatre?: Parameters<typeof gciPictureAnchors>[1],
+  authored?: {
+    commandCenters: string[]
+    opponentSamGroups: number
+    opponentEwrUnitNames: string[]
+  }
 ): MissionIadsConfig | null {
   if (campaign.campaignParams?.iads === false) return null
   const hasLivingEwr =
     campaign.coalitions.opponent.ewrGroups?.some((ewr) => !ewr.destroyed) ?? false
-  if (campaign.coalitions.opponent.samGroups.length === 0 && !hasLivingEwr) return null
+  // Theatres with an authored IADS (Germany, Caucasus) have no generated SAM groups or EWRs;
+  // their template sites are the network.
+  const hasAuthoredEmitters =
+    (authored?.opponentSamGroups ?? 0) > 0 || (authored?.opponentEwrUnitNames.length ?? 0) > 0
+  if (
+    campaign.coalitions.opponent.samGroups.length === 0 &&
+    !hasLivingEwr &&
+    !hasAuthoredEmitters
+  ) {
+    return null
+  }
 
   addOpponentEwrGroups(
     mission,
@@ -149,15 +166,19 @@ export function buildIadsConfig(
     name: `DCC-${campaign.id}-red`,
     samPrefix: 'SAM-',
     ewrPrefix: IADS_EWR_PREFIX,
+    ewrUnitNames: authored?.opponentEwrUnitNames ?? [],
     // HAWK needs time to acquire and track fast, low-level Harriers. Skynet's default kill-zone
     // wake-up leaves the radar dark until those aircraft are already at the edge of weapon range.
     alwaysOnSamTypes: campaign.scenarioId === 'falklands-1982' ? ['Hawk'] : [],
-    commandCenters: collectAliveStructureUnitNames(
-      mission,
-      campaign,
-      'opponent',
-      INFRASTRUCTURE_TYPES.commandCenters
-    ),
+    commandCenters: [
+      ...collectAliveStructureUnitNames(
+        mission,
+        campaign,
+        'opponent',
+        INFRASTRUCTURE_TYPES.commandCenters
+      ),
+      ...(authored?.commandCenters ?? [])
+    ],
     powerSources: collectAliveStructureUnitNames(
       mission,
       campaign,

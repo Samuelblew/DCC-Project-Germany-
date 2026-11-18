@@ -554,7 +554,7 @@ export function Mission() {
   }
 
   return (
-    <div className="h-full overflow-hidden bg-[#0f0e0d]">
+    <div className="h-full overflow-hidden bg-synthwave-dark">
       {toast && (
         <div className="fixed right-6 top-24 z-50 w-[min(560px,calc(100vw-3rem))] rounded-lg border border-red-500/40 bg-red-950/90 text-red-100 shadow-[0_0_30px_rgba(255,0,0,0.35)] backdrop-blur">
           <div className="flex items-start justify-between gap-3 border-b border-red-500/30 px-4 py-3">
@@ -584,12 +584,12 @@ export function Mission() {
         className="fixed inset-0"
         style={{
           backgroundImage:
-            'linear-gradient(to right, rgba(217,68,58,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(217,68,58,0.1) 1px, transparent 1px)',
+            'linear-gradient(to right, color-mix(in srgb, var(--synthwave-pink) 10%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in srgb, var(--synthwave-pink) 10%, transparent) 1px, transparent 1px)',
           backgroundSize: '40px 40px'
         }}
       />
       {/* Horizon glow */}
-      <div className="fixed inset-x-0 bottom-0 h-[30vh] bg-gradient-to-t from-[#d9443a]/30 via-[#9c6a33]/10 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-[30vh] bg-gradient-to-t from-synthwave-pink/30 via-synthwave-purple/10 to-transparent" />
 
       <div className="relative z-10 p-6 h-full flex flex-col gap-4">
         {/* Header */}
@@ -597,13 +597,13 @@ export function Mission() {
           <Button
             variant="outline"
             size="sm"
-            className="border-[#d9443a]/40 text-[#d9443a] hover:bg-[#d9443a]/10 bg-transparent"
+            className="border-synthwave-pink/40 text-synthwave-pink hover:bg-synthwave-pink/10 bg-transparent"
             onClick={() => navigate('/')}
           >
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
           <h1
-            className="text-2xl font-bold tracking-[0.2em] text-[#d9443a]/80 uppercase"
+            className="text-2xl font-bold tracking-[0.2em] text-synthwave-pink/80 uppercase"
             style={{ fontFamily: 'system-ui', fontWeight: 800 }}
           >
             Mission Control
@@ -615,9 +615,9 @@ export function Mission() {
           {/* Left Column - Actions */}
           <div className="flex min-h-0 flex-col gap-4">
             {/* Step-by-step guide */}
-            <div className="flex min-h-0 flex-1 flex-col border border-[#d9443a]/30 bg-[#d9443a]/5 rounded-lg p-4 backdrop-blur-sm shadow-[0_0_20px_rgba(217,68,58,0.2)]">
+            <div className="flex min-h-0 flex-1 flex-col border border-synthwave-pink/30 bg-synthwave-pink/5 rounded-lg p-4 backdrop-blur-sm shadow-[0_0_20px_color-mix(in_srgb,var(--synthwave-pink)_20%,transparent)]">
               <div className="flex items-center gap-2 mb-4">
-                <Target className="h-4 w-4 text-[#d9443a]" />
+                <Target className="h-4 w-4 text-synthwave-pink" />
                 <span className="text-sm font-semibold text-white">Mission Actions</span>
               </div>
 
@@ -631,7 +631,7 @@ export function Mission() {
                           'h-7 w-7 rounded-full border-2 text-xs flex items-center justify-center font-bold',
                           isGenerated
                             ? 'border-green-500/60 text-green-400'
-                            : 'border-[#d9443a]/60 text-[#d9443a]'
+                            : 'border-synthwave-pink/60 text-synthwave-pink'
                         )}
                       >
                         {isGenerated ? '\u2713' : '1'}
@@ -644,7 +644,7 @@ export function Mission() {
                     </p>
                     {!isGenerated && (
                       <div className="ml-10 space-y-3">
-                        <div className="border border-[#d9443a]/20 rounded-lg bg-[#d9443a]/5 p-3 flex items-center justify-between">
+                        <div className="border border-synthwave-pink/20 rounded-lg bg-synthwave-pink/5 p-3 flex items-center justify-between">
                           <div>
                             <div className="text-sm font-medium text-white">Hot Start</div>
                             <div className="text-sm text-white/40">
@@ -658,7 +658,7 @@ export function Mission() {
                             }
                           />
                         </div>
-                        <div className="space-y-2 rounded-lg border border-[#d9443a]/20 bg-[#d9443a]/5 p-3">
+                        <div className="space-y-2 rounded-lg border border-synthwave-pink/20 bg-synthwave-pink/5 p-3">
                           <div>
                             <div className="text-sm font-medium text-white">Enemy AI skill</div>
                             <div className="text-sm text-white/40">
@@ -684,48 +684,48 @@ export function Mission() {
                             <ToggleGroupItem
                               value="default"
                               aria-label="Keep the generator defaults per unit"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               Default
                             </ToggleGroupItem>
                             <ToggleGroupItem
                               value="Average"
                               aria-label="Every enemy AI at Average skill"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               Average
                             </ToggleGroupItem>
                             <ToggleGroupItem
                               value="Good"
                               aria-label="Every enemy AI at Good skill"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               Good
                             </ToggleGroupItem>
                             <ToggleGroupItem
                               value="High"
                               aria-label="Every enemy AI at High skill"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               High
                             </ToggleGroupItem>
                             <ToggleGroupItem
                               value="Excellent"
                               aria-label="Every enemy AI at Excellent skill"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               Excellent
                             </ToggleGroupItem>
                             <ToggleGroupItem
                               value="Random"
                               aria-label="DCS rolls a random skill for each enemy AI unit"
-                              className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                              className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                             >
                               Random
                             </ToggleGroupItem>
                           </ToggleGroup>
                         </div>
-                        <div className="space-y-2 rounded-lg border border-[#d9443a]/20 bg-[#d9443a]/5 p-3">
+                        <div className="space-y-2 rounded-lg border border-synthwave-pink/20 bg-synthwave-pink/5 p-3">
                           <div>
                             <div className="text-sm font-medium text-white">Immersion</div>
                             <div className="text-sm text-white/40">
@@ -734,12 +734,12 @@ export function Mission() {
                           </div>
                           <ImmersionOptions />
                         </div>
-                        <div className="overflow-hidden rounded-lg border border-[#d9443a]/20 bg-[#d9443a]/5">
+                        <div className="overflow-hidden rounded-lg border border-synthwave-pink/20 bg-synthwave-pink/5">
                           <button
                             type="button"
                             onClick={() => setMissionOptionsOpen((open) => !open)}
                             aria-expanded={missionOptionsOpen}
-                            className="flex w-full items-center justify-between gap-3 p-3 text-left transition-colors hover:bg-[#d9443a]/10"
+                            className="flex w-full items-center justify-between gap-3 p-3 text-left transition-colors hover:bg-synthwave-pink/10"
                           >
                             <div>
                               <div className="text-sm font-medium text-white">
@@ -751,13 +751,13 @@ export function Mission() {
                             </div>
                             <ChevronDown
                               className={cn(
-                                'h-4 w-4 shrink-0 text-[#d9443a] transition-transform',
+                                'h-4 w-4 shrink-0 text-synthwave-pink transition-transform',
                                 missionOptionsOpen && 'rotate-180'
                               )}
                             />
                           </button>
                           {missionOptionsOpen && (
-                            <div className="space-y-3 border-t border-[#d9443a]/15 p-3">
+                            <div className="space-y-3 border-t border-synthwave-pink/15 p-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div>
                                   <div className="text-sm font-medium text-white">AI Wingman</div>
@@ -783,21 +783,21 @@ export function Mission() {
                                   <ToggleGroupItem
                                     value="never"
                                     aria-label="Never spawn AI wingmen"
-                                    className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                                    className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                                   >
                                     Never
                                   </ToggleGroupItem>
                                   <ToggleGroupItem
                                     value="landOnly"
                                     aria-label="Spawn AI wingmen at land bases only, not on carriers or airborne"
-                                    className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                                    className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                                   >
                                     Land only
                                   </ToggleGroupItem>
                                   <ToggleGroupItem
                                     value="always"
                                     aria-label="Always spawn AI wingmen"
-                                    className="border-[#d9443a]/25 bg-transparent text-white/55 hover:bg-[#d9443a]/10 hover:text-white data-[state=on]:bg-[#d9443a]/20 data-[state=on]:text-[#ef7f70]"
+                                    className="border-synthwave-pink/25 bg-transparent text-white/55 hover:bg-synthwave-pink/10 hover:text-white data-[state=on]:bg-synthwave-pink/20 data-[state=on]:text-signal-soft"
                                   >
                                     Always
                                   </ToggleGroupItem>
@@ -840,7 +840,7 @@ export function Mission() {
                                   value={cullingRadiusKm}
                                   disabled={!culling}
                                   aria-label="Culling radius around waypoints"
-                                  className="w-full accent-[#e8b730]"
+                                  className="w-full accent-synthwave-cyan"
                                   onChange={(event) =>
                                     activeStore.send({
                                       type: 'setCullingRadius',
@@ -1010,7 +1010,7 @@ export function Mission() {
                         <button
                           onClick={handleGenerate}
                           disabled={isGenerating}
-                          className="h-9 px-5 text-sm font-medium bg-[#d9443a] text-white rounded hover:bg-[#d9443a]/80 disabled:opacity-50 transition-colors shadow-[0_0_15px_rgba(217,68,58,0.5)]"
+                          className="h-9 px-5 text-sm font-medium bg-synthwave-pink text-white rounded hover:bg-synthwave-pink/80 disabled:opacity-50 transition-colors shadow-[0_0_15px_color-mix(in_srgb,var(--synthwave-pink)_50%,transparent)]"
                         >
                           {isGenerating ? 'Generating...' : 'Generate'}
                         </button>
@@ -1026,7 +1026,7 @@ export function Mission() {
                           'h-7 w-7 rounded-full border-2 text-xs flex items-center justify-center font-bold',
                           isMissionStateReady
                             ? 'border-green-500/60 text-green-400'
-                            : 'border-[#e8b730]/60 text-[#e8b730]'
+                            : 'border-synthwave-cyan/60 text-synthwave-cyan'
                         )}
                       >
                         {isMissionStateReady ? '\u2713' : '2'}
@@ -1043,7 +1043,7 @@ export function Mission() {
                         type="button"
                         onClick={handleSelectMissionStateFile}
                         disabled={isSubmitting}
-                        className="ml-10 text-sm font-medium text-[#e8b730]/80 underline-offset-4 transition-colors hover:text-[#e8b730] hover:underline disabled:pointer-events-none disabled:opacity-50"
+                        className="ml-10 text-sm font-medium text-synthwave-cyan/80 underline-offset-4 transition-colors hover:text-synthwave-cyan hover:underline disabled:pointer-events-none disabled:opacity-50"
                       >
                         Optional: select a mission state file manually
                       </button>
@@ -1053,7 +1053,7 @@ export function Mission() {
                   {/* Step 3: Submit results */}
                   <div className={cn('space-y-2', !isMissionStateReady && 'opacity-50')}>
                     <div className="flex items-center gap-3">
-                      <div className="h-7 w-7 rounded-full border-2 border-[#9c6a33]/60 text-xs flex items-center justify-center font-bold text-[#9c6a33]">
+                      <div className="h-7 w-7 rounded-full border-2 border-synthwave-purple/60 text-xs flex items-center justify-center font-bold text-synthwave-purple">
                         3
                       </div>
                       <span className="text-sm font-medium text-white">Submit Results</span>
@@ -1067,7 +1067,7 @@ export function Mission() {
                         <button
                           onClick={handleSubmitMissionState}
                           disabled={isSubmitting || !isMissionStateReady}
-                          className="h-9 px-5 text-sm font-medium bg-[#9c6a33] text-white rounded hover:bg-[#9c6a33]/80 disabled:opacity-50 transition-colors shadow-[0_0_15px_rgba(156,106,51,0.5)]"
+                          className="h-9 px-5 text-sm font-medium bg-synthwave-purple text-white rounded hover:bg-synthwave-purple/80 disabled:opacity-50 transition-colors shadow-[0_0_15px_color-mix(in_srgb,var(--synthwave-purple)_50%,transparent)]"
                         >
                           {isSubmitting ? 'Submitting...' : 'Submit Mission State'}
                         </button>
@@ -1080,9 +1080,9 @@ export function Mission() {
           </div>
 
           {/* Center Column - Flight Groups */}
-          <div className="flex min-h-0 min-w-0 flex-col rounded-lg border border-[#d9443a]/30 bg-[#d9443a]/5 p-4 backdrop-blur-sm">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-lg border border-synthwave-pink/30 bg-synthwave-pink/5 p-4 backdrop-blur-sm">
             <div className="mb-3 flex shrink-0 items-center gap-2">
-              <Plane className="h-5 w-5 text-[#d9443a]" />
+              <Plane className="h-5 w-5 text-synthwave-pink" />
               <span className="text-sm font-semibold text-white">Client Flights</span>
               <span className="ml-auto text-sm text-white/40">
                 {clientFlightGroups.length} groups
@@ -1126,26 +1126,26 @@ export function Mission() {
           <ScrollArea className="min-h-0">
             <div className="flex min-h-full flex-col gap-4 pr-4">
               {/* Time */}
-              <div className="border border-[#e8b730]/30 bg-[#e8b730]/5 rounded-lg p-4 backdrop-blur-sm">
+              <div className="border border-synthwave-cyan/30 bg-synthwave-cyan/5 rounded-lg p-4 backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-2">
-                  <Clock className="h-5 w-5 text-[#e8b730]" />
+                  <Clock className="h-5 w-5 text-synthwave-cyan" />
                   <span className="text-sm font-semibold text-white">Mission Time</span>
                 </div>
-                <div className="text-4xl font-bold text-[#e8b730] tabular-nums">
+                <div className="text-4xl font-bold text-synthwave-cyan tabular-nums">
                   {campaignTime ? formatTime(campaignTime) : '--:--'}
                 </div>
                 <div className="flex justify-between mt-2 text-sm text-white/50">
                   <span>UTC</span>
-                  <span className={timeMultiplier === 0 ? 'text-[#d9443a]' : ''}>
+                  <span className={timeMultiplier === 0 ? 'text-synthwave-pink' : ''}>
                     x{timeMultiplier}
                   </span>
                 </div>
               </div>
 
               {/* Weather */}
-              <div className="flex-1 border border-[#9c6a33]/30 bg-[#9c6a33]/5 rounded-lg p-4 backdrop-blur-sm">
+              <div className="flex-1 border border-synthwave-purple/30 bg-synthwave-purple/5 rounded-lg p-4 backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-3">
-                  <CloudSun className="h-5 w-5 text-[#9c6a33]" />
+                  <CloudSun className="h-5 w-5 text-synthwave-purple" />
                   <span className="text-sm font-semibold text-white">Weather</span>
                 </div>
                 {theatreQuery.data ? (
@@ -1160,13 +1160,13 @@ export function Mission() {
               </div>
 
               {/* Theatre Info */}
-              <div className="border border-[#d9443a]/20 rounded-lg p-4 bg-black/30">
+              <div className="border border-synthwave-pink/20 rounded-lg p-4 bg-black/30">
                 <div className="text-sm font-bold text-white">
                   {scenario?.name ?? 'Active Mission'}
                 </div>
                 <div className="text-sm text-white/40 mt-1">{scenario?.theatreName ?? '—'}</div>
                 {displayedEraLabel && (
-                  <div className="text-sm text-[#d9443a]/60 mt-1">{displayedEraLabel}</div>
+                  <div className="text-sm text-synthwave-pink/60 mt-1">{displayedEraLabel}</div>
                 )}
               </div>
             </div>

@@ -106,7 +106,11 @@ export function Nav({ onDownloadClick }: { onDownloadClick?: () => void }) {
           <a className="nav-link" href="/changelog">
             Changelog
           </a>
-          <a className="nav-link" href="https://discord.gg/jZZ3pFpY3e" onClick={trackDiscordClicked}>
+          <a
+            className="nav-link"
+            href="https://discord.gg/jZZ3pFpY3e"
+            onClick={trackDiscordClicked}
+          >
             Community
           </a>
           <button className="nav-cta" type="button" onClick={handleDownloadClick}>
@@ -115,10 +119,7 @@ export function Nav({ onDownloadClick }: { onDownloadClick?: () => void }) {
         </div>
       </nav>
       {!onDownloadClick && (
-        <DownloadModal
-          isOpen={isDownloadModalOpen}
-          onClose={() => setIsDownloadModalOpen(false)}
-        />
+        <DownloadModal isOpen={isDownloadModalOpen} onClose={() => setIsDownloadModalOpen(false)} />
       )}
     </>
   )

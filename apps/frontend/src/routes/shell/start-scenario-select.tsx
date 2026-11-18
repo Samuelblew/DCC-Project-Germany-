@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 import { coreClient } from '@/lib/orpc'
+import { themeStore } from '@/lib/theme'
 
 import { CampaignStep, type CampaignMode, type CareerAcquisitionRule } from './start-campaign-step'
 import { FactionEditor } from './start-faction-editor'
@@ -76,6 +77,12 @@ export function ScenarioSelect() {
   const [installedMods, setInstalledMods] = useState<string[] | undefined>(undefined)
   const [escalationEnabled, setEscalationEnabled] = useState(false)
   const [eraDurationDays, setEraDurationDays] = useState(DEFAULT_ESCALATION_ERA_DAYS)
+
+  // The highlighted scenario previews its campaign palette (Fulda Gap: Germany).
+  useEffect(() => {
+    themeStore.trigger.preview({ scenarioId: selectedScenarioId || null })
+  }, [selectedScenarioId])
+  useEffect(() => () => themeStore.trigger.preview({ scenarioId: null }), [])
 
   useEffect(() => {
     let active = true
@@ -334,7 +341,7 @@ export function ScenarioSelect() {
               <span className="text-transparent bg-clip-text bg-linear-to-r from-synthwave-cyan to-synthwave-pink">
                 SELECT
               </span>
-              <span className="ml-3 text-white drop-shadow-[0_0_14px_rgba(217,68,58,0.45)]">
+              <span className="ml-3 text-white drop-shadow-[0_0_14px_color-mix(in_srgb,var(--synthwave-pink)_45%,transparent)]">
                 {stepTitle}
               </span>
             </h1>

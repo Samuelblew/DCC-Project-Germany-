@@ -1,17 +1,20 @@
-import type { GermanyIadsSite } from './iads'
+import type { AuthoredIadsSite } from './types'
 
-/** The Sentry Germany layout is the Late Cold War set (1979–1991, Fulda date 1985). */
-export const GERMANY_AUTHORED_ERA = 'Late CW'
+/**
+ * Every imported template is the Late Cold War set (1979–1991): Sentry Germany is dated 1985 and
+ * the Caucasus template 1988. That era keeps the authored layout; the others re-equip it.
+ */
+export const DEFAULT_AUTHORED_IADS_ERA = 'Late CW'
 
-export type GermanyContentEra = 'WW2' | 'Korea' | 'Vietnam' | 'Late CW' | 'Modern'
+export type IadsContentEra = 'WW2' | 'Korea' | 'Vietnam' | 'Late CW' | 'Modern'
 
-const late: GermanyContentEra[] = ['Late CW']
-const lateModern: GermanyContentEra[] = ['Late CW', 'Modern']
-const vietnamLate: GermanyContentEra[] = ['Vietnam', 'Late CW']
-const vietnamOn: GermanyContentEra[] = ['Vietnam', 'Late CW', 'Modern']
-const koreaOn: GermanyContentEra[] = ['Korea', 'Vietnam', 'Late CW', 'Modern']
+const late: IadsContentEra[] = ['Late CW']
+const lateModern: IadsContentEra[] = ['Late CW', 'Modern']
+const vietnamLate: IadsContentEra[] = ['Vietnam', 'Late CW']
+const vietnamOn: IadsContentEra[] = ['Vietnam', 'Late CW', 'Modern']
+const koreaOn: IadsContentEra[] = ['Korea', 'Vietnam', 'Late CW', 'Modern']
 
-const SAM_FAMILY_ERAS: Record<string, GermanyContentEra[]> = {
+const SAM_FAMILY_ERAS: Record<string, IadsContentEra[]> = {
   'BSAM-HAWK': vietnamOn,
   'BSAM-PATRIOT': lateModern,
   'BSAM-ROLAND': lateModern,
@@ -21,13 +24,16 @@ const SAM_FAMILY_ERAS: Record<string, GermanyContentEra[]> = {
   'SAM-SA3': vietnamOn,
   'SAM-SA5': lateModern,
   'SAM-SA6': lateModern,
-  'SAM-SA8': lateModern
+  'SAM-SA8': lateModern,
+  // Caucasus 1988: Buk from 1980, S-300PS from 1985.
+  'SAM-SA10': lateModern,
+  'SAM-SA11': lateModern
 }
 
 /** Trucks do not decide the era of a battery that also has a weapon. */
 const LOGISTICS = new Set(['KAMAZ Truck', 'M 818', 'M978 HEMTT Tanker', 'UAZ-469', 'Ural-4320T'])
 
-const UNIT_ERAS: Record<string, GermanyContentEra[]> = {
+const UNIT_ERAS: Record<string, IadsContentEra[]> = {
   '55G6 EWR': lateModern,
   '1L13 EWR': lateModern,
   'FPS-117': lateModern,
@@ -49,6 +55,10 @@ const UNIT_ERAS: Record<string, GermanyContentEra[]> = {
   'MiG-27K': late,
   'MiG-29A': lateModern,
   'Su-17M4': late,
+  'Su-24M': lateModern,
+  'MiG-31': lateModern,
+  'Tu-22M3': lateModern,
+  'Tu-95MS': lateModern,
   'Su-25': lateModern,
   'Su-27': lateModern,
   'Mi-24P': lateModern,
@@ -77,19 +87,19 @@ const UNIT_ERAS: Record<string, GermanyContentEra[]> = {
   'Ural-4320T': vietnamOn
 }
 
-function intersect(lists: GermanyContentEra[][]) {
+function intersect(lists: IadsContentEra[][]) {
   const [first, ...rest] = lists
   if (!first) return late
   return rest.reduce((current, list) => current.filter((era) => list.includes(era)), first)
 }
 
-function erasForUnits(site: GermanyIadsSite) {
+function erasForUnits(site: AuthoredIadsSite) {
   const weapons = site.units.filter((unit) => !LOGISTICS.has(unit.type))
   const types = (weapons.length > 0 ? weapons : site.units).map((unit) => unit.type)
   return intersect(types.map((type) => UNIT_ERAS[type] ?? late))
 }
 
-export function germanySiteEras(site: GermanyIadsSite): GermanyContentEra[] {
+export function authoredSiteEras(site: AuthoredIadsSite): IadsContentEra[] {
   if (site.kind === 'hq') return ['Korea', 'Vietnam', 'Late CW', 'Modern']
   if (site.kind === 'sam') {
     const family = site.id.match(/^(BSAM-[A-Z]+|SAM-SA\d+)/)?.[1]
@@ -98,9 +108,9 @@ export function germanySiteEras(site: GermanyIadsSite): GermanyContentEra[] {
   return erasForUnits(site)
 }
 
-export function germanySiteMatchesEra(site: GermanyIadsSite, era: string | undefined) {
-  if (era == null || era === GERMANY_AUTHORED_ERA) return true
-  return germanySiteEras(site).includes(era as GermanyContentEra)
+export function authoredSiteMatchesEra(site: AuthoredIadsSite, era: string | undefined) {
+  if (era == null || era === DEFAULT_AUTHORED_IADS_ERA) return true
+  return authoredSiteEras(site).includes(era as IadsContentEra)
 }
 
 const KOREA_AAA_FAMILIES = new Set(['SAM-SA2', 'SAM-SA3', 'BSAM-HAWK'])
@@ -135,11 +145,11 @@ const S300_BATTERY = [
   'S-300PS 5P85D ln'
 ]
 
-export function germanySamFamily(siteId: string) {
+export function authoredSamFamily(siteId: string) {
   return siteId.match(/^(BSAM-[A-Z]+|SAM-SA\d+)/)?.[1]
 }
 
-function convertSiteToKoreaAaa(site: GermanyIadsSite): GermanyIadsSite {
+function convertSiteToKoreaAaa(site: AuthoredIadsSite): AuthoredIadsSite {
   return {
     ...site,
     kind: 'aaa',
@@ -151,7 +161,7 @@ function convertSiteToKoreaAaa(site: GermanyIadsSite): GermanyIadsSite {
   }
 }
 
-function convertEwrToVietnamSearch(site: GermanyIadsSite): GermanyIadsSite {
+function convertEwrToVietnamSearch(site: AuthoredIadsSite): AuthoredIadsSite {
   let changed = false
   const units = site.units.map((unit) => {
     if (!MODERN_EWR_TYPES.has(unit.type)) return unit
@@ -161,15 +171,15 @@ function convertEwrToVietnamSearch(site: GermanyIadsSite): GermanyIadsSite {
   return changed ? { ...site, units } : site
 }
 
-function resolveKoreaSite(site: GermanyIadsSite): GermanyIadsSite | null {
+function resolveKoreaSite(site: AuthoredIadsSite): AuthoredIadsSite | null {
   if (site.kind === 'hq') return site
   if (site.kind === 'ewr') return null
 
   if (site.kind === 'sam') {
-    const family = germanySamFamily(site.id)
+    const family = authoredSamFamily(site.id)
     if (family && KOREA_AAA_FAMILIES.has(family)) return convertSiteToKoreaAaa(site)
     if (family && KOREA_DORMANT_SAM_FAMILIES.has(family)) return null
-    return germanySiteMatchesEra(site, 'Korea') ? site : null
+    return authoredSiteMatchesEra(site, 'Korea') ? site : null
   }
 
   if (site.kind === 'aaa') {
@@ -177,15 +187,15 @@ function resolveKoreaSite(site: GermanyIadsSite): GermanyIadsSite | null {
     return hasS60 ? site : null
   }
 
-  return germanySiteMatchesEra(site, 'Korea') ? site : null
+  return authoredSiteMatchesEra(site, 'Korea') ? site : null
 }
 
-function resolveVietnamSite(site: GermanyIadsSite): GermanyIadsSite | null {
+function resolveVietnamSite(site: AuthoredIadsSite): AuthoredIadsSite | null {
   if (site.kind === 'ewr') return convertEwrToVietnamSearch(site)
-  return germanySiteMatchesEra(site, 'Vietnam') ? site : null
+  return authoredSiteMatchesEra(site, 'Vietnam') ? site : null
 }
 
-function convertSiteToS300(site: GermanyIadsSite): GermanyIadsSite {
+function convertSiteToS300(site: AuthoredIadsSite): AuthoredIadsSite {
   return {
     ...site,
     kind: 'sam',
@@ -198,27 +208,27 @@ function convertSiteToS300(site: GermanyIadsSite): GermanyIadsSite {
   }
 }
 
-function resolveModernSite(site: GermanyIadsSite): GermanyIadsSite | null {
-  if (site.kind === 'sam' && germanySamFamily(site.id) === 'SAM-SA2') {
+function resolveModernSite(site: AuthoredIadsSite): AuthoredIadsSite | null {
+  if (site.kind === 'sam' && authoredSamFamily(site.id) === 'SAM-SA2') {
     return convertSiteToS300(site)
   }
-  return germanySiteMatchesEra(site, 'Modern') ? site : null
+  return authoredSiteMatchesEra(site, 'Modern') ? site : null
 }
 
 /** Same Sentry hill, era-specific battery. Late CW keeps the authored layout. */
-export function resolveGermanyIadsSiteForEra(
-  site: GermanyIadsSite,
+export function resolveAuthoredIadsSiteForEra(
+  site: AuthoredIadsSite,
   era: string | undefined
-): GermanyIadsSite | null {
-  if (era == null || era === GERMANY_AUTHORED_ERA) return site
+): AuthoredIadsSite | null {
+  if (era == null || era === DEFAULT_AUTHORED_IADS_ERA) return site
   if (era === 'Korea') return resolveKoreaSite(site)
   if (era === 'Vietnam') return resolveVietnamSite(site)
   if (era === 'Modern') return resolveModernSite(site)
-  return germanySiteMatchesEra(site, era) ? site : null
+  return authoredSiteMatchesEra(site, era) ? site : null
 }
 
-export function germanyIadsEquipmentKey(site: GermanyIadsSite, era: string | undefined) {
-  const resolved = resolveGermanyIadsSiteForEra(site, era)
+export function authoredIadsEquipmentKey(site: AuthoredIadsSite, era: string | undefined) {
+  const resolved = resolveAuthoredIadsSiteForEra(site, era)
   if (!resolved) return ''
   return `${resolved.kind}:${resolved.units
     .map((unit) => unit.type)

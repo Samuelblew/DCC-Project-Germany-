@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest'
 
 import {
-  GPS_ENABLED_OVERRIDE_YEAR,
   getCampaignDateForYear,
   getGpsEnabledCampaignDate,
   GPS_AVAILABLE_FROM_ISO,
+  GPS_ENABLED_OVERRIDE_YEAR,
   isGpsAvailable
 } from './gps-availability'
 

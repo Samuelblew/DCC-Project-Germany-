@@ -168,7 +168,7 @@ describe('campaign escalation', () => {
   test('a new IADS generation forgets destroyed units from the previous battery', () => {
     const next = produce(
       campaign({
-        germanyIadsDeadUnits: { 'SAM-SA2-1': ['SAM-SA2-1-2'] }
+        iadsDeadUnits: { 'SAM-SA2-1': ['SAM-SA2-1-2'] }
       }),
       (draft) => {
         applyEscalationAircraftTypes(draft, 'Korea')
@@ -176,6 +176,6 @@ describe('campaign escalation', () => {
       }
     )
 
-    expect(next.germanyIadsDeadUnits?.['SAM-SA2-1']).toBeUndefined()
+    expect(next.iadsDeadUnits?.['SAM-SA2-1']).toBeUndefined()
   })
 })

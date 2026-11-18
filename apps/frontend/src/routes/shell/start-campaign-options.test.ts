@@ -111,11 +111,7 @@ describe('optional mod aircraft filtering (AH-6J / MH-6J)', () => {
     expect(careerWithoutMod.some((entry) => entry.aircraftName === 'AH-6J')).toBe(false)
     expect(careerWithoutMod.some((entry) => entry.aircraftName === 'MH-6J')).toBe(false)
 
-    const careerWithMod = getAcquirableCareerAircraft(
-      'fidelity',
-      usa2004.aircraftTypes,
-      ['AH-6J']
-    )
+    const careerWithMod = getAcquirableCareerAircraft('fidelity', usa2004.aircraftTypes, ['AH-6J'])
     expect(careerWithMod.some((entry) => entry.aircraftName === 'AH-6J')).toBe(true)
     expect(careerWithMod.some((entry) => entry.aircraftName === 'MH-6J')).toBe(true)
   })

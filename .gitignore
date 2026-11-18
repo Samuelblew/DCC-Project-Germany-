@@ -16,3 +16,6 @@ out
 # Germany Cold War UI map is ~1 GB (GitHub file limit is 100 MB).
 # Download locally with `bun run cache:map` or by running install.bat.
 apps/frontend/public/maps/germany-cold-war/*.pmtiles
+# The Caucasus map covers the whole terrain (~135 MB), also over the limit: `bun run cache:map`.
+apps/frontend/public/maps/caucasus/*.pmtiles
+apps/frontend/public/maps/south-atlantic/*.pmtiles

@@ -2,14 +2,14 @@ import { schemas } from '@dcc/contracts'
 import {
   campaignGciEnabled,
   GCI_RANGE_METERS,
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  getGermanyIadsSites,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
+  getAuthoredIadsSites,
   getSamSitePosition,
-  isGermanyIadsSamDestroyed,
-  isGermanyIadsTheatre,
+  isAuthoredIadsSamDestroyed,
+  hasAuthoredIads,
   isSamOperational,
-  livingGermanyIadsSite,
+  livingAuthoredIadsSite,
   planCampaignGciStations,
   samTemplates
 } from '@dcc/data'
@@ -69,19 +69,19 @@ function groundGroupAlive(group: { units: Array<{ count: number }> }) {
 /** The coalition's SAM sites able to fire and, in Germany, its IADS early-warning radars. */
 export function airDefenseRadars(campaign: Campaign, coalition: Coalition, theatre: Theatre) {
   const sites: Array<{ kind: 'sam' | 'ewr'; position: Position; range: number }> = []
-  if (isGermanyIadsTheatre(theatre.name)) {
-    const owners = germanyIadsOwnersFromObjectives(
+  if (hasAuthoredIads(theatre.name)) {
+    const owners = iadsOwnersFromObjectives(
       theatre.objectives,
       campaign.coalitions.player.objectiveIds,
       campaign.coalitions.opponent.objectiveIds
     )
-    for (const site of getGermanyIadsSites(era(campaign))) {
+    for (const site of getAuthoredIadsSites(theatre.name, era(campaign))) {
       if (site.kind !== 'sam' && site.kind !== 'ewr') continue
-      if (germanyIadsControllingCoalition(site, owners) !== coalition) continue
-      if (site.kind === 'sam' && isGermanyIadsSamDestroyed(site, campaign.germanyIadsDeadUnits)) {
+      if (iadsControllingCoalition(site, owners) !== coalition) continue
+      if (site.kind === 'sam' && isAuthoredIadsSamDestroyed(site, campaign.iadsDeadUnits)) {
         continue
       }
-      if (!livingGermanyIadsSite(site, campaign.germanyIadsDeadUnits)) continue
+      if (!livingAuthoredIadsSite(site, campaign.iadsDeadUnits)) continue
       sites.push({ kind: site.kind, position: { x: site.x, y: site.y }, range: site.range ?? 0 })
     }
     return sites

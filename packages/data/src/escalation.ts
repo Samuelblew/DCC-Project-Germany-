@@ -2,9 +2,9 @@ import { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
 import { factions } from './factions'
+import { authoredIadsEquipmentKey } from './iads/eras'
+import { findAuthoredIadsSite } from './iads/network'
 import { templates } from './templates'
-import { germanyIadsEquipmentKey } from './theatres/germany-cold-war/iads-eras'
-import { germanyIadsSites } from './theatres/germany-cold-war/iads-network'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type PlayerSide = NonNullable<Campaign['playerSide']>
@@ -22,6 +22,16 @@ export const ESCALATION_FACTION_IDS: Record<EscalationStage, { player: string; o
     'Late CW': { player: 'usa-1977', opponent: 'russia-1984' },
     Modern: { player: 'usa-2004', opponent: 'russia-1996' }
   }
+
+/**
+ * Theatres built for the USAFE/GSFG ladder: a linear front on a hop graph, and the escalation
+ * faction presets as the default pairing for every era.
+ */
+const COLD_WAR_FRONT_THEATRES = new Set(['Cold War Germany', 'Cold War Caucasus'])
+
+export function isColdWarFrontTheatre(theatreName: string | undefined) {
+  return theatreName != null && COLD_WAR_FRONT_THEATRES.has(theatreName)
+}
 
 export function clampEscalationEraDays(days: number | undefined) {
   if (days == null || !Number.isFinite(days)) return DEFAULT_ESCALATION_ERA_DAYS
@@ -107,8 +117,8 @@ export function applyEscalationAircraftTypes(campaign: Campaign, stage: Escalati
   if (opponentFaction) applyFactionKit(campaign.coalitions.opponent, opponentFaction)
 }
 
-export function pruneGermanyIadsDeadUnitsForEraChange(
-  deadUnits: Campaign['germanyIadsDeadUnits'],
+export function pruneIadsDeadUnitsForEraChange(
+  deadUnits: Campaign['iadsDeadUnits'],
   fromEra: string,
   toEra: string
 ) {
@@ -116,10 +126,11 @@ export function pruneGermanyIadsDeadUnitsForEraChange(
   const next = { ...deadUnits }
   let changed = false
 
-  for (const site of germanyIadsSites) {
-    if (!(site.id in next)) continue
-    if (germanyIadsEquipmentKey(site, fromEra) === germanyIadsEquipmentKey(site, toEra)) continue
-    delete next[site.id]
+  for (const siteId of Object.keys(deadUnits)) {
+    const site = findAuthoredIadsSite(siteId)
+    if (!site) continue
+    if (authoredIadsEquipmentKey(site, fromEra) === authoredIadsEquipmentKey(site, toEra)) continue
+    delete next[siteId]
     changed = true
   }
 

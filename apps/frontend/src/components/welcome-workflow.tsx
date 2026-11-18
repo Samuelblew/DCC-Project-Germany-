@@ -31,6 +31,16 @@ export function WelcomeWorkflow({ open, onComplete }: WelcomeWorkflowProps) {
   const [enableDcsPersistence, setEnableDcsPersistence] = useState(true)
   const [dcsInstallPathError, setDcsInstallPathError] = useState<string | null>(null)
   const [appVersion, setAppVersion] = useState<string>('')
+  const [wasOpen, setWasOpen] = useState(open)
+
+  // Opening the dialog starts it over at the first step while the settings load.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setStepIndex(0)
+      setLoading(true)
+    }
+  }
 
   useEffect(() => {
     if (!open) {
@@ -38,8 +48,6 @@ export function WelcomeWorkflow({ open, onComplete }: WelcomeWorkflowProps) {
     }
 
     let cancelled = false
-    setStepIndex(0)
-    setLoading(true)
 
     coreClient.campaign.getSettings().then((settings) => {
       if (cancelled) {

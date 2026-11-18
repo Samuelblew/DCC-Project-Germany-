@@ -9,7 +9,7 @@ import {
 import { Crosshair, Fuel, Layers3, PackageCheck, Radio, Route, User, Wrench, X } from 'lucide-react'
 import { getTheatreAirdromeRadio, scenarios } from '@dcc/data'
 import { useSelector } from '@xstate/store/react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   aircraftCullingRadius,
   cullingRadius,
@@ -75,7 +75,7 @@ export function DetailsCard({
   onSelectObjective?: (objectiveName: string) => void
 }) {
   const campaign = useSelector(activeStore, (state) => state.context)
-  const [attackMessage, setAttackMessage] = useState<string | null>(null)
+  const [attackNote, setAttackNote] = useState<{ itemId: string | null; text: string } | null>(null)
   const selectedPlayerFlight =
     selectedItem && 'flightplan' in selectedItem
       ? (campaign.coalitions.player.flightGroups.find((group) => group.id === selectedItem.id) ??
@@ -90,9 +90,8 @@ export function DetailsCard({
   const attack = attackTarget ? planDirectedAttack(campaign, attackTarget) : null
   const selectedId = selectedItem && 'id' in selectedItem ? selectedItem.id : null
 
-  useEffect(() => {
-    setAttackMessage(null)
-  }, [selectedId])
+  // A message belongs to the item it was written for; selecting another item hides it.
+  const attackMessage = attackNote?.itemId === selectedId ? attackNote.text : null
 
   if (!selectedItem) return null
 
@@ -226,7 +225,7 @@ export function DetailsCard({
 
   return (
     <div className="absolute top-28 right-4 z-1100 flex max-h-[calc(100vh-9rem)] w-80 flex-col">
-      <Card className="flex min-h-0 flex-col overflow-hidden backdrop-blur-md bg-synthwave-dark/80 border-synthwave-pink/30 text-synthwave-light shadow-[0_0_15px_rgba(217,68,58,0.3)]">
+      <Card className="flex min-h-0 flex-col overflow-hidden backdrop-blur-md bg-synthwave-dark/80 border-synthwave-pink/30 text-synthwave-light shadow-[0_0_15px_color-mix(in_srgb,var(--synthwave-pink)_30%,transparent)]">
         <CardHeader className="shrink-0">
           <CardTitle className="text-synthwave-cyan retro-font">{headerTitle}</CardTitle>
           <CardDescription className="text-secondary">{headerSubtitle}</CardDescription>
@@ -334,11 +333,13 @@ export function DetailsCard({
                   activeStore.send({ type: 'createDirectedAttack', target: attackTarget })
                   const after =
                     activeStore.getSnapshot().context.coalitions.player.flightGroups.length
-                  setAttackMessage(
-                    after > before
-                      ? 'Flight added. Select it when you want to fly.'
-                      : 'Could not add the flight.'
-                  )
+                  setAttackNote({
+                    itemId: selectedId,
+                    text:
+                      after > before
+                        ? 'Flight added. Select it when you want to fly.'
+                        : 'Could not add the flight.'
+                  })
                 }}
               >
                 <Crosshair className="h-4 w-4" />

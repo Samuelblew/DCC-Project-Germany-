@@ -81,7 +81,7 @@ const theatreDetailMaps: TheatreDetailMap[] = [
   {
     source: 'protomaps-caucasus',
     path: './maps/caucasus/caucasus.pmtiles',
-    bounds: [40.130612, 40.747635, 44.435577, 44.169509]
+    bounds: [36.4, 40.7, 46.0, 47.6]
   },
   {
     source: 'protomaps-persian-gulf',

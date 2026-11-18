@@ -37,15 +37,17 @@ describe.each(cases)('the %s profile', (_name, profile: AircraftProfile) => {
     }
   })
 
-  test('no two stores share an ammo name, so the rounds left are counted per store', () => {
-    const owners = new Map<string, string>()
-    for (const weapon of profile.weapons) {
-      for (const name of weapon.ammoNames) {
+  test('stores that share an ammo name differ in mix, so the rounds left go to one of them', () => {
+    // A 2K+2L Hellfire rack reports the same rounds as a 4K rack. The career counter hands
+    // rounds to the store with fewer ammo names first, which needs the two to differ.
+    for (const [index, weapon] of profile.weapons.entries()) {
+      for (const other of profile.weapons.slice(index + 1)) {
+        const shared = weapon.ammoNames.some((name) => other.ammoNames.includes(name))
+        if (!shared) continue
         expect(
-          owners.get(name),
-          `${weapon.name} and ${owners.get(name)} both report ${name}`
-        ).toBeUndefined()
-        owners.set(name, weapon.name)
+          weapon.ammoNames.length,
+          `${weapon.name} and ${other.name} share ammo with the same mix`
+        ).not.toBe(other.ammoNames.length)
       }
     }
   })

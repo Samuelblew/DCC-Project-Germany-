@@ -2,7 +2,7 @@ import { groundMarchKind } from '@dcc/campaign'
 import { schemas } from '@dcc/contracts'
 import {
   getSamDeadUnitIndexes,
-  isGermanyIadsTheatre,
+  hasAuthoredIads,
   isSamFullyDestroyed,
   samTemplates
 } from '@dcc/data'
@@ -149,7 +149,7 @@ export function addGroundGroups(
 
     // --- SAM Groups ---
     const samGroups = value.samGroups
-    if (!isGermanyIadsTheatre(theatre.name) && samGroups && samGroups.length > 0) {
+    if (!hasAuthoredIads(theatre.name) && samGroups && samGroups.length > 0) {
       // eslint-disable-next-line no-console
       console.log(
         `Adding ${samGroups.length} SAM groups for coalition ${missionCoalitionKey} (${key})`

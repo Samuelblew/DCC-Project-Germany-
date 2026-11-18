@@ -10,7 +10,7 @@
  *     [--multiplier 300] [--seed 1] [--timeline] [--events]
  */
 import { schemas } from '@dcc/contracts'
-import { factions, scenarios, templates, theatres } from '@dcc/data'
+import { factions, isColdWarFrontTheatre, scenarios, templates, theatres } from '@dcc/data'
 import type * as z from 'zod'
 
 import { assignGroundGroups } from '../../core/src/main/api/campaign/assign-ground-groups'
@@ -83,6 +83,7 @@ function objectiveInfos(theatre: Theatre, objectiveIds: string[]) {
 }
 
 function buildCampaign(scenario: Scenario, theatre: Theatre, multiplier: number): Campaign {
+  const coldWarFront = isColdWarFrontTheatre(theatre.name)
   const playerTemplate = getTemplate(scenario.defaultFactionIds.player)
   const opponentTemplate = getTemplate(scenario.defaultFactionIds.opponent)
   const infos = {
@@ -98,16 +99,16 @@ function buildCampaign(scenario: Scenario, theatre: Theatre, multiplier: number)
       .map((name) => theatre.airdromeDetails[name])
       .filter((details) => details != null)
       .map((details) => ({ x: details.x, y: details.y }))
-    // Mirrors create-campaign: Fulda Gap front structures start able to spawn one formation.
+    // Mirrors create-campaign: Cold War front structures start able to spawn one formation.
     const structures = assignStructures(infos[coalition], airbases, {
       requiredStructures: start.structureAssignments
     }).map((assignment) => ({
       id: crypto.randomUUID(),
       ...assignment,
       resources:
-        scenario.id === 'fulda-gap' && assignment.type === 'Barrack'
+        coldWarFront && assignment.type === 'Barrack'
           ? 500
-          : scenario.id === 'fulda-gap' && assignment.type === 'Depot'
+          : coldWarFront && assignment.type === 'Depot'
             ? 1000
             : assignment.resources
     }))

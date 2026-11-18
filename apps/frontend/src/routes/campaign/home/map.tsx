@@ -19,6 +19,8 @@ import MaplibreMap, {
 } from 'react-map-gl/maplibre'
 import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
+
+import { useThemePalette } from '@/lib/theme'
 import { Plane, RotateCcw, Star } from 'lucide-react'
 import MilSymbol from 'milsymbol'
 import * as turf from '@turf/turf'
@@ -140,14 +142,14 @@ const CareerBaseMarker = memo(function CareerBaseMarker({
         className="pointer-events-none flex -translate-y-4 flex-col items-center"
         title={base.name}
       >
-        <div className="flex items-center gap-1 rounded-full border-2 border-[#f5d020] bg-black/80 px-2 py-0.5 text-[11px] font-bold text-[#f5d020] shadow-[0_0_12px_rgba(245,208,32,0.55)]">
-          <Plane className="h-3.5 w-3.5" fill="#f5d020" />
+        <div className="flex items-center gap-1 rounded-full border-2 border-highlight-bright bg-black/80 px-2 py-0.5 text-[11px] font-bold text-highlight-bright shadow-[0_0_12px_color-mix(in_srgb,var(--highlight-bright)_55%,transparent)]">
+          <Plane className="h-3.5 w-3.5 fill-highlight-bright" />
           {base.tails.join(' · ')}
           {base.flying ? (
             <span className="text-[9px] font-semibold opacity-80">· SORTIE</span>
           ) : null}
         </div>
-        <div className="h-2.5 w-0.5 bg-[#f5d020]" />
+        <div className="h-2.5 w-0.5 bg-highlight-bright" />
       </div>
     </MaplibreMarker>
   )
@@ -351,7 +353,7 @@ const WaypointLabelMarker = memo(function WaypointLabelMarker({
       style={{ zIndex: 30 }}
     >
       <div
-        className="pointer-events-none relative z-30 rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40 shadow-[0_0_8px_rgba(217,68,58,0.35)]"
+        className="pointer-events-none relative z-30 rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40 shadow-[0_0_8px_color-mix(in_srgb,var(--synthwave-pink)_35%,transparent)]"
         style={{ transform: 'translateY(5px)' }}
       >
         {waypoint.name}
@@ -410,7 +412,7 @@ const EditableWaypointMarker = memo(function EditableWaypointMarker({
           if (removable) onRemove(index)
         }}
       >
-        <span className="block h-3.5 w-3.5 rounded-full border-2 border-synthwave-pink bg-synthwave-dark shadow-[0_0_8px_rgba(217,68,58,0.6)] transition-transform group-hover:scale-125" />
+        <span className="block h-3.5 w-3.5 rounded-full border-2 border-synthwave-pink bg-synthwave-dark shadow-[0_0_8px_color-mix(in_srgb,var(--synthwave-pink)_60%,transparent)] transition-transform group-hover:scale-125" />
         <span className="pointer-events-none absolute top-4 whitespace-nowrap rounded-full bg-synthwave-dark/80 px-2 py-0.5 text-xs text-synthwave-light ring-1 ring-synthwave-pink/40">
           {waypoint.name}
         </span>
@@ -555,6 +557,7 @@ export function Map({
   overlaySafeLeft?: number
   showGoalMarkers?: boolean
 }) {
+  const palette = useThemePalette()
   const scenarioId = useSelector(activeStore, (state) => state.context.scenarioId)
   const mapRef = useRef<MapRef | null>(null)
   const lastCenteredSelectionIdRef = useRef<string | null>(null)
@@ -1145,7 +1148,7 @@ export function Map({
               id="convoy-path-line"
               type="line"
               paint={{
-                'line-color': '#f5d020',
+                'line-color': palette.highlightBright,
                 'line-width': 2.5,
                 'line-opacity': 0.85,
                 'line-dasharray': [2, 1.5]
@@ -1207,13 +1210,13 @@ export function Map({
             <Layer
               id="culling-sam-fill"
               type="fill"
-              paint={{ 'fill-color': '#d9443a', 'fill-opacity': 0.04 }}
+              paint={{ 'fill-color': palette.signal, 'fill-opacity': 0.04 }}
             />
             <Layer
               id="culling-sam-line"
               type="line"
               paint={{
-                'line-color': '#d9443a',
+                'line-color': palette.signal,
                 'line-width': 1.5,
                 'line-opacity': 0.75,
                 'line-dasharray': [1, 2]
@@ -1245,12 +1248,12 @@ export function Map({
             <Layer
               id="culling-radius-fill"
               type="fill"
-              paint={{ 'fill-color': '#e8b730', 'fill-opacity': 0.12 }}
+              paint={{ 'fill-color': palette.highlight, 'fill-opacity': 0.12 }}
             />
             <Layer
               id="culling-radius-line"
               type="line"
-              paint={{ 'line-color': '#e8b730', 'line-width': 1.5, 'line-opacity': 0.7 }}
+              paint={{ 'line-color': palette.highlight, 'line-width': 1.5, 'line-opacity': 0.7 }}
             />
           </Source>
         )}
@@ -1343,7 +1346,7 @@ export function Map({
               id="measure-line-glow"
               type="line"
               paint={{
-                'line-color': '#0f0e0d',
+                'line-color': palette.dark,
                 'line-width': 7,
                 'line-opacity': 0.75
               }}
@@ -1352,7 +1355,7 @@ export function Map({
               id="measure-line"
               type="line"
               paint={{
-                'line-color': '#e8b730',
+                'line-color': palette.highlight,
                 'line-width': 3,
                 'line-dasharray': [1.5, 1.2]
               }}

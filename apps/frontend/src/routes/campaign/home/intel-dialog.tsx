@@ -173,7 +173,7 @@ function IntelReport() {
                       <span
                         className={cn(
                           'text-[10px]',
-                          change > 0 ? 'text-synthwave-cyan' : 'text-[#ef7f70]'
+                          change > 0 ? 'text-synthwave-cyan' : 'text-signal-soft'
                         )}
                       >
                         {' '}

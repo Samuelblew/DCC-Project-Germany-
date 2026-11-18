@@ -240,7 +240,7 @@ describe('buildBubbleCatalogue', () => {
 
   test('leaves a destroyed Germany search radar out of the catalogue', () => {
     const drafted = campaign()
-    drafted.germanyIadsDeadUnits = { 'EWR-1': ['EWR-1-1'] }
+    drafted.iadsDeadUnits = { 'EWR-1': ['EWR-1-1'] }
     const entries = buildBubbleCatalogue(drafted, {
       ...theatre,
       name: 'Cold War Germany'

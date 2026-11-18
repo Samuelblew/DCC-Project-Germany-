@@ -380,10 +380,13 @@ function createManualSpawnPlan(
         .map((g) => g.target?.objectiveId)
         .filter((id): id is string => id != null)
     )
-    const toStructureTargets = (structures: typeof draft.coalitions[typeof enemyCoalition]['structures']) =>
+    const toStructureTargets = (
+      structures: (typeof draft.coalitions)[typeof enemyCoalition]['structures']
+    ) =>
       structures
         .map((structure) => {
-          const position = structure.position ?? getObjectivePosition(theatre, structure.objectiveId)
+          const position =
+            structure.position ?? getObjectivePosition(theatre, structure.objectiveId)
           return position
             ? {
                 target: {

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { debugLog } from './lib/debug'
 import { Button } from './components/ui/button'
+import { ThemeController } from './components/theme-controller'
 import { WelcomeWorkflow } from './components/welcome-workflow'
 import { buildPathWarnings, getPathWarningKey, type PathWarning } from './lib/path-warnings'
 
@@ -110,6 +111,7 @@ function RootLayout() {
 
   return (
     <div className="flex h-screen flex-col">
+      <ThemeController />
       <AppTitleBar showDevMenu={welcomeWorkflowChecked} />
       <div className="relative min-h-0 flex-1">
         {visiblePathWarnings.length > 0 && !showWelcomeWorkflow ? (
@@ -178,17 +180,14 @@ function PathWarningBanner({
 
 function AppTitleBar({ showDevMenu = true }: { showDevMenu?: boolean }) {
   const [isMaximized, setIsMaximized] = useState(false)
-  const [isDevMenuOpen, setIsDevMenuOpen] = useState(false)
+  const [devMenuToggled, setIsDevMenuOpen] = useState(false)
   const isLogOpen = useSelector(uiStore, (state) => state.context.isLogOpen)
   const showAtoPackages = useSelector(uiStore, (state) => state.context.showAtoPackages)
   const showLogistics = useSelector(uiStore, (state) => state.context.showLogistics)
   const logEntries = useSelector(activeStore, (state) => state.context.logs)
 
-  useEffect(() => {
-    if (!showDevMenu) {
-      setIsDevMenuOpen(false)
-    }
-  }, [showDevMenu])
+  // The dev menu only stays open while it may be shown.
+  const isDevMenuOpen = showDevMenu && devMenuToggled
 
   useEffect(() => {
     let cancelled = false
@@ -416,7 +415,7 @@ function GlobalErrorScreen({ error }: { error: unknown }) {
     <div className="flex h-screen flex-col bg-synthwave-dark text-synthwave-light">
       <AppTitleBar />
       <main className="app-no-drag flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-        <section className="w-full max-w-2xl rounded-md border border-synthwave-pink/30 bg-black/28 p-6 shadow-[0_0_45px_rgba(239,127,112,0.12)]">
+        <section className="w-full max-w-2xl rounded-md border border-synthwave-pink/30 bg-black/28 p-6 shadow-[0_0_45px_color-mix(in_srgb,var(--signal-soft)_12%,transparent)]">
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-amber-300/45 bg-amber-300/10 text-amber-200">
               <AlertTriangle className="h-5 w-5" />

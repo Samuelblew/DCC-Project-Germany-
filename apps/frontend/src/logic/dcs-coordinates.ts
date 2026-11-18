@@ -1,3 +1,9 @@
+import {
+  lngLatToTransverseMercator,
+  terrainProjection,
+  terrainTheatreName,
+  transverseMercatorToLngLat
+} from '@dcc/data'
 import { LLtoLO, LOtoLL, type Types } from '@kilcekru/dcs-coordinates'
 
 export type LngLat = { lat: number; lng: number }
@@ -61,9 +67,11 @@ export function tryLngLatToDcsPosition(
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return undefined
 
   if (GERMANY_THEATRES.has(theatre)) return lngLatToGermanyColdWar(lng, lat)
+  const projection = terrainProjection(terrainTheatreName(theatre))
+  if (projection) return lngLatToTransverseMercator(projection, lng, lat)
 
   try {
-    const result = LLtoLO({ theatre: theatre as Types.Theatre, lat, lng })
+    const result = LLtoLO({ theatre: terrainTheatreName(theatre) as Types.Theatre, lat, lng })
     return { x: result.x, y: result.z }
   } catch {
     return undefined
@@ -79,9 +87,11 @@ export function tryDcsPositionToLngLat(theatre: string, x: number, z: number): L
   if (!Number.isFinite(x) || !Number.isFinite(z)) return undefined
 
   if (GERMANY_THEATRES.has(theatre)) return germanyColdWarToLngLat(x, z)
+  const projection = terrainProjection(terrainTheatreName(theatre))
+  if (projection) return transverseMercatorToLngLat(projection, x, z)
 
   try {
-    return LOtoLL({ theatre: theatre as Types.Theatre, x, z })
+    return LOtoLL({ theatre: terrainTheatreName(theatre) as Types.Theatre, x, z })
   } catch {
     return undefined
   }

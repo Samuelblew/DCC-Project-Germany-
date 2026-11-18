@@ -2,6 +2,7 @@ import {
   aircrafts as aircraftDefinitions,
   ESCALATION_FACTION_IDS,
   isAircraftModInstalled,
+  isColdWarFrontTheatre,
   scenarios
 } from '@dcc/data'
 import { schemas } from '@dcc/contracts'
@@ -13,7 +14,7 @@ export type Scenario = (typeof scenarios)[number]
 export type Faction = z.infer<typeof schemas.faction>
 export type PlayerSide = 'blue' | 'red'
 
-/** Default pairing for theatres that are not Cold War Germany. */
+/** Default pairing for theatres that are not a Cold War front (Germany, Caucasus). */
 export const factionIdsByEra: Record<CampaignEra, { player: string; opponent: string }> = {
   Korea: { player: 'usa-1952', opponent: 'russia-1955' },
   Vietnam: { player: 'usa-vietnam', opponent: 'russia-vietnam' },
@@ -25,7 +26,7 @@ export function factionIdsForEra(
   era: CampaignEra,
   theatreName?: string
 ): { player: string; opponent: string } {
-  if (theatreName === 'Cold War Germany') return ESCALATION_FACTION_IDS[era]
+  if (isColdWarFrontTheatre(theatreName)) return ESCALATION_FACTION_IDS[era]
   return factionIdsByEra[era]
 }
 
@@ -109,9 +110,7 @@ export const aircraftCatalog = Object.values(aircraftDefinitions).sort((left, ri
 
 export function getAvailableAircraftCatalog(installedMods?: readonly string[]) {
   if (!installedMods) return aircraftCatalog
-  return aircraftCatalog.filter((aircraft) =>
-    isAircraftModInstalled(aircraft.name, installedMods)
-  )
+  return aircraftCatalog.filter((aircraft) => isAircraftModInstalled(aircraft.name, installedMods))
 }
 
 export function getFactionAircraft(

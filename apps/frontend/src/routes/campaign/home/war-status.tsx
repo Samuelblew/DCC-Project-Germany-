@@ -6,7 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 function moraleTone(value: number) {
   if (value >= 60) return 'text-synthwave-cyan'
-  if (value <= 40) return 'text-[#ef7f70]'
+  if (value <= 40) return 'text-signal-soft'
   return 'text-secondary'
 }
 

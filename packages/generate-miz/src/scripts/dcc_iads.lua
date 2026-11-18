@@ -105,7 +105,15 @@ local function setupIads(config)
     end
 
     local samSites = iads:addSAMSitesByPrefix(config.samPrefix or 'SAM-')
-    local ewRadars = iads:addEarlyWarningRadarsByPrefix(config.ewrPrefix or 'IADS-EWR-')
+    iads:addEarlyWarningRadarsByPrefix(config.ewrPrefix or 'IADS-EWR-')
+    -- Authored template radars keep their own unit names (loss tracking matches them), so they
+    -- are added by name after the prefix search, which resets the radar list.
+    for _, unitName in ipairs(config.ewrUnitNames or {}) do
+        if Unit.getByName(unitName) and not iads:getEarlyWarningRadarByUnitName(unitName) then
+            iads:addEarlyWarningRadar(unitName)
+        end
+    end
+    local ewRadars = iads:getEarlyWarningRadars()
 
     configureRadarElements(samSites, powerSources, connectionNodes, config.alwaysOnSamTypes)
     configureRadarElements(ewRadars, powerSources, connectionNodes)

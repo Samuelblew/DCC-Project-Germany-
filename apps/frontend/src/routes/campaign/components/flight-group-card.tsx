@@ -92,8 +92,8 @@ export function FlightGroupCard({
             : 'border-amber-400/40 bg-amber-400/7 hover:bg-amber-400/12'
           : selected
             ? hasClients
-              ? 'border-amber-400 bg-amber-500/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(232,183,48,0.16)]'
-              : 'border-synthwave-pink bg-synthwave-pink/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_rgba(217,68,58,0.16)]'
+              ? 'border-amber-400 bg-amber-500/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_color-mix(in_srgb,var(--synthwave-cyan)_16%,transparent)]'
+              : 'border-synthwave-pink bg-synthwave-pink/20 shadow-[inset_0_2px_8px_rgba(0,0,0,0.35),0_0_20px_color-mix(in_srgb,var(--synthwave-pink)_16%,transparent)]'
             : hasClients
               ? 'border-amber-400/30 bg-amber-500/10 hover:border-amber-400/45 hover:bg-amber-500/16'
               : 'border-synthwave-pink/16 bg-synthwave-pink/[0.055] hover:border-synthwave-pink/34 hover:bg-synthwave-pink/10'
@@ -176,26 +176,26 @@ export function FlightGroupCard({
             disabled={aircraftTypeDisabled}
           >
             <SelectTrigger
-              className="h-8 border-[#e8b730]/25 bg-black/35 text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-[#e8b730]/45 focus:ring-[#e8b730]/25 disabled:cursor-default disabled:opacity-55"
+              className="h-8 border-synthwave-cyan/25 bg-black/35 text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-synthwave-cyan/45 focus:ring-synthwave-cyan/25 disabled:cursor-default disabled:opacity-55"
               title="Aircraft type"
             >
               <SelectValue placeholder="Aircraft type">
                 {getAircraftDisplayName(selectedAircraftType)}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent className="border-[#e8b730]/25 bg-[#161412]/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur">
+            <SelectContent className="border-synthwave-cyan/25 bg-panel/95 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur">
               {aircraftTypeOptions.map((aircraftType) => (
                 <SelectItem
                   key={aircraftType}
                   value={aircraftType}
-                  className="text-xs focus:bg-[#e8b730]/15 focus:text-white"
+                  className="text-xs focus:bg-synthwave-cyan/15 focus:text-white"
                 >
                   {getAircraftDisplayName(aircraftType)}
                 </SelectItem>
               ))}
               {onShowAllAircraftTypesChange && (
                 <>
-                  <SelectSeparator className="bg-[#e8b730]/15" />
+                  <SelectSeparator className="bg-synthwave-cyan/15" />
                   <AircraftRosterFilterToggle
                     checked={showAllAircraftTypes}
                     onCheckedChange={onShowAllAircraftTypesChange}
@@ -238,7 +238,7 @@ export function FlightGroupCard({
               ))}
             </ToggleGroup>
           ) : (
-            <div className="inline-flex rounded-md shadow-[0_0_18px_rgba(217,68,58,0.14)]">
+            <div className="inline-flex rounded-md shadow-[0_0_18px_color-mix(in_srgb,var(--synthwave-pink)_14%,transparent)]">
               <button
                 type="button"
                 className={cn(

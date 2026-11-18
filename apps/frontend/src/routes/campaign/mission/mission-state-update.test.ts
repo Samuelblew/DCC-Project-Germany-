@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { schemas } from '@dcc/contracts'
-import { findGermanyIadsSite } from '@dcc/data'
+import { findAuthoredIadsSite } from '@dcc/data'
 import type * as z from 'zod'
 
 import { applyMissionStateUpdate } from './mission-state-update'
@@ -919,10 +919,19 @@ describe('applyMissionStateUpdate naval groups', () => {
       units: [{ state: 'operational', damage: 0 }]
     })
   })
+
+  test('keeps authored IADS losses saved under the old Germany-only field', () => {
+    const legacy = { ...createCampaign(), germanyIadsDeadUnits: { 'SAM-SA2-1': ['SAM-SA2-1-1'] } }
+
+    const restored = schemas.campaign.campaign.parse(legacy)
+
+    expect(restored.iadsDeadUnits).toEqual({ 'SAM-SA2-1': ['SAM-SA2-1-1'] })
+    expect(restored).not.toHaveProperty('germanyIadsDeadUnits')
+  })
 })
 
 describe('applyMissionStateUpdate Germany SAM losses', () => {
-  const foundSite = findGermanyIadsSite('BSAM-HAWK-1')
+  const foundSite = findAuthoredIadsSite('BSAM-HAWK-1')
   if (!foundSite) throw new Error('BSAM-HAWK-1 is missing from the Germany IADS network')
   const site = foundSite
 
@@ -954,8 +963,8 @@ describe('applyMissionStateUpdate Germany SAM losses', () => {
       })
     )
 
-    expect(updated.germanyIadsDeadUnits?.[site.id]).toEqual(site.units.map((unit) => unit.name))
-    expect(updated.germanyIadsDeadUnits?.['BSAM-HAWK-10']).toBeUndefined()
+    expect(updated.iadsDeadUnits?.[site.id]).toEqual(site.units.map((unit) => unit.name))
+    expect(updated.iadsDeadUnits?.['BSAM-HAWK-10']).toBeUndefined()
     expect(updated.logs.map((entry) => entry.message)).toContain(`SAM ${site.id} destroyed`)
   })
 
@@ -978,7 +987,7 @@ describe('applyMissionStateUpdate Germany SAM losses', () => {
       })
     )
 
-    expect(updated.germanyIadsDeadUnits?.[site.id]).toEqual([killed.name])
+    expect(updated.iadsDeadUnits?.[site.id]).toEqual([killed.name])
     expect(updated.logs).toHaveLength(0)
   })
 
@@ -1005,14 +1014,14 @@ describe('applyMissionStateUpdate Germany SAM losses', () => {
       })
     )
 
-    expect(updated.germanyIadsDeadUnits?.['EWR-1']).toEqual(['EWR-1-1'])
+    expect(updated.iadsDeadUnits?.['EWR-1']).toEqual(['EWR-1-1'])
     expect(updated.logs.map((entry) => entry.message)).toContain('EWR EWR-1 destroyed')
   })
 
   test('does not delete a SAM that was never in the mission', () => {
     const updated = applyMissionStateUpdate(fuldaCampaign(), createMissionState({}))
 
-    expect(updated.germanyIadsDeadUnits).toBeUndefined()
+    expect(updated.iadsDeadUnits).toBeUndefined()
   })
 
   test('ignores Germany SAM names outside the Germany campaign', () => {
@@ -1023,6 +1032,6 @@ describe('applyMissionStateUpdate Germany SAM losses', () => {
       })
     )
 
-    expect(updated.germanyIadsDeadUnits).toBeUndefined()
+    expect(updated.iadsDeadUnits).toBeUndefined()
   })
 })

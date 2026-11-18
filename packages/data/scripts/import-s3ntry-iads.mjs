@@ -219,9 +219,9 @@ const body = sites
   })
   .join(',\n')
 
-const output = `import type { GermanyIadsSite } from './iads'
+const output = `import type { AuthoredIadsSite } from '../../iads/types'
 
-function site(value: GermanyIadsSite) {
+function site(value: AuthoredIadsSite) {
   return value
 }
 

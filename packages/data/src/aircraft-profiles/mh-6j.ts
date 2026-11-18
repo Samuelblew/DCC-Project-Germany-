@@ -11,15 +11,8 @@ export const MH6J_STORES = {
   SMOKE_BLUE: '{AH6_SMOKE_BLUE}'
 } as const
 
-const {
-  DOORGUNNER,
-  AUX_FUEL,
-  DOORS,
-  SMOKE_YELLOW,
-  SMOKE_RED,
-  SMOKE_GREEN,
-  SMOKE_BLUE
-} = MH6J_STORES
+const { DOORGUNNER, AUX_FUEL, DOORS, SMOKE_YELLOW, SMOKE_RED, SMOKE_GREEN, SMOKE_BLUE } =
+  MH6J_STORES
 
 function stations(
   id: string,
@@ -114,17 +107,12 @@ export const mh6jProfile: AircraftProfile = {
     { num: 12, label: 'R-OB' }
   ],
   loadouts: [
-    stations(
-      'csar-doorgunners',
-      '2x Doorgunners, Aux Fuel, Green Smoke',
-      ['CSAR', 'Transport'],
-      {
-        3: AUX_FUEL,
-        7: SMOKE_GREEN,
-        10: DOORGUNNER,
-        11: DOORGUNNER
-      }
-    ),
+    stations('csar-doorgunners', '2x Doorgunners, Aux Fuel, Green Smoke', ['CSAR', 'Transport'], {
+      3: AUX_FUEL,
+      7: SMOKE_GREEN,
+      10: DOORGUNNER,
+      11: DOORGUNNER
+    }),
     stations(
       'air-assault-planks',
       'Troop Planks, 4x Smoke Grenades',
@@ -136,16 +124,11 @@ export const mh6jProfile: AircraftProfile = {
         8: SMOKE_BLUE
       }
     ),
-    stations(
-      'transport-long-range',
-      'Aux Fuel, Cabin Doors',
-      ['Transport'],
-      {
-        1: DOORS,
-        2: DOORS,
-        3: AUX_FUEL
-      }
-    ),
+    stations('transport-long-range', 'Aux Fuel, Cabin Doors', ['Transport'], {
+      1: DOORS,
+      2: DOORS,
+      3: AUX_FUEL
+    }),
     stations(
       'heavy-escort-doorgunners',
       '4x Doorgunners, Aux Fuel',

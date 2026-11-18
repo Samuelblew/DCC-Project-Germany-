@@ -177,7 +177,7 @@ describe('applyLiveSortie', () => {
       })
     )
 
-    expect(updated.germanyIadsDeadUnits?.['EWR-1']).toEqual(['EWR-1-1'])
+    expect(updated.iadsDeadUnits?.['EWR-1']).toEqual(['EWR-1-1'])
     expect(updated.timeMultiplier).toBe(0)
   })
 

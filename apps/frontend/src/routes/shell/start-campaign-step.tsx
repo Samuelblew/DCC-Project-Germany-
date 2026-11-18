@@ -288,7 +288,7 @@ export function CampaignStep({
                     isEscalation && isSelected && 'sm:col-span-2',
                     'bg-synthwave-dark/78 shadow-[0_18px_45px_rgba(0,0,0,0.22)] backdrop-blur',
                     isSelected
-                      ? 'border-synthwave-pink text-white shadow-[0_0_32px_rgba(217,68,58,0.24)]'
+                      ? 'border-synthwave-pink text-white shadow-[0_0_32px_color-mix(in_srgb,var(--synthwave-pink)_24%,transparent)]'
                       : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan hover:bg-synthwave-purple/10'
                   )}
                 >
@@ -405,8 +405,8 @@ export function CampaignStep({
                           'bg-synthwave-dark/78 backdrop-blur',
                           isSelected
                             ? isActive
-                              ? 'border-synthwave-pink text-white shadow-[inset_3px_0_0_var(--synthwave-pink),0_0_24px_rgba(217,68,58,0.2)]'
-                              : 'border-synthwave-cyan/80 bg-synthwave-cyan/[0.06] text-white shadow-[inset_3px_0_0_var(--synthwave-cyan),0_0_20px_rgba(232,183,48,0.12)]'
+                              ? 'border-synthwave-pink text-white shadow-[inset_3px_0_0_var(--synthwave-pink),0_0_24px_color-mix(in_srgb,var(--synthwave-pink)_20%,transparent)]'
+                              : 'border-synthwave-cyan/80 bg-synthwave-cyan/[0.06] text-white shadow-[inset_3px_0_0_var(--synthwave-cyan),0_0_20px_color-mix(in_srgb,var(--synthwave-cyan)_12%,transparent)]'
                             : 'border-synthwave-purple/45 text-synthwave-light hover:border-synthwave-cyan hover:bg-synthwave-purple/10',
                           isConflict && !isSelected && 'opacity-45'
                         )}

@@ -4,13 +4,13 @@ import { useMemo } from 'react'
 import * as z from 'zod'
 import { schemas } from '@dcc/contracts'
 import {
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  getGermanyIadsSites,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
+  getAuthoredIadsSites,
   getSamSitePosition,
-  isGermanyIadsSamDestroyed,
-  isGermanyIadsTheatre,
-  livingGermanyIadsSite,
+  isAuthoredIadsSamDestroyed,
+  hasAuthoredIads,
+  livingAuthoredIadsSite,
   isSamOperational,
   samTemplates
 } from '@dcc/data'
@@ -75,10 +75,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       ? (state.context.escalation.stage ?? state.context.era)
       : state.context.era
   )
-  const germanyIadsDeadUnits = useSelector(
-    activeStore,
-    (state) => state.context.germanyIadsDeadUnits
-  )
+  const iadsDeadUnits = useSelector(activeStore, (state) => state.context.iadsDeadUnits)
   const campaign = useSelector(activeStore, (state) => state.context)
 
   return useMemo(() => {
@@ -424,7 +421,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     addStructureMarkers(opponentCoalition.structures ?? [], 'opponent')
     addGroundGroupMarkers(playerCoalition.groundGroups ?? [], 'player')
     addGroundGroupMarkers(seen(opponentCoalition.groundGroups ?? []), 'opponent')
-    if (!isGermanyIadsTheatre(theatre.name)) {
+    if (!hasAuthoredIads(theatre.name)) {
       addSamMarkers(playerCoalition.samGroups ?? [], 'player')
       addSamMarkers(opponentCoalition.samGroups ?? [], 'opponent')
     }
@@ -433,19 +430,19 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
       ...createEwrMapItems(opponentCoalition.ewrGroups ?? [], 'opponent', theatre.name),
       ...createGciMapItems(campaign, theatre)
     )
-    if (isGermanyIadsTheatre(theatre.name)) {
-      const iadsOwners = germanyIadsOwnersFromObjectives(
+    if (hasAuthoredIads(theatre.name)) {
+      const iadsOwners = iadsOwnersFromObjectives(
         theatre.objectives,
         playerCoalition.objectiveIds ?? [],
         opponentCoalition.objectiveIds ?? []
       )
-      for (const site of getGermanyIadsSites(campaignEra)) {
+      for (const site of getAuthoredIadsSites(theatre.name, campaignEra)) {
         if (site.kind === 'support' || site.kind === 'airbase') continue
         const position = tryDcsPositionToLngLat(theatre.name, site.x, site.y)
         if (!position) continue
-        const coalition = germanyIadsControllingCoalition(site, iadsOwners)
+        const coalition = iadsControllingCoalition(site, iadsOwners)
         if (site.kind === 'sam' || site.kind === 'aaa') {
-          if (isGermanyIadsSamDestroyed(site, germanyIadsDeadUnits)) continue
+          if (isAuthoredIadsSamDestroyed(site, iadsDeadUnits)) continue
           mapItems.push({
             id: site.id,
             type: 'SAM',
@@ -459,7 +456,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
           continue
         }
         if (site.kind === 'ewr') {
-          if (!livingGermanyIadsSite(site, germanyIadsDeadUnits)) continue
+          if (!livingAuthoredIadsSite(site, iadsDeadUnits)) continue
           mapItems.push({
             id: site.id,
             type: 'EWR',
@@ -634,7 +631,7 @@ export function useMapItems(options: { showGoalMarkers?: boolean } = {}): {
     theatre,
     campaignTime,
     campaignEra,
-    germanyIadsDeadUnits,
+    iadsDeadUnits,
     options.showGoalMarkers,
     campaign
   ])
