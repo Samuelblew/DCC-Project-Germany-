@@ -69,7 +69,7 @@ export function SelectFlightDialog({ open, onOpenChange }: SelectFlightDialogPro
       }}
     >
       <DialogContent
-        className="flex max-h-[min(90vh,640px)] flex-col overflow-hidden overflow-y-hidden border-synthwave-pink/30 bg-synthwave-dark/95 text-synthwave-light shadow-[0_0_30px_rgba(217,68,58,0.4)] backdrop-blur-xl sm:max-w-md"
+        className="flex max-h-[min(90vh,640px)] flex-col overflow-hidden overflow-y-hidden border-synthwave-pink/30 bg-synthwave-dark/95 text-synthwave-light shadow-[0_0_30px_color-mix(in_srgb,var(--synthwave-pink)_40%,transparent)] backdrop-blur-xl sm:max-w-md"
         showCloseButton={false}
       >
         <DialogHeader>

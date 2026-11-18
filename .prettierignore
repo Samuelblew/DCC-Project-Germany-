@@ -5,3 +5,4 @@ LICENSE.md
 tsconfig.json
 tsconfig.*.json
 packages/data/src/theatres/germany-cold-war/iads-network.ts
+packages/data/src/theatres/caucasus-cold-war/iads-network.ts

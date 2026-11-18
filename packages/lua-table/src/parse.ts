@@ -125,20 +125,32 @@ class Parser {
     return errMsg.invalid(this.currentChar(), this.pos, this.getLinePos(), surround)
   }
 
+  /**
+   * Every failed `try*` builds its message, so this runs once per attempt. Scanning from the start
+   * each time made a 1 MB mission file take minutes; the newline index is built once instead.
+   */
   getLinePos() {
-    let line = 1
-    let col = 0
-    let i = 0
-    while (i < this.pos) {
-      if (this.input.charAt(i) === '\n') {
-        line++
-        col = 1
-      } else {
-        col++
-      }
-      i++
+    this.newlines ??= this.indexNewlines()
+    let low = 0
+    let high = this.newlines.length
+    while (low < high) {
+      const mid = (low + high) >>> 1
+      if (this.newlines[mid]! < this.pos) low = mid + 1
+      else high = mid
     }
+    const line = low + 1
+    const col = low === 0 ? this.pos : this.pos - this.newlines[low - 1]!
     return { line, col }
+  }
+
+  private newlines: number[] | undefined
+
+  private indexNewlines() {
+    const newlines: number[] = []
+    for (let i = this.input.indexOf('\n'); i !== -1; i = this.input.indexOf('\n', i + 1)) {
+      newlines.push(i)
+    }
+    return newlines
   }
 
   tryValue(): Result<unknown, Error> {

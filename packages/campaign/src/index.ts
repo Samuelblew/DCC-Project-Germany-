@@ -1,6 +1,6 @@
 export * from './carrier-operations'
 export * from './falklands-campaign'
-export * from './ground-deployment'
 export * from './gps-availability'
+export * from './ground-deployment'
 export * from './iads-network'
 export * from './objective-graph'

@@ -44,6 +44,9 @@
   --color-synthwave-purple: var(--synthwave-purple);
   --color-synthwave-cyan: var(--synthwave-cyan);
   --color-synthwave-light: var(--synthwave-light);
+  --color-signal-soft: var(--signal-soft);
+  --color-highlight-bright: var(--highlight-bright);
+  --color-panel: var(--panel);
   --color-enemy-red: var(--enemy-red);
   --color-friendly-blue: var(--friendly-blue);
 }
@@ -81,13 +84,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  /* Black-red-gold palette. Token names are kept from the original synthwave theme:
-     pink = signal red, purple = bronze, cyan = gold, light = parchment. */
+  /* Default (Germany) palette: black, red and gold. Campaigns swap these at runtime from
+     src/lib/theme.ts (Caucasus Ridge: glacier and apricot). Token names are kept from the
+     original synthwave theme: pink = signal, purple = metal, cyan = highlight, light = text. */
   --synthwave-dark: #0f0e0d;
   --synthwave-pink: #d9443a;
   --synthwave-purple: #9c6a33;
   --synthwave-cyan: #e8b730;
   --synthwave-light: #ede6d6;
+  --signal-soft: #ef7f70;
+  --highlight-bright: #f5d020;
+  --panel: #161412;
   --enemy-red: #ff4d4f;
   --friendly-blue: #3d9df0;
 }
@@ -129,6 +136,9 @@
   --synthwave-purple: #9c6a33;
   --synthwave-cyan: #e8b730;
   --synthwave-light: #ede6d6;
+  --signal-soft: #ef7f70;
+  --highlight-bright: #f5d020;
+  --panel: #161412;
   --enemy-red: #ff4d4f;
   --friendly-blue: #3d9df0;
 }
@@ -285,7 +295,7 @@
   background:
     url('./textures/graphite-panel.png'), url('./textures/synthwave-noise-glow.png'),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 38%),
-    radial-gradient(circle at 18% 0%, rgba(217, 68, 58, 0.08), transparent 36%),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--synthwave-pink) 8%, transparent), transparent 36%),
     color-mix(in srgb, var(--synthwave-dark) 72%, black);
   background-size:
     100% 100%,
@@ -326,8 +336,8 @@
   border: 1px solid color-mix(in srgb, var(--synthwave-pink) 16%, transparent);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 44%),
-    radial-gradient(circle at 18% 0%, rgba(217, 68, 58, 0.13), transparent 34%),
-    radial-gradient(circle at 82% 100%, rgba(232, 183, 48, 0.06), transparent 38%),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--synthwave-pink) 13%, transparent), transparent 34%),
+    radial-gradient(circle at 82% 100%, color-mix(in srgb, var(--synthwave-cyan) 6%, transparent), transparent 38%),
     color-mix(in srgb, var(--synthwave-dark) 76%, black);
   background-size: auto, auto, auto, auto;
   background-blend-mode: normal, screen, screen, normal;
@@ -356,8 +366,8 @@
   background:
     radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.08) 0 1px, transparent 1.5px),
     radial-gradient(circle at 64% 42%, rgba(255, 255, 255, 0.055) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 34% 76%, rgba(217, 68, 58, 0.06) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 88% 24%, rgba(232, 183, 48, 0.045) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 34% 76%, color-mix(in srgb, var(--synthwave-pink) 6%, transparent) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 88% 24%, color-mix(in srgb, var(--synthwave-cyan) 4.5%, transparent) 0 1px, transparent 1.6px),
     repeating-linear-gradient(
       105deg,
       rgba(255, 255, 255, 0.026) 0,
@@ -397,8 +407,8 @@
       transparent 1px,
       transparent 5px
     ),
-    radial-gradient(circle at 20% 18%, rgba(217, 68, 58, 0.1), transparent 28%),
-    radial-gradient(circle at 88% 82%, rgba(232, 183, 48, 0.055), transparent 30%);
+    radial-gradient(circle at 20% 18%, color-mix(in srgb, var(--synthwave-pink) 10%, transparent), transparent 28%),
+    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--synthwave-cyan) 5.5%, transparent), transparent 30%);
   mix-blend-mode: screen;
   opacity: 0.42;
 }
@@ -453,7 +463,7 @@
     color-mix(in srgb, var(--synthwave-dark) 70%, var(--synthwave-pink));
   box-shadow:
     inset 0 2px 8px rgba(0, 0, 0, 0.45),
-    inset 0 0 18px rgba(217, 68, 58, 0.12),
+    inset 0 0 18px color-mix(in srgb, var(--synthwave-pink) 12%, transparent),
     0 2px 8px rgba(0, 0, 0, 0.24);
 }
 
@@ -498,7 +508,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.13),
     inset 0 -2px 0 rgba(0, 0, 0, 0.34),
-    0 0 18px rgba(232, 183, 48, 0.14),
+    0 0 18px color-mix(in srgb, var(--synthwave-cyan) 14%, transparent),
     0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
@@ -511,11 +521,11 @@
       rgba(255, 255, 255, 0.035) 44%,
       rgba(0, 0, 0, 0.18)
     ),
-    linear-gradient(135deg, rgba(217, 68, 58, 0.78), rgba(156, 106, 51, 0.44));
+    linear-gradient(135deg, color-mix(in srgb, var(--synthwave-pink) 78%, transparent), color-mix(in srgb, var(--synthwave-purple) 44%, transparent));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 -2px 0 rgba(0, 0, 0, 0.34),
-    0 0 22px rgba(217, 68, 58, 0.22),
+    0 0 22px color-mix(in srgb, var(--synthwave-pink) 22%, transparent),
     0 9px 20px rgba(0, 0, 0, 0.32);
   color: white;
 }
@@ -529,7 +539,7 @@
       rgba(255, 255, 255, 0.05) 44%,
       rgba(0, 0, 0, 0.14)
     ),
-    linear-gradient(135deg, rgba(217, 68, 58, 0.9), rgba(232, 183, 48, 0.28));
+    linear-gradient(135deg, color-mix(in srgb, var(--synthwave-pink) 90%, transparent), color-mix(in srgb, var(--synthwave-cyan) 28%, transparent));
   color: white;
 }
 
@@ -537,8 +547,8 @@
   border-color: color-mix(in srgb, var(--synthwave-cyan) 72%, var(--synthwave-pink));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 0 18px rgba(232, 183, 48, 0.2),
-    0 0 24px rgba(232, 183, 48, 0.28),
+    inset 0 0 18px color-mix(in srgb, var(--synthwave-cyan) 20%, transparent),
+    0 0 24px color-mix(in srgb, var(--synthwave-cyan) 28%, transparent),
     0 9px 20px rgba(0, 0, 0, 0.32);
 }
 
@@ -553,9 +563,9 @@
     linear-gradient(
       90deg,
       transparent 0%,
-      rgba(232, 183, 48, 0.14) 42%,
+      color-mix(in srgb, var(--synthwave-cyan) 14%, transparent) 42%,
       rgba(255, 255, 255, 0.22) 50%,
-      rgba(232, 183, 48, 0.12) 58%,
+      color-mix(in srgb, var(--synthwave-cyan) 12%, transparent) 58%,
       transparent 100%
     ),
     repeating-linear-gradient(
@@ -601,7 +611,7 @@
   background:
     url('./textures/smoked-map-glass.png'),
     linear-gradient(rgba(255, 255, 255, 0.035) 50%, rgba(0, 0, 0, 0.015) 50%),
-    radial-gradient(circle at 65% 20%, rgba(217, 68, 58, 0.08), transparent 32%);
+    radial-gradient(circle at 65% 20%, color-mix(in srgb, var(--synthwave-pink) 8%, transparent), transparent 32%);
   background-size:
     100% 100%,
     100% 4px,

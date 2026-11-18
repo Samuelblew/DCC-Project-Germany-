@@ -453,6 +453,8 @@ export const campaign = z.preprocess(
       timeMultiplier?: unknown
       logs?: unknown[]
       coalitions?: Record<string, unknown>
+      germanyIadsDeadUnits?: unknown
+      iadsDeadUnits?: unknown
     }
     const lastCampaignLog = Array.isArray(rawCampaign.logs)
       ? [...rawCampaign.logs]
@@ -477,9 +479,12 @@ export const campaign = z.preprocess(
           ])
         )
       : rawCampaign.coalitions
+    // Saves before the Caucasus template kept authored IADS losses under the Germany-only name.
+    const { germanyIadsDeadUnits: legacyIadsDeadUnits, ...currentCampaign } = rawCampaign
 
     return {
-      ...rawCampaign,
+      ...currentCampaign,
+      iadsDeadUnits: rawCampaign.iadsDeadUnits ?? legacyIadsDeadUnits,
       version: '0.2.0',
       updatedAt: rawCampaign.updatedAt ?? rawCampaign.createdAt,
       status: recoverCarrierDefeat ? 'active' : rawCampaign.status,
@@ -604,7 +609,8 @@ export const campaign = z.preprocess(
       })
       .optional(),
     logs: z.array(campaignLogEntry).default([]),
-    germanyIadsDeadUnits: z.record(z.string(), z.array(z.string())).optional(),
+    /** Destroyed unit names per authored IADS site id (Sentry Germany, Caucasus 1988). */
+    iadsDeadUnits: z.record(z.string(), z.array(z.string())).optional(),
     scenarioId: z.string(),
     coalitions: z.record(coalition, campaignCoalition)
   })

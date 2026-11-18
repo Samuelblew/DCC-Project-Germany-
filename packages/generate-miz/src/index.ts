@@ -5,10 +5,10 @@ import AdmZip from 'adm-zip'
 import { err, ok, Result } from 'neverthrow'
 import * as z from 'zod'
 
+import { addAuthoredIads } from './add-authored-iads'
 import { addAwacsGroups } from './add-awacs-groups'
 import { addFlightGroups, type MissionFlightConfig } from './add-flight-groups'
 import { addPlayerGciStations } from './add-gci'
-import { addGermanyIads } from './add-germany-iads'
 import { addGroundGroups } from './add-ground-groups'
 import { addNavalGroups } from './add-naval-groups'
 import { addStructures } from './add-structures'
@@ -892,11 +892,8 @@ export async function generateMizFromCampaign(
     return err(groundGroupsResult.error)
   }
 
-  const germanyIads = addGermanyIads(mission, campaign, theatre, cullingPlan)
-  const iadsConfig = buildIadsConfig(mission, campaign, theatre)
-  if (iadsConfig && germanyIads) {
-    iadsConfig.commandCenters.push(...germanyIads.commandCenters)
-  }
+  const authoredIads = addAuthoredIads(mission, campaign, theatre, cullingPlan)
+  const iadsConfig = buildIadsConfig(mission, campaign, theatre, authoredIads ?? undefined)
   if (iadsRequested && !iadsConfig) {
     delete (mission.trig as MissionTriggerTables).actions[8]
     delete (mission.trig as MissionTriggerTables).actions[9]

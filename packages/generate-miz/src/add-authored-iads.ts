@@ -1,13 +1,14 @@
 import { schemas } from '@dcc/contracts'
 import {
+  authoredIadsSamGroupName,
+  type AuthoredIadsSite,
+  authoredSiteFieldedBy,
   campaignIadsEra,
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  germanyIadsSamGroupName,
-  type GermanyIadsSite,
-  getGermanyIadsSites,
-  isGermanyIadsTheatre,
-  livingGermanyIadsSite
+  getAuthoredIadsSites,
+  hasAuthoredIads,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
+  livingAuthoredIadsSite
 } from '@dcc/data'
 import * as z from 'zod'
 
@@ -19,19 +20,28 @@ type Mission = z.infer<typeof schemas.dcs.mission>
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Theatre = z.infer<typeof schemas.theatre>
 
-export function addGermanyIads(
+/** What the opponent's Skynet network needs from the authored sites placed in this mission. */
+export type AuthoredIadsMissionResult = {
+  commandCenters: string[]
+  /** Opponent SAM groups placed; Skynet finds them by their `SAM-` group prefix. */
+  opponentSamGroups: number
+  /** Opponent search radars keep their template unit names, so Skynet adds them by name. */
+  opponentEwrUnitNames: string[]
+}
+
+export function addAuthoredIads(
   mission: Mission,
   campaign: Campaign,
   theatre: Theatre,
   cullingPlan?: MissionCullingPlan
-): { commandCenters: string[] } | null {
-  if (!isGermanyIadsTheatre(theatre.name)) return null
+): AuthoredIadsMissionResult | null {
+  if (!hasAuthoredIads(theatre.name)) return null
 
   // SAM batteries carry their range: long-range ones use the SAM band, everything else
   // (short-range air defence, radars, command posts) the ground band.
   const liveBubble = campaign.campaignParams?.worldMode === 'bubble'
   const residentRadars = gciPictureAnchors(campaign, theatre).sites
-  const sites = getGermanyIadsSites(campaignIadsEra(campaign)).filter((site) => {
+  const sites = getAuthoredIadsSites(theatre.name, campaignIadsEra(campaign)).filter((site) => {
     // Command posts stay in the mission. A GCI van keeps its nearest search radar.
     // The rest of the radars join the live bubble.
     if (liveBubble && (site.kind === 'hq' || residentRadars.has(site.id))) return true
@@ -44,17 +54,20 @@ export function addGermanyIads(
       ) === 'full'
     )
   })
-  const owners = germanyIadsOwnersFromObjectives(
+  const owners = iadsOwnersFromObjectives(
     theatre.objectives,
     campaign.coalitions.player.objectiveIds,
     campaign.coalitions.opponent.objectiveIds
   )
   const commandCenters: string[] = []
+  const opponentEwrUnitNames: string[] = []
+  let opponentSamGroups = 0
 
   for (const authored of sites) {
-    const site = livingGermanyIadsSite(authored, campaign.germanyIadsDeadUnits)
+    const site = livingAuthoredIadsSite(authored, campaign.iadsDeadUnits)
     if (!site) continue
-    const coalition = germanyIadsControllingCoalition(site, owners)
+    const coalition = iadsControllingCoalition(site, owners)
+    if (!authoredSiteFieldedBy(site, coalition)) continue
     const controlled = coalition === site.coalition ? site : { ...site, coalition }
     const country = countryFor(mission, controlled.coalition)
     if (!country) continue
@@ -71,12 +84,17 @@ export function addGermanyIads(
       controlled,
       resolveAiSkill(campaign, controlled.coalition, 'High')
     )
+    if (controlled.coalition !== 'opponent') continue
+    if (controlled.kind === 'sam') opponentSamGroups += 1
+    if (controlled.kind === 'ewr') {
+      opponentEwrUnitNames.push(...controlled.units.map((unit) => unit.name))
+    }
   }
 
-  return { commandCenters }
+  return { commandCenters, opponentSamGroups, opponentEwrUnitNames }
 }
 
-function countryFor(mission: Mission, coalition: GermanyIadsSite['coalition']) {
+function countryFor(mission: Mission, coalition: AuthoredIadsSite['coalition']) {
   const key = coalition === 'player' ? 'blue' : 'red'
   return mission.coalition[key].country?.[0]
 }
@@ -89,7 +107,7 @@ function nextId(mission: Mission) {
 function addVehicleSite(
   mission: Mission,
   country: NonNullable<ReturnType<typeof countryFor>>,
-  site: GermanyIadsSite,
+  site: AuthoredIadsSite,
   skill: string
 ) {
   if (!country.vehicle) country.vehicle = { group: [] }
@@ -98,7 +116,7 @@ function addVehicleSite(
     site.kind === 'ewr' && site.coalition === 'opponent'
       ? `IADS-EWR-${site.id}`
       : site.kind === 'sam'
-        ? germanyIadsSamGroupName(site, site.coalition)
+        ? authoredIadsSamGroupName(site, site.coalition)
         : site.id
   const units = site.units.map((unit, index) => ({
     unitId: nextId(mission),
@@ -143,7 +161,7 @@ function addVehicleSite(
 function addStaticSite(
   mission: Mission,
   country: NonNullable<ReturnType<typeof countryFor>>,
-  site: GermanyIadsSite
+  site: AuthoredIadsSite
 ) {
   if (!country.static) country.static = { group: [] }
   const units = site.units.map((unit, index) => ({

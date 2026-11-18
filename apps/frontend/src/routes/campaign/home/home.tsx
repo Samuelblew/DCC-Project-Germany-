@@ -427,7 +427,7 @@ export function Home() {
                   Goal reached
                 </span>
               ) : campaignStatus === 'lost' ? (
-                <span className="retro-font text-xs uppercase tracking-wide text-[#ef7f70]">
+                <span className="retro-font text-xs uppercase tracking-wide text-signal-soft">
                   Campaign lost
                 </span>
               ) : campaignStatus === 'stalemate' ? (

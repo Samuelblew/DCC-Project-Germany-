@@ -43,3 +43,21 @@ describe('tryLngLatToDcsPosition', () => {
     expect(Math.abs((back?.y ?? 0) - 647_000)).toBeLessThan(50)
   })
 })
+
+describe('Caucasus terrain projection', () => {
+  // Beacons from Mods/terrains/Caucasus/Beacons.lua: Batumi, and one near Rostov past 46°N.
+  const beacons = [
+    { x: -356584.8125, z: 618472.4375, lat: 41.601731, lng: 41.612203 },
+    { x: 251346.78125, z: 341832.1875, lat: 47.249909, lng: 38.833317 }
+  ]
+
+  test.each(['Caucasus', 'Cold War Caucasus'])('%s matches the DCS beacons both ways', (name) => {
+    for (const beacon of beacons) {
+      const lngLat = tryDcsPositionToLngLat(name, beacon.x, beacon.z)
+      expect(lngLat?.lat).toBeCloseTo(beacon.lat, 5)
+      expect(lngLat?.lng).toBeCloseTo(beacon.lng, 5)
+      const back = tryLngLatToDcsPosition(name, beacon.lng, beacon.lat)
+      expect(Math.hypot(back!.x - beacon.x, back!.y - beacon.z)).toBeLessThan(1)
+    }
+  })
+})

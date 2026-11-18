@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { campaignIadsEra, getGermanyIadsSites } from '@dcc/data'
+import { campaignIadsEra, GERMANY_IADS_THEATRE, getAuthoredIadsSites } from '@dcc/data'
 
 describe('Germany IADS escalation ladder', () => {
   test('Korea fields S-60 AAA on the SA-2 and Hawk hills', () => {
-    const sites = getGermanyIadsSites('Korea')
+    const sites = getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Korea')
     const sa2 = sites.find((site) => site.id === 'SAM-SA2-1')
     const hawk = sites.find((site) => site.id === 'BSAM-HAWK-1')
     const patriot = sites.find((site) => site.id === 'BSAM-PATRIOT-1')
@@ -17,7 +17,7 @@ describe('Germany IADS escalation ladder', () => {
   })
 
   test('Vietnam restores Hawk and SA-2 batteries and period search radars', () => {
-    const sites = getGermanyIadsSites('Vietnam')
+    const sites = getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Vietnam')
     const sa2 = sites.find((site) => site.id === 'SAM-SA2-1')
     const hawk = sites.find((site) => site.id === 'BSAM-HAWK-1')
     const ewr = sites.find((site) => site.id === 'EWR-1')
@@ -31,7 +31,7 @@ describe('Germany IADS escalation ladder', () => {
   })
 
   test('Modern puts S-300 on the SA-2 hills and keeps the SA-6 belt', () => {
-    const sites = getGermanyIadsSites('Modern')
+    const sites = getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Modern')
     const sa2 = sites.find((site) => site.id === 'SAM-SA2-1')
     expect(sa2?.campaignType).toBe('SA-10-300')
     expect(sa2?.units.some((unit) => unit.type.startsWith('S-300PS'))).toBe(true)
@@ -42,15 +42,17 @@ describe('Germany IADS escalation ladder', () => {
   })
 
   test('does not stack cloned airbase aircraft on the same parking spot', () => {
-    const vietnam = getGermanyIadsSites('Vietnam')
-    const lateCw = getGermanyIadsSites('Late CW')
+    const vietnam = getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Vietnam')
+    const lateCw = getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Late CW')
 
     expect(vietnam.some((site) => site.units[0]?.type === 'Mi-8MT')).toBe(true)
-    expect(getGermanyIadsSites('Korea').some((site) => site.units[0]?.type === 'Mi-8MT')).toBe(
-      false
-    )
+    expect(
+      getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Korea').some(
+        (site) => site.units[0]?.type === 'Mi-8MT'
+      )
+    ).toBe(false)
 
-    for (const sites of [vietnam, lateCw, getGermanyIadsSites('Modern')]) {
+    for (const sites of [vietnam, lateCw, getAuthoredIadsSites(GERMANY_IADS_THEATRE, 'Modern')]) {
       const parking = sites
         .filter((site) => site.kind === 'airbase')
         .map((site) => {
@@ -70,6 +72,8 @@ describe('Germany IADS escalation ladder', () => {
       escalation: { enabled: true, stage: 'Korea' }
     })
     expect(era).toBe('Korea')
-    expect(getGermanyIadsSites(era).find((site) => site.id === 'BSAM-PATRIOT-1')).toBeUndefined()
+    expect(
+      getAuthoredIadsSites(GERMANY_IADS_THEATRE, era).find((site) => site.id === 'BSAM-PATRIOT-1')
+    ).toBeUndefined()
   })
 })

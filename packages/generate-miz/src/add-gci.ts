@@ -4,9 +4,9 @@ import {
   FULCRUM_AIRCRAFT_NAME,
   GCI_CHANNEL,
   GCI_RANGE_METERS,
-  getGermanyIadsSites,
-  isGermanyIadsTheatre,
-  livingGermanyIadsSite,
+  getAuthoredIadsSites,
+  hasAuthoredIads,
+  livingAuthoredIadsSite,
   planCampaignGciStations,
   type PlannedGciStation
 } from '@dcc/data'
@@ -75,15 +75,15 @@ export function gciPictureAnchors(campaign: Campaign, theatre: Theatre) {
     ...(campaignHasFulcrumClient(campaign) ? planned.player : []),
     ...planned.opponent
   ]
-  const germanySites = isGermanyIadsTheatre(theatre.name)
-    ? getGermanyIadsSites(campaignIadsEra(campaign)).filter(
-        (site) => site.kind === 'ewr' && livingGermanyIadsSite(site, campaign.germanyIadsDeadUnits)
+  const authoredEwrSites = hasAuthoredIads(theatre.name)
+    ? getAuthoredIadsSites(theatre.name, campaignIadsEra(campaign)).filter(
+        (site) => site.kind === 'ewr' && livingAuthoredIadsSite(site, campaign.iadsDeadUnits)
       )
     : []
 
   for (const station of stations) {
     let bestSite: { id: string; distance: number } | undefined
-    for (const site of germanySites) {
+    for (const site of authoredEwrSites) {
       if (site.coalition !== station.coalition) continue
       if (!site.units.some((unit) => usefulGciRadar(unit.type))) continue
       const distance = Math.hypot(site.x - station.position.x, site.y - station.position.y)

@@ -143,7 +143,7 @@ function DebriefViewToggle({
           className={cn(
             'flex h-8 items-center gap-2 rounded px-3 text-xs font-semibold uppercase tracking-[0.12em] transition-colors',
             view === option
-              ? 'bg-[#e8b730]/15 text-[#e8b730] ring-1 ring-[#e8b730]/35'
+              ? 'bg-synthwave-cyan/15 text-synthwave-cyan ring-1 ring-synthwave-cyan/35'
               : 'text-white/45 hover:bg-white/5 hover:text-white/75'
           )}
           onClick={() => onViewChange(option)}
@@ -450,16 +450,16 @@ export function MissionDebriefScreen({
   ]
 
   return (
-    <div className="h-full overflow-hidden bg-[#0f0e0d] text-white">
+    <div className="h-full overflow-hidden bg-synthwave-dark text-white">
       <div
         className="fixed inset-0"
         style={{
           backgroundImage:
-            'linear-gradient(to right, rgba(232,183,48,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,51,102,0.08) 1px, transparent 1px)',
+            'linear-gradient(to right, color-mix(in srgb, var(--synthwave-cyan) 8%, transparent) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,51,102,0.08) 1px, transparent 1px)',
           backgroundSize: '44px 44px'
         }}
       />
-      <div className="fixed inset-x-0 bottom-0 h-[34vh] bg-gradient-to-t from-[#e8b730]/20 via-[#ff3366]/10 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-[34vh] bg-gradient-to-t from-synthwave-cyan/20 via-[#ff3366]/10 to-transparent" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col gap-5 p-6">
         <div className="flex items-start justify-between gap-4">
@@ -490,13 +490,13 @@ export function MissionDebriefScreen({
 
         {view === 'table' ? (
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
-            <section className="flex min-h-[320px] flex-col rounded-lg border border-[#d9443a]/35 bg-black/35 p-4 backdrop-blur-sm">
+            <section className="flex min-h-[320px] flex-col rounded-lg border border-synthwave-pink/35 bg-black/35 p-4 backdrop-blur-sm">
               <div className="mb-4 flex items-center gap-2">
-                <Plane className="h-5 w-5 text-[#d9443a]" />
+                <Plane className="h-5 w-5 text-synthwave-pink" />
                 <span className="text-sm font-semibold uppercase tracking-[0.18em]">
                   Client Flights
                 </span>
-                <span className="ml-auto text-2xl font-black tabular-nums text-[#d9443a]">
+                <span className="ml-auto text-2xl font-black tabular-nums text-synthwave-pink">
                   {clientFlightGroups.length}
                 </span>
               </div>
@@ -521,8 +521,8 @@ export function MissionDebriefScreen({
                   ))
                 )}
                 {debrief.ratings && debrief.ratings.length > 0 ? (
-                  <div className="rounded border border-[#d9443a]/30 bg-[#d9443a]/5 p-3">
-                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[#ef7f70]">
+                  <div className="rounded border border-synthwave-pink/30 bg-synthwave-pink/5 p-3">
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-signal-soft">
                       Mission rating
                     </div>
                     <ul className="space-y-1 text-sm text-white/80">

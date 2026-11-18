@@ -793,25 +793,43 @@ function findFriendlyAirfield(campaign: Campaign, theatre: Theatre, position: Po
 type MissionAmmo = NonNullable<MissionState['landedUnits'][number]['ammo']>
 
 /** Stores still on the aircraft, by weapon id, or undefined when DCS did not report ammunition. */
-function countRemainingStores(
+export function countRemainingStores(
   aircraft: CareerAircraft | undefined,
   loaded: Record<string, number>,
   ammo: MissionAmmo | undefined
 ) {
   if (!ammo || !aircraft) return undefined
-  const remaining: Record<string, number> = {}
-  for (const [weaponId, loadedCount] of Object.entries(loaded)) {
+  const loadedWeapons = Object.entries(loaded).flatMap(([weaponId, loadedCount]) => {
     const weapon = aircraft.weapons.find((entry) => entry.id === weaponId)
-    if (!weapon) continue
-    const names = new Set(weapon.ammoNames)
-    const rounds = ammo
-      .filter((entry) =>
-        [entry.typeName, entry.displayName].some(
-          (name) => name != null && names.has(normalizeAmmoName(name))
-        )
-      )
-      .reduce((sum, entry) => sum + entry.count, 0)
-    remaining[weaponId] = Math.min(loadedCount, Math.floor(rounds / weapon.roundsPerStore))
+    return weapon ? [{ weapon, loadedCount }] : []
+  })
+
+  // Stores can share an ammo name (a 2K+2L Hellfire rack next to a 4K rack, M151 in two rocket
+  // pods). DCS reports rounds per ammo type, so each round goes into one pool and is handed out
+  // once: the most specific stores first, the mixed ones from what is left.
+  const known = new Set(loadedWeapons.flatMap(({ weapon }) => weapon.ammoNames))
+  const pools = new Map<string, number>()
+  for (const entry of ammo) {
+    const name = [entry.typeName, entry.displayName]
+      .map((candidate) => (candidate == null ? undefined : normalizeAmmoName(candidate)))
+      .find((candidate) => candidate != null && known.has(candidate))
+    if (name) pools.set(name, (pools.get(name) ?? 0) + entry.count)
+  }
+
+  const remaining: Record<string, number> = {}
+  const bySpecificity = [...loadedWeapons].sort(
+    (left, right) => left.weapon.ammoNames.length - right.weapon.ammoNames.length
+  )
+  for (const { weapon, loadedCount } of bySpecificity) {
+    const available = weapon.ammoNames.reduce((sum, name) => sum + (pools.get(name) ?? 0), 0)
+    const stores = Math.min(loadedCount, Math.floor(available / weapon.roundsPerStore))
+    remaining[weapon.id] = stores
+    let owed = stores * weapon.roundsPerStore
+    for (const name of weapon.ammoNames) {
+      const taken = Math.min(owed, pools.get(name) ?? 0)
+      if (taken > 0) pools.set(name, (pools.get(name) ?? 0) - taken)
+      owed -= taken
+    }
   }
   return remaining
 }

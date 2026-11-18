@@ -77,7 +77,7 @@ export function PackageSupport({
         )
       })}
       {message ? (
-        <span className={message.ok ? 'text-synthwave-cyan' : 'text-[#ef7f70]'}>
+        <span className={message.ok ? 'text-synthwave-cyan' : 'text-signal-soft'}>
           {message.text}
         </span>
       ) : null}

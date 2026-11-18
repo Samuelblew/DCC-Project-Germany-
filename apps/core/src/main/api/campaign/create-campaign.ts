@@ -30,8 +30,9 @@ import {
   isFactionCareerAircraft,
   applyEscalationAircraftTypes,
   escalationFactionIds,
+  isColdWarFrontTheatre,
   initialOperationProfile,
-  isGermanyIadsTheatre,
+  hasAuthoredIads,
   resolveCreateCampaignEra
 } from '@dcc/data'
 import { assignGroundGroups } from './assign-ground-groups'
@@ -197,6 +198,8 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   if (theatre == null) {
     throw errors.NOT_FOUND({ data: { message: 'No theatre found', path: scenario.theatreName } })
   }
+  // Fulda Gap and Caucasus Ridge: stocked front structures and the BMS doctrine phases.
+  const coldWarFront = isColdWarFrontTheatre(theatre.name)
 
   const carrierObjectiveIds = new Set(
     Object.values(scenario.start)
@@ -309,9 +312,9 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
         position: assignment.position,
         name: assignment.name,
         resources:
-          scenario.id === 'fulda-gap' && assignment.type === 'Barrack'
+          coldWarFront && assignment.type === 'Barrack'
             ? 500
-            : scenario.id === 'fulda-gap' && assignment.type === 'Depot'
+            : coldWarFront && assignment.type === 'Depot'
               ? 1000
               : assignment.resources,
         buildings: assignment.buildings
@@ -377,7 +380,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
   const opponentObjectiveInfos = getObjectiveInfos(objectiveAssignments.opponent ?? [])
 
   // Germany fields the authored IADS network; template SAM groups would ignore the era ladder.
-  const germanyIads = isGermanyIadsTheatre(theatre.name)
+  const authoredIads = hasAuthoredIads(theatre.name)
 
   // Get SAM types from templates (first SAM type defined in groundUnitTypes.SAM)
   const playerSamType = playerTemplate.groundUnitTypes.SAM?.[0] as
@@ -389,7 +392,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
 
   // Player SAMs: cover all player objectives, no restrictions
   const playerSamAssignments =
-    !germanyIads && playerSamType
+    !authoredIads && playerSamType
       ? assignSams({
           coalitionObjectives: playerObjectiveInfos,
           samType: playerSamType
@@ -408,7 +411,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
 
   // Opponent SAMs: the Falklands scenario has a deterministic reviewed network. Other scenarios
   // retain the randomized coverage allocator and its player-objective exclusion rule.
-  const opponentSamAssignments = germanyIads
+  const opponentSamAssignments = authoredIads
     ? []
     : scenario.id === 'falklands-1982'
       ? falklandsSamAssignments.filter((assignment) =>
@@ -569,13 +572,12 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     campaignTime,
     opponentFaction
   )
-  const fuldaDoctrine =
-    scenario.id === 'fulda-gap'
-      ? {
-          groundOffensiveAt: campaignTime.getTime() + 2 * 60 * 60 * 1000,
-          strategicStrikeAt: campaignTime.getTime() + 8 * 60 * 60 * 1000
-        }
-      : {}
+  const coldWarDoctrine = coldWarFront
+    ? {
+        groundOffensiveAt: campaignTime.getTime() + 2 * 60 * 60 * 1000,
+        strategicStrikeAt: campaignTime.getTime() + 8 * 60 * 60 * 1000
+      }
+    : {}
 
   const defaultState: z.infer<typeof schemas.campaign.campaign> = {
     version: '0.2.0',
@@ -588,7 +590,7 @@ export const createCampaign = pub.campaign.createCampaign.handler(async ({ error
     playerSide,
     time: campaignTime,
     timeMultiplier: 0,
-    ...fuldaDoctrine,
+    ...coldWarDoctrine,
     campaignParams: {
       hotStart: false,
       aiWingmanSpawn: 'landOnly',

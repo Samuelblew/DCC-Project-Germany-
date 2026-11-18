@@ -1,13 +1,13 @@
 import { schemas } from '@dcc/contracts'
 import {
   campaignIadsEra,
-  germanyIadsOwnersFromObjectives,
+  iadsOwnersFromObjectives,
   getSamSitePosition,
-  isGermanyIadsTheatre,
-  livingGermanyIadsSite,
+  hasAuthoredIads,
+  livingAuthoredIadsSite,
   isSamFullyDestroyed,
   isSamOperational,
-  selectGermanyIadsBattleSites
+  selectAuthoredIadsBattleSites
 } from '@dcc/data'
 import * as z from 'zod'
 
@@ -34,20 +34,21 @@ export function getIadsEmitterTargets(
   task: 'SEAD' | 'DEAD'
 ): IadsEmitterTarget[] {
   const coalitionData = campaign.coalitions[coalition]
-  if (isGermanyIadsTheatre(theatre.name)) {
-    return selectGermanyIadsBattleSites(
+  if (hasAuthoredIads(theatre.name)) {
+    return selectAuthoredIadsBattleSites(
+      theatre.name,
       coalition,
       theatre.objectives
         .filter((objective) => objective.type === 'Airport')
         .map((objective) => objective.position),
       campaignIadsEra(campaign),
-      germanyIadsOwnersFromObjectives(
+      iadsOwnersFromObjectives(
         theatre.objectives,
         campaign.coalitions.player.objectiveIds,
         campaign.coalitions.opponent.objectiveIds
       )
     )
-      .filter((site) => livingGermanyIadsSite(site, campaign.germanyIadsDeadUnits))
+      .filter((site) => livingAuthoredIadsSite(site, campaign.iadsDeadUnits))
       .map((site) => ({
         target: {
           id: site.id,

@@ -53,7 +53,7 @@ export function AirOrderOfBattle() {
                     ? 'text-synthwave-cyan'
                     : strength >= 0.4
                       ? 'text-amber-300'
-                      : 'text-[#ef7f70]'
+                      : 'text-signal-soft'
                 )}
               >
                 {ready}/{stock.total}

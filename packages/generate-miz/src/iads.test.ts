@@ -192,6 +192,7 @@ describe('buildIadsConfig', () => {
       name: 'DCC-campaign-1-red',
       samPrefix: 'SAM-',
       ewrPrefix: 'IADS-EWR-',
+      ewrUnitNames: [],
       alwaysOnSamTypes: [],
       commandCenters: ['Static-command-Command Center-101-1'],
       powerSources: ['Static-power-Power Plant-102-1'],
@@ -237,6 +238,21 @@ describe('buildIadsConfig', () => {
 
     expect(buildIadsConfig(mission, campaign)).not.toBeNull()
     expect(mission.coalition.red.country?.[0]?.vehicle?.group).toHaveLength(0)
+  })
+
+  test('runs Skynet on an authored IADS network that has no generated SAMs or EWRs', () => {
+    const campaign = createCampaign()
+    campaign.coalitions.opponent.samGroups = []
+    campaign.coalitions.opponent.ewrGroups = []
+
+    expect(buildIadsConfig(createMission(), campaign)).toBeNull()
+    const config = buildIadsConfig(createMission(), campaign, undefined, {
+      commandCenters: ['Command Center-1-1'],
+      opponentSamGroups: 3,
+      opponentEwrUnitNames: ['EWR-CAU-1-1']
+    })
+    expect(config?.ewrUnitNames).toEqual(['EWR-CAU-1-1'])
+    expect(config?.commandCenters).toContain('Command Center-1-1')
   })
 
   test('does not emit IADS when every opponent emitter is destroyed', () => {

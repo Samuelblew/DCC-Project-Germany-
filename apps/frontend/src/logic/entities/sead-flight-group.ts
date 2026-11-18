@@ -1,6 +1,6 @@
 import { schemas, config } from '@dcc/contracts'
 import {
-  findGermanyIadsSite,
+  findAuthoredIadsSite,
   getSamSitePosition,
   isSamHardwareCapable,
   samTemplates
@@ -89,7 +89,7 @@ export class SeadFlightGroup extends FlightGroup {
     const samGroup = enemy.samGroups.find((s) => s.id === this._data.target?.id)
     const ewrGroup = enemy.ewrGroups?.find((ewr) => ewr.id === this._data.target?.id)
 
-    const site = this._data.target ? findGermanyIadsSite(this._data.target.id) : undefined
+    const site = this._data.target ? findAuthoredIadsSite(this._data.target.id) : undefined
 
     if (!samGroup && !ewrGroup && !site) {
       return

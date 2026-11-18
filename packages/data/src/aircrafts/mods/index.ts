@@ -49,7 +49,9 @@ export function filterAircraftTypesForInstalledMods<
   const next: Record<string, unknown> = {}
   for (const [task, list] of Object.entries(aircraftTypes)) {
     if (!Array.isArray(list)) continue
-    next[task] = list.filter((name) => isAircraftModInstalled(name, installedMods))
+    next[task] = (list as readonly string[]).filter((name) =>
+      isAircraftModInstalled(name, installedMods)
+    )
   }
   return next as T
 }

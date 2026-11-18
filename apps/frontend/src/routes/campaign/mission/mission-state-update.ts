@@ -9,11 +9,11 @@ import {
 import { schemas } from '@dcc/contracts'
 import {
   campaignIadsEra,
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  germanyIadsSamGroupName,
-  getGermanyIadsSites,
-  isGermanyIadsTheatre,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
+  authoredIadsSamGroupName,
+  getAuthoredIadsSites,
+  hasAuthoredIads,
   samTemplates,
   scenarios,
   theatres
@@ -78,7 +78,7 @@ function syncGermanySamLosses(
   lostUnits: MissionState['lostUnits'],
   groupPositions: MissionState['groupPositions']
 ) {
-  if (!theatre || !isGermanyIadsTheatre(theatre.name)) return
+  if (!theatre || !hasAuthoredIads(theatre.name)) return
 
   const aliveUnitNames = new Set<string>()
   for (const side of [groupPositions?.blue?.ground, groupPositions?.red?.ground]) {
@@ -89,15 +89,15 @@ function syncGermanySamLosses(
 
   const lostNames = new Set(lostUnits.map((unit) => unit.name))
   const lostGroups = new Set(lostUnits.flatMap((unit) => (unit.groupName ? [unit.groupName] : [])))
-  const deadUnits = { ...(draft.germanyIadsDeadUnits ?? {}) }
-  const owners = germanyIadsOwnersFromObjectives(
+  const deadUnits = { ...(draft.iadsDeadUnits ?? {}) }
+  const owners = iadsOwnersFromObjectives(
     theatre.objectives,
     draft.coalitions.player.objectiveIds,
     draft.coalitions.opponent.objectiveIds
   )
   let changed = false
 
-  for (const site of getGermanyIadsSites(campaignIadsEra(draft))) {
+  for (const site of getAuthoredIadsSites(theatre.name, campaignIadsEra(draft))) {
     if ((site.kind !== 'sam' && site.kind !== 'ewr') || site.units.length === 0) continue
 
     const previous = new Set(deadUnits[site.id] ?? [])
@@ -105,8 +105,8 @@ function syncGermanySamLosses(
     const living = site.units.filter((unit) => !previous.has(unit.name))
     const groupNames = [
       site.id,
-      germanyIadsSamGroupName(site, 'player'),
-      germanyIadsSamGroupName(site, 'opponent')
+      authoredIadsSamGroupName(site, 'player'),
+      authoredIadsSamGroupName(site, 'opponent')
     ]
 
     for (const unit of living) {
@@ -132,13 +132,13 @@ function syncGermanySamLosses(
     if (destroyed && !wasDestroyed) {
       logCombatAction(
         draft,
-        germanyIadsControllingCoalition(site, owners),
+        iadsControllingCoalition(site, owners),
         `${site.kind === 'ewr' ? 'EWR' : 'SAM'} ${site.id} destroyed`
       )
     }
   }
 
-  if (changed) draft.germanyIadsDeadUnits = deadUnits
+  if (changed) draft.iadsDeadUnits = deadUnits
 }
 
 /** A destroyed search radar stays dead while the sortie is still running, so the bubble catalogue stops asking for it. */

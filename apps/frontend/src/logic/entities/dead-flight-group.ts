@@ -1,5 +1,5 @@
 import { schemas, config } from '@dcc/contracts'
-import { findGermanyIadsSite, getSamSitePosition, samTemplates } from '@dcc/data'
+import { findAuthoredIadsSite, getSamSitePosition, samTemplates } from '@dcc/data'
 import * as z from 'zod'
 import { recordAirframeLoss } from '../systems/air-order-of-battle'
 import { FlightGroup } from './flight-group'
@@ -93,7 +93,7 @@ export class DeadFlightGroup extends FlightGroup {
     const samGroup = enemy.samGroups.find((s) => s.id === this._data.target?.id)
     const ewrGroup = enemy.ewrGroups?.find((ewr) => ewr.id === this._data.target?.id)
 
-    const site = this._data.target ? findGermanyIadsSite(this._data.target.id) : undefined
+    const site = this._data.target ? findAuthoredIadsSite(this._data.target.id) : undefined
 
     if (!samGroup && !ewrGroup && !site) {
       return

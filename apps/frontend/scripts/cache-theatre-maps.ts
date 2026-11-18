@@ -23,7 +23,8 @@ const fontRanges = [
 const theatreMaps = [
   {
     name: 'Caucasus',
-    bbox: '40.130612,40.747635,44.435577,44.169509',
+    // Whole DCS Caucasus terrain (Cold War Caucasus): Kerch strait to Tbilisi, Batumi to Rostov.
+    bbox: '36.4,40.7,46.0,47.6',
     outputPath: join(mapsRoot, 'caucasus', 'caucasus.pmtiles')
   },
   {

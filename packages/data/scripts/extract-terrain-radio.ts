@@ -25,8 +25,11 @@ const airdromeIds = loadAirdromeIds(
 function loadAirdromeIds(path: string) {
   const source = readFileSync(path, 'utf8')
   const ids = new Map<number, string>()
-  for (const match of source.matchAll(/\n  "([^"]+)": \{\n    "id": (\d+),/g)) {
-    ids.set(Number(match[2]), match[1]!)
+  // Generated files quote keys as JSON ("Ramstein": { "id": 1 }); hand-kept ones as TS
+  // ('Anapa-Vityazevo': { id: 12 } or Batumi: { id: 22 }).
+  const entry = /\r?\n {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z][\w-]*)): \{\r?\n {4}"?id"?: (\d+),/g
+  for (const match of source.matchAll(entry)) {
+    ids.set(Number(match[4]), (match[1] ?? match[2] ?? match[3])!)
   }
   return ids
 }

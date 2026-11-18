@@ -1,12 +1,12 @@
 import { schemas } from '@dcc/contracts'
 import * as z from 'zod'
 
+import { HMS_INVINCIBLE_UNIT_TYPE, LHA_TARAWA_UNIT_TYPE } from './carrier-operations'
 import {
   assignDeploymentSite,
   expandGroundGroupUnits,
   getDeploymentSites
 } from './ground-deployment'
-import { HMS_INVINCIBLE_UNIT_TYPE, LHA_TARAWA_UNIT_TYPE } from './carrier-operations'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Theatre = z.infer<typeof schemas.theatre>

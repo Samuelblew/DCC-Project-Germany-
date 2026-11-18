@@ -7,17 +7,18 @@ import {
 } from '@dcc/contracts'
 import {
   aircrafts,
+  authoredIadsSamGroupName,
+  authoredSiteFieldedBy,
   buildings,
   campaignIadsEra,
   factions,
-  germanyIadsControllingCoalition,
-  germanyIadsOwnersFromObjectives,
-  germanyIadsSamGroupName,
   getAircraftProfile,
-  getGermanyIadsSites,
-  isGermanyIadsTheatre,
+  getAuthoredIadsSites,
+  hasAuthoredIads,
+  iadsControllingCoalition,
+  iadsOwnersFromObjectives,
   isSamFullyDestroyed,
-  livingGermanyIadsSite,
+  livingAuthoredIadsSite,
   samTemplates
 } from '@dcc/data'
 import * as luaTable from '@dcc/lua-table'
@@ -630,7 +631,7 @@ export function buildBubbleCatalogue(
       })
     }
 
-    if (!isGermanyIadsTheatre(theatre.name)) {
+    if (!hasAuthoredIads(theatre.name)) {
       for (const sam of campaign.coalitions[coalition].samGroups) {
         if (isSamFullyDestroyed(sam)) continue
         const objective = theatre.objectives.find((candidate) => candidate.name === sam.objectiveId)
@@ -902,17 +903,18 @@ export function buildBubbleCatalogue(
     }
   }
 
-  if (isGermanyIadsTheatre(theatre.name)) {
-    const owners = germanyIadsOwnersFromObjectives(
+  if (hasAuthoredIads(theatre.name)) {
+    const owners = iadsOwnersFromObjectives(
       theatre.objectives,
       campaign.coalitions.player.objectiveIds,
       campaign.coalitions.opponent.objectiveIds
     )
-    for (const authored of getGermanyIadsSites(campaignIadsEra(campaign))) {
+    for (const authored of getAuthoredIadsSites(theatre.name, campaignIadsEra(campaign))) {
       if (authored.kind === 'hq') continue
-      const site = livingGermanyIadsSite(authored, campaign.germanyIadsDeadUnits)
+      const site = livingAuthoredIadsSite(authored, campaign.iadsDeadUnits)
       if (!site || site.units.length === 0) continue
-      const coalition = germanyIadsControllingCoalition(site, owners)
+      const coalition = iadsControllingCoalition(site, owners)
+      if (!authoredSiteFieldedBy(site, coalition)) continue
       const countryId = countryIdFor(campaign, coalition)
       if (countryId == null) continue
       const mode = cullingPlan.getSamMode(
@@ -931,7 +933,7 @@ export function buildBubbleCatalogue(
       entries.push({
         id: site.id,
         kind: parked ? 'static' : radar || site.kind === 'support' ? 'ground' : 'sam',
-        groupName: site.kind === 'sam' ? germanyIadsSamGroupName(site, coalition) : site.id,
+        groupName: site.kind === 'sam' ? authoredIadsSamGroupName(site, coalition) : site.id,
         countryId,
         x: site.x,
         y: site.y,

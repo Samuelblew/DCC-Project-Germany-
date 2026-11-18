@@ -1,7 +1,7 @@
 import { schemas } from '@dcc/contracts'
 import type * as z from 'zod'
 
-import { campaignIadsEra } from './escalation'
+import { campaignIadsEra, isColdWarFrontTheatre } from './escalation'
 
 type Campaign = z.infer<typeof schemas.campaign.campaign>
 type Coalition = z.infer<typeof schemas.coalition>
@@ -84,14 +84,14 @@ export function resolveGroundSpawnMultiplier(
 /** Hop towns the winner must hold before the ATO treats it as air-superiority. Korea/Vietnam never get there. */
 export const AIR_SUPERIORITY_GRAPH_DELTA = 6
 
-/** Cold War Germany starts on a linear front. Random variation would break the hop graph. */
+/** Cold War fronts start linear. Random variation would break the hop graph. */
 export function initialOperationProfile(params: {
   theatreName: string
   era?: string
   escalation?: boolean
 }): OperationProfile {
   const generation = params.escalation ? 'Korea' : params.era
-  if (params.theatreName === 'Cold War Germany') {
+  if (isColdWarFrontTheatre(params.theatreName)) {
     return {
       archetype: 'balanced',
       frontlineShape: 'linear',

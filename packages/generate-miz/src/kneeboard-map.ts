@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { terrainProjection, terrainTheatreName, transverseMercatorToLngLat } from '@dcc/data'
 import { LOtoLL } from '@kilcekru/dcs-coordinates'
 import { VectorTile } from '@mapbox/vector-tile'
 import Pbf from 'pbf'
@@ -102,7 +103,8 @@ export function resolveCaucasusPmtilesPath(): string | undefined {
 }
 
 function findTheatrePmtilesConfig(theatreName: string) {
-  return THEATRE_PMTILES.find((config) => config.theatreName === theatreName)
+  const terrain = terrainTheatreName(theatreName)
+  return THEATRE_PMTILES.find((config) => config.theatreName === terrain)
 }
 
 function getFrontendPmtilesRelativePath(config: (typeof THEATRE_PMTILES)[number]) {
@@ -221,8 +223,15 @@ export function dcsPositionToLngLat(x: number, z: number, theatreName: string): 
     return germanyColdWarToLngLat(x, z)
   }
 
+  const projection = terrainProjection(terrainTheatreName(theatreName))
+  if (projection) {
+    return Number.isFinite(x) && Number.isFinite(z)
+      ? transverseMercatorToLngLat(projection, x, z)
+      : undefined
+  }
+
   try {
-    return LOtoLL({ theatre: theatreName as DcsTheatre, x, z })
+    return LOtoLL({ theatre: terrainTheatreName(theatreName) as DcsTheatre, x, z })
   } catch {
     return undefined
   }

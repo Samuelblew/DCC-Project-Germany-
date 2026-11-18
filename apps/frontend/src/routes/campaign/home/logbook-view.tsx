@@ -64,7 +64,7 @@ export function LogbookView() {
         <Stat label="Ejections" value={book.ejections} />
       </div>
       {book.kills.friendly > 0 || book.deaths > 0 ? (
-        <div className="text-xs text-[#ef7f70]">
+        <div className="text-xs text-signal-soft">
           {book.kills.friendly > 0 ? `${book.kills.friendly} friendly kills` : null}
           {book.kills.friendly > 0 && book.deaths > 0 ? ' · ' : null}
           {book.deaths > 0 ? `${book.deaths} times killed in action` : null}
@@ -131,7 +131,7 @@ export function LogbookView() {
                     {sortie.kills.air}/{sortie.kills.ground}/{sortie.kills.static}/
                     {sortie.kills.naval}
                   </td>
-                  <td className={sortie.outcome === 'returned' ? '' : 'text-[#ef7f70]'}>
+                  <td className={sortie.outcome === 'returned' ? '' : 'text-signal-soft'}>
                     {OUTCOME_LABELS[sortie.outcome]}
                   </td>
                   <td className="text-right tabular-nums">

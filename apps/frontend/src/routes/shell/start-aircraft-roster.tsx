@@ -70,7 +70,7 @@ export function AircraftRoster({
     .toUpperCase()
 
   return (
-    <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-synthwave-pink/35 bg-black/30 shadow-[0_0_44px_rgba(217,68,58,0.14)] backdrop-blur">
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-synthwave-pink/35 bg-black/30 shadow-[0_0_44px_color-mix(in_srgb,var(--synthwave-pink)_14%,transparent)] backdrop-blur">
       <div className="border-b border-synthwave-purple/30 p-5">
         <div className="mb-2 flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.2em] text-synthwave-pink">
           <Plane className="h-3.5 w-3.5" />

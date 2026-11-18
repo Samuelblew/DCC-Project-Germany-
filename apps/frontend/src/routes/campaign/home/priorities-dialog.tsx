@@ -54,7 +54,7 @@ function PriorityRow({
       />
       <span
         className={
-          value === 0 ? 'w-20 text-[#ef7f70]' : value > 3 ? 'w-20 text-synthwave-cyan' : 'w-20'
+          value === 0 ? 'w-20 text-signal-soft' : value > 3 ? 'w-20 text-synthwave-cyan' : 'w-20'
         }
       >
         {LEVEL_LABELS[value]}

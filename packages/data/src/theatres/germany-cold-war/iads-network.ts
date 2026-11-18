@@ -1,6 +1,6 @@
-import type { GermanyIadsSite } from './iads'
+import type { AuthoredIadsSite } from '../../iads/types'
 
-function site(value: GermanyIadsSite) {
+function site(value: AuthoredIadsSite) {
   return value
 }
 

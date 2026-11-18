@@ -60,7 +60,9 @@ export function CareerSidebar({ onShowCoalitionFlights }: { onShowCoalitionFligh
               key={airframe.id}
               className="tactical-panel flex items-center gap-3 rounded-md px-3 py-2.5 text-sm"
             >
-              <span className="retro-font text-base text-[#f5d020]">#{airframe.tailNumber}</span>
+              <span className="retro-font text-base text-highlight-bright">
+                #{airframe.tailNumber}
+              </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-white/85">
                   <span className="mr-1.5 text-xs text-white/50">

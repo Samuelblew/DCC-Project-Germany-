@@ -8,7 +8,7 @@ import { config, resolveAirActivity, schemas } from '@dcc/contracts'
 import {
   aircrafts,
   callsigns,
-  findGermanyIadsSite,
+  findAuthoredIadsSite,
   getAircraftProfile,
   getTheatreAirdromeRadio
 } from '@dcc/data'
@@ -337,7 +337,7 @@ function resolveTargetPosition(
   )
   if (theatreTarget) return theatreTarget.position
 
-  const iadsSite = findGermanyIadsSite(flightGroup.target.id)
+  const iadsSite = findAuthoredIadsSite(flightGroup.target.id)
   if (iadsSite) return { x: iadsSite.x, y: iadsSite.y }
 
   return theatre.objectives.find((objective) => objective.name === flightGroup.target?.objectiveId)
